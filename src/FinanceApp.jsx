@@ -64,6 +64,7 @@ import {
   ChevronDown,
   PlusCircle,
   MinusCircle,
+  HelpCircle,
 } from "lucide-react";
 import {
   LineChart,
@@ -327,6 +328,30 @@ function expectedReturn(loan) {
   return Number(loan.amount) + expectedProfit(loan);
 }
 
+function compoundReturn(loan) {
+  const rate = Number(loan.interestRate) / 100;
+  const base = Number(loan.amount);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (loan.noDueDate) {
+    const termDays = loan.paymentType === "custom"
+      ? Number(loan.customDays) || 30
+      : Number(PAYMENT_TYPES[loan.paymentType]?.days) || 30;
+    const daysElapsed = Math.max(0, daysBetween(loan.startDate, today));
+    const periods = Math.floor(daysElapsed / termDays) + 1;
+    return base * Math.pow(1 + rate, periods);
+  }
+
+  if (!loan.compoundInterest || !loan.dueDate) return expectedReturn(loan);
+  const daysOverdue = daysBetween(loan.dueDate, today);
+  if (daysOverdue <= 0) return expectedReturn(loan);
+  const termDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
+  const overduePeriods = Math.floor(daysOverdue / termDays);
+  if (overduePeriods === 0) return expectedReturn(loan);
+  return base * Math.pow(1 + rate, 1 + overduePeriods);
+}
+
 function paidAmount(loan) {
   return (loan.payments || []).reduce(
     (acc, p) => acc + Number(p.amount || 0),
@@ -335,7 +360,7 @@ function paidAmount(loan) {
 }
 
 function remainingDebt(loan) {
-  return Math.max(0, expectedReturn(loan) - paidAmount(loan));
+  return Math.max(0, compoundReturn(loan) - paidAmount(loan));
 }
 
 function loanProgress(loan) {
@@ -346,6 +371,7 @@ function loanProgress(loan) {
 
 function isOverdue(loan, today = new Date()) {
   if (loan.status === "paid" || loan.status === "refinanced") return false;
+  if (loan.noDueDate) return false;
   const due = parseISO(loan.dueDate);
   if (!due) return false;
   return due.getTime() < today.setHours(0, 0, 0, 0);
@@ -1125,6 +1151,8 @@ function LoanFormSheet({ open, onClose, editingLoan }) {
       status: "active",
       notes: "",
       payments: [],
+      compoundInterest: false,
+      noDueDate: false,
     };
   }
 
@@ -1277,6 +1305,21 @@ function LoanFormSheet({ open, onClose, editingLoan }) {
           />
         </div>
 
+        {!form.noDueDate && (
+          <button
+            type="button"
+            onClick={() => updateField("compoundInterest", !form.compoundInterest)}
+            className={`self-start flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              form.compoundInterest
+                ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                : "bg-zinc-800/60 text-zinc-500 border border-zinc-700/60 hover:text-zinc-400"
+            }`}
+          >
+            <TrendingUp className="h-3 w-3" />
+            Interés compuesto al vencer
+          </button>
+        )}
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Input
             label="Inicio"
@@ -1295,7 +1338,15 @@ function LoanFormSheet({ open, onClose, editingLoan }) {
               label: v.label,
             }))}
           />
-          {form.paymentType === "custom" ? (
+          {form.noDueDate ? (
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] uppercase tracking-wider text-zinc-500">Vencimiento</span>
+              <div className="flex h-10 items-center gap-2 rounded-xl border border-zinc-700/40 bg-zinc-800/40 px-3 text-sm text-zinc-600 italic">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Sin fecha definida
+              </div>
+            </div>
+          ) : form.paymentType === "custom" ? (
             <Input
               label="Días"
               type="number"
@@ -1313,6 +1364,26 @@ function LoanFormSheet({ open, onClose, editingLoan }) {
             />
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            const next = !form.noDueDate;
+            setForm((f) => ({
+              ...f,
+              noDueDate: next,
+              dueDate: next ? "" : recalcDueDate(f.startDate, f.paymentType, f.customDays),
+            }));
+          }}
+          className={`self-start flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            form.noDueDate
+              ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+              : "bg-zinc-800/60 text-zinc-500 border border-zinc-700/60 hover:text-zinc-400"
+          }`}
+        >
+          <HelpCircle className="h-3 w-3" />
+          Fecha de pago incierta
+        </button>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Select
