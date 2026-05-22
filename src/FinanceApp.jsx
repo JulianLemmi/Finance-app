@@ -43,7 +43,6 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Sparkles,
-  Filter,
   FileText,
   RefreshCw,
   CalendarClock,
@@ -59,7 +58,6 @@ import {
   Hash,
   Tag,
   PieChart as PieChartIcon,
-  BarChart3,
   Layers,
   ChevronDown,
   PlusCircle,
@@ -403,7 +401,7 @@ const initialState = {
   history: [],
   settings: {
     currency: "$",
-    initialCapital: 0,
+    cashOnHand: 0,
     hideBalances: false,
     userName: "",
   },
@@ -554,6 +552,7 @@ function useDerived(state) {
       _remaining: remainingDebt(l),
       _profit: expectedProfit(l),
       _return: expectedReturn(l),
+      _compoundReturn: compoundReturn(l),
       _progress: loanProgress(l),
       _daysUntilDue: daysUntilDue(l),
     }));
@@ -575,6 +574,8 @@ function useDerived(state) {
       0
     );
 
+    const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);
+
     const accumulatedProfit = paidLoans.reduce(
       (a, l) => a + (l._paid - Number(l.amount)),
       0
@@ -588,12 +589,12 @@ function useDerived(state) {
 
     const collected = loansResolved.reduce((a, l) => a + l._paid, 0);
 
-    const available =
-      Number(state.settings.initialCapital || 0) +
-      collected +
-      totalIncome -
-      capitalInvested -
-      totalExpense;
+    // Total real cash deployed: exclude refinanced loans (no real cash changes hands on rollover)
+    const totalDisbursed = loansResolved
+      .filter((l) => !l.refinancedFromId)
+      .reduce((a, l) => a + Number(l.amount), 0);
+
+    const available = Number(state.settings.cashOnHand || 0);
 
     const totalCapital = available + capitalInvested;
 
@@ -618,6 +619,16 @@ function useDerived(state) {
     const expectedInflow30d = activeLoans
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30)
       .reduce((a, l) => a + l._remaining, 0);
+
+    const expectedMonthlyProfit = activeLoans
+      .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30 && l._daysUntilDue >= 0)
+      .reduce((a, l) => {
+        const profitRatio = l._return > 0 ? l._profit / l._return : 0;
+        return a + l._remaining * profitRatio;
+      }, 0);
+
+    const monthlyReturnPct =
+      totalCapital > 0 ? (expectedMonthlyProfit / totalCapital) * 100 : 0;
 
     const months = [];
     const now = new Date();
@@ -651,10 +662,23 @@ function useDerived(state) {
       });
     });
 
-    let running = Number(state.settings.initialCapital || 0);
+    // Capital per month = cash on hand (user-set) + capital deployed at end of that month.
+    // Using cashOnHand as anchor ensures the current month matches totalCapital exactly.
     months.forEach((m) => {
-      running += m.profit + m.income - m.expense;
-      m.capital = running;
+      const [yr, mo] = m.key.split("-").map(Number);
+      const cutoff = new Date(yr, mo, 0).toISOString().slice(0, 10);
+
+      const investedAtMonth = loansResolved
+        .filter((l) => {
+          if (l.startDate > cutoff) return false;
+          const paidUpTo = (l.payments || [])
+            .filter((p) => p.date <= cutoff)
+            .reduce((s, p) => s + Number(p.amount), 0);
+          return paidUpTo < expectedReturn(l);
+        })
+        .reduce((acc, l) => acc + Number(l.amount), 0);
+
+      m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
     });
 
     const expenseByCategory = Object.keys(EXPENSE_CATEGORIES)
@@ -746,6 +770,10 @@ function useDerived(state) {
       projections,
       projectionSeries,
       clientStats,
+      totalExpectedProfit,
+      totalDisbursed,
+      expectedMonthlyProfit,
+      monthlyReturnPct,
     };
   }, [state.loans, state.income, state.expenses, state.settings, state.clients]);
 }
@@ -802,13 +830,13 @@ const Button = ({
   };
   const variants = {
     primary:
-      "bg-white text-zinc-950 hover:bg-zinc-100 active:bg-zinc-200 active:scale-[0.985]",
+      "bg-white text-zinc-950 hover:bg-zinc-100 active:bg-zinc-200 active:scale-[0.985] shadow-[0_2px_12px_rgba(255,255,255,0.1)]",
     secondary:
-      "border border-zinc-800 bg-zinc-900 text-zinc-100 hover:bg-zinc-800/70 active:scale-[0.985]",
+      "border border-zinc-700/60 bg-zinc-900/80 text-zinc-100 hover:bg-zinc-800/80 hover:border-zinc-600/60 active:scale-[0.985] backdrop-blur-sm",
     ghost:
       "text-zinc-300 hover:bg-zinc-800/60 hover:text-white active:scale-[0.985]",
     bronze:
-      "bg-gradient-to-b from-amber-700 to-amber-800 text-amber-50 hover:from-amber-600 hover:to-amber-700 active:scale-[0.985] shadow-[0_1px_0_0_rgba(255,255,255,0.08)_inset]",
+      "btn-shine bg-gradient-to-b from-amber-600 to-amber-800 text-amber-50 hover:from-amber-500 hover:to-amber-700 active:scale-[0.985] shadow-[0_1px_0_0_rgba(255,255,255,0.12)_inset,0_4px_20px_rgba(180,83,9,0.45)] hover:shadow-[0_4px_28px_rgba(180,83,9,0.65)] transition-shadow",
     danger:
       "bg-rose-600/10 text-rose-400 border border-rose-600/30 hover:bg-rose-600/20 active:scale-[0.985]",
   };
@@ -931,7 +959,7 @@ const Toggle = ({ checked, onChange, label, hint }) => (
 const Card = ({ children, className = "", as: Tag = "div", ...rest }) => (
   <Tag
     {...rest}
-    className={`rounded-2xl border border-zinc-800/70 bg-zinc-900/50 ${className}`}
+    className={`rounded-2xl border border-zinc-700/40 bg-zinc-900/60 backdrop-blur-sm transition-all duration-300 hover:border-zinc-600/50 ${className}`}
   >
     {children}
   </Tag>
@@ -1017,11 +1045,20 @@ const StatCard = ({ label, value, hint, Icon, tone, delta }) => {
       danger: "text-rose-400",
       warning: "text-amber-400",
     }[tone] || "text-white";
+  const iconGlow =
+    {
+      success: "bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.2)]",
+      danger: "bg-rose-500/10 shadow-[0_0_12px_rgba(244,63,94,0.2)]",
+      warning: "bg-amber-500/10 shadow-[0_0_12px_rgba(245,158,11,0.2)]",
+    }[tone] || "bg-zinc-800/70";
+  const iconColor =
+    { success: "text-emerald-400", danger: "text-rose-400", warning: "text-amber-400" }[tone] ||
+    "text-zinc-400";
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">
-          {Icon && <Icon className="h-4 w-4 text-zinc-400" />}
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${iconGlow}`}>
+          {Icon && <Icon className={`h-4 w-4 ${iconColor}`} />}
         </div>
         {delta !== undefined && (
           <DeltaPill value={delta.value} label={delta.label} />
@@ -1551,11 +1588,62 @@ function PaymentSheet({ open, onClose, loan }) {
   );
 }
 
+function compoundPeriods(loan) {
+  const rate = Number(loan.interestRate) / 100;
+  const base = Number(loan.amount);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const periods = [];
+
+  if (loan.noDueDate) {
+    const termDays =
+      loan.paymentType === "custom"
+        ? Number(loan.customDays) || 30
+        : Number(PAYMENT_TYPES[loan.paymentType]?.days) || 30;
+    const daysElapsed = Math.max(0, daysBetween(loan.startDate, today));
+    const numPeriods = Math.floor(daysElapsed / termDays) + 1;
+    for (let i = 0; i < numPeriods; i++) {
+      const prev = base * Math.pow(1 + rate, i);
+      const current = base * Math.pow(1 + rate, i + 1);
+      periods.push({
+        period: i + 1,
+        date: addDays(loan.startDate, (i + 1) * termDays),
+        total: current,
+        added: current - prev,
+        isCurrent: i === numPeriods - 1,
+      });
+    }
+    return periods;
+  }
+
+  if (!loan.compoundInterest || !loan.dueDate) return [];
+  const daysOverdue = daysBetween(loan.dueDate, today);
+  if (daysOverdue <= 0) return [];
+  const loanTermDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
+  const numOverduePeriods = Math.floor(daysOverdue / loanTermDays);
+  if (numOverduePeriods === 0) return [];
+
+  for (let i = 0; i <= numOverduePeriods; i++) {
+    const prev = base * Math.pow(1 + rate, i);
+    const current = base * Math.pow(1 + rate, i + 1);
+    periods.push({
+      period: i + 1,
+      date: i === 0 ? loan.dueDate : addDays(loan.dueDate, i * loanTermDays),
+      total: current,
+      added: current - prev,
+      isCurrent: i === numOverduePeriods,
+    });
+  }
+  return periods;
+}
+
 function LoanDetailSheet({ open, onClose, loanId }) {
   const { state, dispatch, derived } = useApp();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendDays, setExtendDays] = useState("15");
 
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
@@ -1579,6 +1667,7 @@ function LoanDetailSheet({ open, onClose, loanId }) {
     const newLoan = {
       ...loan,
       id: uid("loan"),
+      refinancedFromId: loan.id,
       startDate: todayISO(),
       dueDate: newDue,
       paymentType: "30",
@@ -1593,7 +1682,12 @@ function LoanDetailSheet({ open, onClose, loanId }) {
   };
 
   const onExtend = () => {
-    const days = Number(prompt("¿Cuántos días extender?", "15"));
+    setExtendDays("15");
+    setExtendOpen(true);
+  };
+
+  const onExtendConfirm = () => {
+    const days = Number(extendDays);
     if (!Number.isFinite(days) || days <= 0) return;
     dispatch({
       type: "UPDATE_LOAN",
@@ -1602,6 +1696,7 @@ function LoanDetailSheet({ open, onClose, loanId }) {
         dueDate: addDays(loan.dueDate, days),
       },
     });
+    setExtendOpen(false);
   };
 
   const onMarkPaid = () => {
@@ -1702,12 +1797,16 @@ function LoanDetailSheet({ open, onClose, loanId }) {
                   />
                 </span>
                 <span>
-                  Total{" "}
+                  Total acumulado{" "}
                   <Money
-                    value={loan._return}
+                    value={loan._compoundReturn}
                     hide={state.settings.hideBalances}
                     currency={state.settings.currency}
-                    className="text-zinc-300"
+                    className={
+                      loan._compoundReturn > loan._return
+                        ? "text-rose-300"
+                        : "text-zinc-300"
+                    }
                   />
                 </span>
               </div>
@@ -1756,6 +1855,52 @@ function LoanDetailSheet({ open, onClose, loanId }) {
               </div>
             </Card>
           </div>
+
+          {compoundPeriods(loan).length > 0 && (
+            <div>
+              <SectionTitle>Acumulación de deuda por período</SectionTitle>
+              <Card className="divide-y divide-zinc-800/70 overflow-hidden">
+                {compoundPeriods(loan).map((p) => (
+                  <div
+                    key={p.period}
+                    className={`flex items-center justify-between px-4 py-3 ${
+                      p.isCurrent ? "bg-amber-950/20" : ""
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-zinc-100">
+                          Período {p.period}
+                        </span>
+                        {p.isCurrent && (
+                          <Badge tone="warning">Actual</Badge>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-xs text-zinc-500">
+                        {formatDate(p.date)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                        <Money
+                          value={p.total}
+                          hide={state.settings.hideBalances}
+                          currency={state.settings.currency}
+                        />
+                      </div>
+                      <div className="text-xs text-rose-400 tabular-nums">
+                        +<Money
+                          value={p.added}
+                          hide={state.settings.hideBalances}
+                          currency={state.settings.currency}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
 
           <div>
             <SectionTitle
@@ -1858,6 +2003,57 @@ function LoanDetailSheet({ open, onClose, loanId }) {
         onClose={() => setEditOpen(false)}
         editingLoan={editOpen ? loan : null}
       />
+      <Sheet
+        open={extendOpen}
+        onClose={() => setExtendOpen(false)}
+        title="Extender préstamo"
+        subtitle={`Vence el ${formatDate(loan.dueDate)}`}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setExtendOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="bronze"
+              onClick={onExtendConfirm}
+              disabled={!(Number(extendDays) > 0)}
+            >
+              Confirmar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Días a extender"
+            type="number"
+            inputMode="numeric"
+            placeholder="15"
+            value={extendDays}
+            onChange={(e) => setExtendDays(e.target.value)}
+            Icon={Calendar}
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {[7, 15, 30].map((d) => (
+              <button
+                key={d}
+                onClick={() => setExtendDays(String(d))}
+                className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                {d} días
+              </button>
+            ))}
+          </div>
+          {Number(extendDays) > 0 && (
+            <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/50 p-4 text-sm text-zinc-400">
+              Nuevo vencimiento:{" "}
+              <span className="font-medium text-zinc-100">
+                {formatDate(addDays(loan.dueDate, Number(extendDays)))}
+              </span>
+            </div>
+          )}
+        </div>
+      </Sheet>
     </>
   );
 }
@@ -2566,13 +2762,32 @@ function HomeScreen() {
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
   const greet = useMemo(() => {
-    const h = new Date().getHours();
+    const h = now.getHours();
     if (h < 6) return "Buenas noches";
     if (h < 13) return "Buen día";
     if (h < 20) return "Buenas tardes";
     return "Buenas noches";
-  }, []);
+  }, [now]);
+
+  const dateLabel = now.toLocaleDateString("es-AR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const timeLabel = now.toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 
   const userName = state.settings.userName?.trim();
   const hasAnyData =
@@ -2603,6 +2818,11 @@ function HomeScreen() {
           <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-white">
             {userName || "Panel financiero"}
           </h1>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+            <span className="capitalize">{dateLabel}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="tabular-nums text-zinc-400">{timeLabel}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <IconButton
@@ -2627,9 +2847,10 @@ function HomeScreen() {
       </div>
 
       {/* Hero capital */}
-      <div className="relative overflow-hidden rounded-3xl border border-amber-900/30 bg-gradient-to-br from-zinc-900 via-zinc-950 to-amber-950/30 p-6">
-        <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-amber-700/10 blur-3xl" />
-        <div className="absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-amber-900/20 blur-3xl" />
+      <div className="glow-card relative overflow-hidden rounded-3xl border border-amber-800/25 bg-gradient-to-br from-zinc-900/95 via-[#0d0a06]/95 to-amber-950/40 p-6 shadow-[0_0_60px_rgba(120,53,15,0.18)] backdrop-blur-sm">
+        <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-amber-700/12 blur-[60px]" />
+        <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-amber-900/18 blur-[50px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(245,158,11,0.02)_0%,transparent_60%)]" />
         <div className="relative">
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-amber-500/80">
             <Sparkles className="h-3 w-3" />
@@ -2669,7 +2890,7 @@ function HomeScreen() {
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
               <span>{Math.round(allocationPct * 100)}% asignado</span>
-              <span>
+              <span className="flex items-center gap-1.5">
                 Próx. 30d{" "}
                 <span className="text-zinc-300 tabular-nums">
                   <Money
@@ -2678,6 +2899,11 @@ function HomeScreen() {
                     currency={cur}
                   />
                 </span>
+                {derived.monthlyReturnPct > 0 && (
+                  <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 tabular-nums">
+                    +{derived.monthlyReturnPct.toFixed(1)}%
+                  </span>
+                )}
               </span>
             </div>
           </div>
@@ -2737,16 +2963,17 @@ function HomeScreen() {
           hint="Intereses cobrados este mes"
         />
         <StatCard
-          label="Ganancia acumulada"
+          label="Ganancia total esperada"
           Icon={Briefcase}
+          tone="success"
           value={
             <Money
-              value={derived.accumulatedProfit}
+              value={derived.totalExpectedProfit}
               hide={hide}
               currency={cur}
             />
           }
-          hint={`${derived.paidLoans.length} préstamos cerrados`}
+          hint={`${derived.loansResolved.length} préstamo${derived.loansResolved.length === 1 ? "" : "s"} en total`}
         />
         <StatCard
           label="Préstamos activos"
@@ -3665,14 +3892,14 @@ function ProfileScreen() {
   const { state, dispatch, derived, userEmail, signOut } = useApp();
   const [name, setName] = useState(state.settings.userName || "");
   const [capital, setCapital] = useState(
-    String(state.settings.initialCapital || "")
+    String(state.settings.cashOnHand || "")
   );
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     setName(state.settings.userName || "");
-    setCapital(String(state.settings.initialCapital || ""));
+    setCapital(String(state.settings.cashOnHand || ""));
     setCurrency(state.settings.currency || "$");
   }, [state.settings]);
 
@@ -3681,7 +3908,7 @@ function ProfileScreen() {
   const saveCapital = () =>
     dispatch({
       type: "UPDATE_SETTINGS",
-      payload: { initialCapital: Number(capital) || 0 },
+      payload: { cashOnHand: Number(capital) || 0 },
     });
   const saveCurrency = (v) => {
     setCurrency(v);
@@ -3748,7 +3975,7 @@ function ProfileScreen() {
           Icon={UserIcon}
         />
         <Input
-          label="Capital inicial"
+          label="Efectivo a mano"
           type="number"
           inputMode="decimal"
           placeholder="0"
@@ -3756,7 +3983,7 @@ function ProfileScreen() {
           onChange={(e) => setCapital(e.target.value)}
           onBlur={saveCapital}
           Icon={Banknote}
-          hint="Punto de partida del cálculo de capital total."
+          hint="Dinero en efectivo que tenés disponible actualmente, fuera de los préstamos."
         />
         <Select
           label="Moneda"
@@ -3894,37 +4121,37 @@ const TABS = [
 function BottomTabBar() {
   const { state, dispatch } = useApp();
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
-      <nav className="pointer-events-auto mx-3 flex w-full max-w-md items-center justify-between rounded-2xl border border-zinc-800/80 bg-zinc-950/85 px-1 py-1 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+      <nav className="pointer-events-auto mx-3 flex w-full max-w-md items-center justify-between rounded-2xl border border-zinc-700/30 bg-zinc-950/90 px-1 py-1 shadow-[0_8px_40px_rgba(0,0,0,0.6),0_0_0_1px_rgba(245,158,11,0.04),inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-2xl">
         {TABS.map((t) => {
           const active = state.ui.activeTab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => dispatch({ type: "SET_TAB", payload: t.id })}
-              className="relative flex flex-1 flex-col items-center justify-center rounded-xl py-2 transition-all"
+              className="relative flex flex-1 flex-col items-center justify-center rounded-xl py-2 transition-all duration-200"
             >
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-xl transition-all ${
+                className={`flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 ${
                   active
-                    ? "bg-amber-700/20 text-amber-300"
-                    : "text-zinc-500"
+                    ? "bg-amber-500/15 text-amber-300 shadow-[0_0_14px_rgba(245,158,11,0.25)]"
+                    : "text-zinc-600 hover:text-zinc-400"
                 }`}
               >
                 <t.Icon
                   className="h-[18px] w-[18px]"
-                  strokeWidth={active ? 2.2 : 1.8}
+                  strokeWidth={active ? 2.2 : 1.7}
                 />
               </span>
               <span
-                className={`mt-0.5 text-[10px] font-medium tracking-wide transition-colors ${
-                  active ? "text-amber-200" : "text-zinc-500"
+                className={`mt-0.5 text-[10px] font-medium tracking-wide transition-colors duration-200 ${
+                  active ? "text-amber-300" : "text-zinc-600"
                 }`}
               >
                 {t.label}
               </span>
               {active && (
-                <span className="absolute -bottom-0.5 h-0.5 w-6 rounded-full bg-amber-500/80" />
+                <span className="absolute -bottom-0.5 h-0.5 w-5 rounded-full bg-amber-400/90 shadow-[0_0_6px_rgba(245,158,11,0.8)]" />
               )}
             </button>
           );
@@ -4011,27 +4238,158 @@ function ModalRoot() {
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
+/*  Dollar Rain (canvas animation)                                            */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function DollarRain() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const BILL_COUNT = 28;
+    const makeBill = (initial) => {
+      const w = Math.random() * 46 + 26;
+      return {
+        x: Math.random() * canvas.width,
+        y: initial ? Math.random() * canvas.height : -50,
+        w,
+        h: w * 0.44,
+        speed: Math.random() * 0.65 + 0.22,
+        alpha: Math.random() * 0.10 + 0.025,
+        rot: (Math.random() - 0.5) * 0.55,
+        rotSpeed: (Math.random() - 0.5) * 0.006,
+        drift: (Math.random() - 0.5) * 0.16,
+      };
+    };
+
+    const bills = Array.from({ length: BILL_COUNT }, () => makeBill(true));
+
+    const drawBill = (b) => {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.rot);
+      ctx.globalAlpha = b.alpha;
+      const hw = b.w / 2, hh = b.h / 2, r = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-hw + r, -hh);
+      ctx.lineTo(hw - r, -hh);
+      ctx.quadraticCurveTo(hw, -hh, hw, -hh + r);
+      ctx.lineTo(hw, hh - r);
+      ctx.quadraticCurveTo(hw, hh, hw - r, hh);
+      ctx.lineTo(-hw + r, hh);
+      ctx.quadraticCurveTo(-hw, hh, -hw, hh - r);
+      ctx.lineTo(-hw, -hh + r);
+      ctx.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+      ctx.closePath();
+      ctx.fillStyle = "#78350f";
+      ctx.fill();
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(245,158,11,0.35)";
+      ctx.lineWidth = 0.35;
+      ctx.strokeRect(-hw + 3.5, -hh + 2.5, b.w - 7, b.h - 5);
+      ctx.fillStyle = "#fde68a";
+      ctx.font = `bold ${b.h * 0.58}px Georgia, serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("$", 0, 0);
+      ctx.restore();
+    };
+
+    let raf;
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      bills.forEach((b) => {
+        b.y += b.speed;
+        b.x += b.drift;
+        b.rot += b.rotSpeed;
+        if (b.y > canvas.height + 60) {
+          const fresh = makeBill(false);
+          Object.assign(b, fresh);
+        }
+        drawBill(b);
+      });
+      raf = requestAnimationFrame(animate);
+    };
+    animate();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-0" />;
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
 /*  App                                                                       */
 /* ────────────────────────────────────────────────────────────────────────── */
 
 function GlobalStyles() {
   return (
     <style>{`
+      html { scroll-behavior: smooth; }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(63,63,70,0.9); border-radius: 9999px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(161,106,20,0.6); }
+
+      /* Selection */
+      ::selection { background: rgba(245,158,11,0.28); color: #fff; }
+
+      /* Entrance animations */
       @keyframes fa-fade { from { opacity: 0 } to { opacity: 1 } }
       @keyframes fa-sheet {
         from { opacity: 0; transform: translateY(24px) }
         to   { opacity: 1; transform: translateY(0) }
       }
       @keyframes fa-rise {
-        from { opacity: 0; transform: translateY(8px) }
+        from { opacity: 0; transform: translateY(10px) }
         to   { opacity: 1; transform: translateY(0) }
       }
-      .fa-rise > * { animation: fa-rise 320ms cubic-bezier(.22,1,.36,1) both }
-      .fa-rise > *:nth-child(2) { animation-delay: 40ms }
-      .fa-rise > *:nth-child(3) { animation-delay: 80ms }
-      .fa-rise > *:nth-child(4) { animation-delay: 120ms }
-      .fa-rise > *:nth-child(5) { animation-delay: 160ms }
-      .fa-rise > *:nth-child(6) { animation-delay: 200ms }
+      .fa-rise > * { animation: fa-rise 380ms cubic-bezier(.22,1,.36,1) both }
+      .fa-rise > *:nth-child(2) { animation-delay: 50ms }
+      .fa-rise > *:nth-child(3) { animation-delay: 100ms }
+      .fa-rise > *:nth-child(4) { animation-delay: 150ms }
+      .fa-rise > *:nth-child(5) { animation-delay: 200ms }
+      .fa-rise > *:nth-child(6) { animation-delay: 250ms }
+
+      /* Glow pulse for active cards */
+      @keyframes glow-amber {
+        0%,100% { box-shadow: 0 0 18px rgba(180,83,9,0.12), 0 0 0 1px rgba(245,158,11,0.06); }
+        50%      { box-shadow: 0 0 30px rgba(180,83,9,0.22), 0 0 0 1px rgba(245,158,11,0.12); }
+      }
+      .glow-card { animation: glow-amber 4s ease-in-out infinite; }
+
+      /* Shine sweep on bronze buttons */
+      @keyframes shine {
+        0%   { left: -80% }
+        100% { left: 120% }
+      }
+      .btn-shine { position: relative; overflow: hidden; }
+      .btn-shine::after {
+        content: '';
+        position: absolute;
+        top: 0; left: -80%;
+        width: 50%; height: 100%;
+        background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.12) 50%, transparent 70%);
+        animation: shine 3.5s ease-in-out infinite;
+        pointer-events: none;
+      }
     `}</style>
   );
 }
@@ -4330,11 +4688,26 @@ function AuthedApp({ sessionUserId, userEmail }) {
 
   const activeTab = state.ui.activeTab;
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeTab]);
+
   return (
     <AppContext.Provider value={ctx}>
       <GlobalStyles />
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']">
-        <div className="mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8">
+      <div className="relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']">
+        {/* Dollar rain */}
+        <DollarRain />
+
+        {/* Ambient glow mesh */}
+        <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+          <div className="absolute -right-48 -top-48 h-[520px] w-[520px] rounded-full bg-amber-900/10 blur-[130px]" />
+          <div className="absolute -bottom-48 -left-48 h-[480px] w-[480px] rounded-full bg-amber-950/15 blur-[110px]" />
+          <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-zinc-800/10 blur-[80px]" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8">
           {!state.loaded ? (
             <LoadingSkeleton />
           ) : (
