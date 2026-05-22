@@ -116,7 +116,7 @@ export default function FinanceScreen() {
         : derived.avgRate / 100;
 
     const rate = weightedRate;
-    const days = Math.max(1, derived.avgDays || 30);
+    const days = 30; // Fixed monthly cycle — reinvestment unit is always 30 days
     const cyclesPerYear = 365 / days;
     const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
     const doublingYears = rate > 0
