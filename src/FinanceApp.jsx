@@ -8,6 +8,7 @@ import GlobalStyles from "./components/GlobalStyles.jsx";
 import DollarRain from "./components/DollarRain.jsx";
 import BottomTabBar from "./components/BottomTabBar.jsx";
 import ModalRoot from "./components/ModalRoot.jsx";
+import WelcomeSplash from "./components/WelcomeSplash.jsx";
 import HomeScreen from "./screens/HomeScreen.jsx";
 import LoansScreen from "./screens/LoansScreen.jsx";
 import ClientsScreen from "./screens/ClientsScreen.jsx";
@@ -233,6 +234,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
 
   return (
     <AppContext.Provider value={ctx}>
+      <WelcomeSplash userName={state.settings.userName?.trim()} />
       <GlobalStyles />
       <div className="relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']">
         <DollarRain />
