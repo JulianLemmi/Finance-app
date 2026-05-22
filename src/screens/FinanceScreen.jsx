@@ -102,14 +102,27 @@ export default function FinanceScreen() {
   const cumulativeSaving = derived.months.reduce((a, m) => a + (m.income - m.expense), 0);
 
   const projCalc = useMemo(() => {
-    const rate = derived.avgRate / 100;
+    // Use capital effectively deployed (active + overdue loans only)
+    const deployedLoans = [...derived.activeLoans, ...derived.overdueLoans];
+    const deployedCapital = deployedLoans.reduce((a, l) => a + Number(l.amount), 0);
+    const base = Math.max(0, deployedCapital || derived.workingCapital);
+
+    // Weighted average rate by loan amount — matches "Ganancia por cobrar" exactly
+    const weightedRate =
+      deployedCapital > 0
+        ? deployedLoans.reduce((a, l) => a + Number(l.amount) * Number(l.interestRate), 0) /
+          deployedCapital /
+          100
+        : derived.avgRate / 100;
+
+    const rate = weightedRate;
     const days = Math.max(1, derived.avgDays || 30);
-    const base = Math.max(0, derived.workingCapital);
     const cyclesPerYear = 365 / days;
     const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
     const doublingYears = rate > 0
       ? (Math.log(2) / Math.log(1 + rate)) * (days / 365)
       : null;
+    // gainPerCycle = deployedCapital × weightedRate = expectedProfitTotal
     const gainPerCycle = base * rate;
 
     const n1 = 1;
@@ -146,7 +159,7 @@ export default function FinanceScreen() {
     });
 
     return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
-  }, [derived.avgRate, derived.avgDays, derived.totalCapital]);
+  }, [derived.avgRate, derived.avgDays, derived.activeLoans, derived.overdueLoans, derived.workingCapital]);
 
   return (
     <div className="space-y-5 pb-2">
