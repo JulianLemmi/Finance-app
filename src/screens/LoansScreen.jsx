@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Wallet, CalendarClock } from "lucide-react";
+import { Plus, Search, Wallet, CalendarClock, Calendar } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES } from "../lib/constants.js";
+import { formatShortDate } from "../lib/utils.js";
 import {
   EmptyState, Input, Button, Money, ProgressBar, StatusBadge,
 } from "../components/ui.jsx";
@@ -53,7 +54,15 @@ function LoanCard({ loan, onOpen }) {
           </div>
         </div>
       </div>
-      <div className="mt-3">
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-600">
+        <Calendar className="h-3 w-3 shrink-0" />
+        <span>Inicio {formatShortDate(loan.startDate)}</span>
+        <span className="text-zinc-700">→</span>
+        <span className={overdue ? "text-rose-500/80" : "text-zinc-600"}>
+          Vence {formatShortDate(loan.dueDate)}
+        </span>
+      </div>
+      <div className="mt-2">
         <ProgressBar value={loan._progress} tone={overdue ? "rose" : "bronze"} />
       </div>
       <div className="mt-3 flex items-center justify-between text-[11px]">
