@@ -235,12 +235,16 @@ export function useDerived(state) {
       ? activeLoans.reduce((a, l) => a + Number(l.interestRate), 0) / activeLoans.length
       : 7;
 
-    const avgDays = activeLoans.length
-      ? activeLoans.reduce((a, l) => {
-          const days = Math.max(1, daysBetween(l.startDate, l.dueDate) || 30);
-          return a + days;
-        }, 0) / activeLoans.length
-      : 30;
+    const avgDays = (() => {
+      if (!activeLoans.length) return 30;
+      const terms = activeLoans
+        .map((l) => Math.max(1, daysBetween(l.startDate, l.dueDate) || 30))
+        .sort((a, b) => a - b);
+      const mid = Math.floor(terms.length / 2);
+      return terms.length % 2 === 0
+        ? (terms[mid - 1] + terms[mid]) / 2
+        : terms[mid];
+    })();
 
     const reinvestmentFactor = (m) => {
       const cycles = avgDays > 0 ? (m * 30) / avgDays : 0;
