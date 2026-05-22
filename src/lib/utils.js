@@ -4,7 +4,9 @@ export const uid = (prefix = "id") =>
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export const addDays = (isoDate, days) => {
-  const d = new Date(isoDate);
+  if (!isoDate || isoDate.length < 10) return isoDate || "";
+  const d = new Date(isoDate + "T00:00:00");
+  if (isNaN(d.getTime())) return isoDate;
   d.setDate(d.getDate() + Number(days || 0));
   return d.toISOString().slice(0, 10);
 };

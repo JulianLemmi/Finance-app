@@ -30,6 +30,7 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
   const updateField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const recalcDueDate = (startDate, paymentType, customDays) => {
+    if (!startDate || startDate.length < 10) return "";
     const days = paymentType === "custom"
       ? Number(customDays) || 30
       : PAYMENT_TYPES[paymentType].days;
