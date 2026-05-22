@@ -201,8 +201,8 @@ export default function HomeScreen() {
             </div>
             <Badge tone="bronze">Últimos 6 meses</Badge>
           </div>
-          <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-44 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" debounce={50}>
               <AreaChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="capitalFill" x1="0" y1="0" x2="0" y2="1">
@@ -232,8 +232,8 @@ export default function HomeScreen() {
             </div>
             <DeltaPill value={monthDelta} label={monthDelta >= 0 ? "Positivo" : "Negativo"} />
           </div>
-          <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-44 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" debounce={50}>
               <BarChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
                 <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
