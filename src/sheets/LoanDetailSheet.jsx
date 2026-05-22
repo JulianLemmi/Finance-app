@@ -178,8 +178,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
     ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
     : null;
   const nextOverdueAdded = nextOverdueDate
-    ? Number(loan.amount) * Math.pow(1 + Number(loan.interestRate) / 100, 2 + currentCompoundPeriods)
-      - Number(loan.amount) * Math.pow(1 + Number(loan.interestRate) / 100, 1 + currentCompoundPeriods)
+    ? loan._remaining * (Number(loan.interestRate) / 100)
     : 0;
 
   return (
