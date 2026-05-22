@@ -63,6 +63,7 @@ import {
   PlusCircle,
   MinusCircle,
   HelpCircle,
+  Camera,
 } from "lucide-react";
 import {
   LineChart,
@@ -1644,6 +1645,8 @@ function LoanDetailSheet({ open, onClose, loanId }) {
   const [editOpen, setEditOpen] = useState(false);
   const [extendOpen, setExtendOpen] = useState(false);
   const [extendDays, setExtendDays] = useState("15");
+  const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const photoInputRef = useRef(null);
 
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
@@ -1724,6 +1727,24 @@ function LoanDetailSheet({ open, onClose, loanId }) {
   };
 
   const G = GUARANTY_TYPES[loan.guarantyType] || GUARANTY_TYPES.other;
+
+  const addPhotos = (files) => {
+    const readers = Array.from(files).map(
+      (file) =>
+        new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) =>
+            resolve({ id: uid("photo"), data: e.target.result, name: file.name, createdAt: Date.now() });
+          reader.readAsDataURL(file);
+        })
+    );
+    Promise.all(readers).then((newPhotos) =>
+      dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, photos: [...(loan.photos || []), ...newPhotos] } })
+    );
+  };
+
+  const removePhoto = (photoId) =>
+    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, photos: (loan.photos || []).filter((p) => p.id !== photoId) } });
 
   return (
     <>
@@ -1966,6 +1987,58 @@ function LoanDetailSheet({ open, onClose, loanId }) {
             </div>
           ) : null}
 
+          <div>
+            <SectionTitle
+              action={
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  className="text-[11px] font-medium uppercase tracking-wider text-amber-500 hover:text-amber-400"
+                >
+                  + Agregar
+                </button>
+              }
+            >
+              Fotos adjuntas
+            </SectionTitle>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+            {loan.photos?.length ? (
+              <div className="grid grid-cols-3 gap-2">
+                {loan.photos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800/70"
+                  >
+                    <img
+                      src={photo.data}
+                      alt={photo.name}
+                      className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
+                      onClick={() => setLightboxPhoto(photo)}
+                    />
+                    <button
+                      onClick={() => removePhoto(photo.id)}
+                      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      <X className="h-3.5 w-3.5 text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                Icon={Camera}
+                title="Sin fotos adjuntas"
+                hint="Comprobantes, garantías o documentación del préstamo."
+              />
+            )}
+          </div>
+
           <div className="pt-2">
             {confirmDelete ? (
               <div className="flex items-center justify-between rounded-2xl border border-rose-900/40 bg-rose-950/20 px-4 py-3">
@@ -2054,6 +2127,25 @@ function LoanDetailSheet({ open, onClose, loanId }) {
           )}
         </div>
       </Sheet>
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/92 p-4"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <img
+            src={lightboxPhoto.data}
+            alt={lightboxPhoto.name}
+            className="max-h-[88vh] max-w-full rounded-2xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900/90 text-zinc-300 hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -2540,6 +2632,15 @@ function ClientCard({ client, onOpen }) {
             {client._active.length} activo
             {client._active.length === 1 ? "" : "s"}
           </span>
+          {client.phone && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                <Phone className="h-3 w-3" />
+                {client.phone}
+              </span>
+            </>
+          )}
         </div>
       </div>
       <div className="text-right">
