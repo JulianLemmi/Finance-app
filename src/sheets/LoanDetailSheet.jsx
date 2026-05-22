@@ -108,7 +108,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   };
 
   const G = GUARANTY_TYPES[loan.guarantyType] || GUARANTY_TYPES.other;
-  const periods = compoundPeriods(loan);
   const loanTermDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
@@ -117,10 +116,31 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   today.setHours(0, 0, 0, 0);
   const daysOverdue = loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, today)) : 0;
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
-  const nextCompoundDate = loan._status === "overdue" && loan.compoundInterest
+
+  // Build overdue periods for ALL overdue loans regardless of compoundInterest flag
+  const overdueTimelinePeriods = useMemo(() => {
+    if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
+    const rate = Number(loan.interestRate) / 100;
+    const base = Number(loan.amount);
+    const result = [];
+    for (let i = 0; i <= currentCompoundPeriods; i++) {
+      const prev = base * Math.pow(1 + rate, i);
+      const current = base * Math.pow(1 + rate, i + 1);
+      result.push({
+        period: i + 1,
+        date: i === 0 ? loan.dueDate : addDays(loan.dueDate, i * loanTermDays),
+        total: current,
+        added: current - prev,
+        isCurrent: i === currentCompoundPeriods,
+      });
+    }
+    return result;
+  }, [loan, loanTermDays, currentCompoundPeriods]);
+
+  const nextOverdueDate = loan._status === "overdue" && loan.dueDate
     ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
     : null;
-  const nextCompoundAdded = nextCompoundDate
+  const nextOverdueAdded = nextOverdueDate
     ? Number(loan.amount) * Math.pow(1 + Number(loan.interestRate) / 100, 2 + currentCompoundPeriods)
       - Number(loan.amount) * Math.pow(1 + Number(loan.interestRate) / 100, 1 + currentCompoundPeriods)
     : 0;
@@ -271,8 +291,8 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                   </div>
                 </div>
 
-                {/* Períodos de mora (interés compuesto acumulado) */}
-                {periods.map((p) => (
+                {/* Períodos de mora */}
+                {overdueTimelinePeriods.map((p) => (
                   <div key={p.period} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${p.isCurrent ? "bg-rose-950/20 ring-1 ring-rose-900/40" : "hover:bg-zinc-900/40"}`}>
                     <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-rose-700/70 ${p.isCurrent ? "bg-rose-900/60" : "bg-rose-950/60"}`}>
                       <div className={`h-2 w-2 rounded-full bg-rose-500 ${p.isCurrent ? "animate-pulse" : ""}`} />
@@ -302,7 +322,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                 ))}
 
                 {/* Próximo cargo proyectado */}
-                {nextCompoundDate && (
+                {nextOverdueDate && (
                   <div className="relative flex items-start gap-3 rounded-xl border border-dashed border-zinc-800/60 px-3 py-3">
                     <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-700/60 bg-zinc-900">
                       <Clock className="h-3 w-3 text-zinc-600" />
@@ -314,12 +334,12 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                             Próximo cargo proyectado
                           </div>
                           <div className="mt-0.5 text-[11px] text-zinc-600">
-                            {formatDate(nextCompoundDate)} · si no se paga
+                            {formatDate(nextOverdueDate)} · si no se paga
                           </div>
                         </div>
                         <div className="text-right">
                           <div className="text-xs font-semibold tabular-nums text-zinc-500">
-                            +<Money value={nextCompoundAdded} hide={hide} currency={cur} />
+                            +<Money value={nextOverdueAdded} hide={hide} currency={cur} />
                           </div>
                           <div className="text-[11px] text-zinc-600">
                             ({Number(loan.interestRate).toFixed(1)}% adicional)
