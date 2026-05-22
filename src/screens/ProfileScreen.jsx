@@ -34,7 +34,7 @@ export default function ProfileScreen() {
     dispatch({
       type: "HYDRATE",
       payload: {
-        loans: [], clients: [], expenses: [], income: [], history: [],
+        loans: [], clients: [], expenses: [], income: [], history: [], assets: [],
         settings: initialState.settings,
       },
     });

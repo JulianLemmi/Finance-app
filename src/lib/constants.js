@@ -1,6 +1,7 @@
 import {
   Banknote, Car, Coins, Package, MoreHorizontal,
   Fuel, UtensilsCrossed, Dumbbell, TrendingUp, ShoppingBag, Wrench,
+  Building2,
 } from "lucide-react";
 
 export const STORAGE_KEYS = {
@@ -10,6 +11,7 @@ export const STORAGE_KEYS = {
   income: "finance:income",
   history: "finance:history",
   settings: "finance:settings",
+  assets: "finance:assets",
 };
 
 export const LOAN_STATUSES = {
@@ -55,6 +57,16 @@ export const RISK_LEVELS = {
   low: { label: "Bajo", tone: "success" },
   medium: { label: "Medio", tone: "warning" },
   high: { label: "Alto", tone: "danger" },
+};
+
+export const ASSET_CATEGORIES = {
+  vehicle: { label: "Vehículo", Icon: Car, color: "#d97706" },
+  property: { label: "Propiedad", Icon: Building2, color: "#0891b2" },
+  investment: { label: "Inversión", Icon: TrendingUp, color: "#059669" },
+  savings: { label: "Ahorro", Icon: Banknote, color: "#10b981" },
+  gold: { label: "Oro", Icon: Coins, color: "#f59e0b" },
+  equipment: { label: "Equipamiento", Icon: Wrench, color: "#7c3aed" },
+  other: { label: "Otro", Icon: Package, color: "#71717a" },
 };
 
 export const TONES = {

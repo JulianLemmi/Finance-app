@@ -44,8 +44,8 @@ export default function HomeScreen() {
   const hasAnyData = state.loans.length > 0 || state.clients.length > 0
     || state.expenses.length > 0 || state.income.length > 0;
 
-  const allocationPct = derived.totalCapital > 0
-    ? derived.capitalInvested / derived.totalCapital : 0;
+  const allocationPct = derived.workingCapital > 0
+    ? derived.capitalInvested / derived.workingCapital : 0;
 
   const monthIncome = derived.months[derived.months.length - 1]?.income
     + derived.months[derived.months.length - 1]?.profit || 0;
@@ -95,7 +95,7 @@ export default function HomeScreen() {
           <div className="mt-2 text-4xl font-semibold tracking-tight text-white">
             <Money value={derived.totalCapital} hide={hide} currency={cur} />
           </div>
-          <div className="mt-2 flex items-center gap-3 text-xs text-zinc-400">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
             <span className="flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
               Invertido{" "}
@@ -106,6 +106,13 @@ export default function HomeScreen() {
               Disponible{" "}
               <Money value={derived.available} hide={hide} currency={cur} className="text-zinc-200" />
             </span>
+            {derived.totalAssets > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                Activos{" "}
+                <Money value={derived.totalAssets} hide={hide} currency={cur} className="text-zinc-200" />
+              </span>
+            )}
           </div>
           <div className="mt-4">
             <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">

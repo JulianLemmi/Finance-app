@@ -1,13 +1,13 @@
 import { useState, useMemo } from "react";
 import {
   Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon,
-  Target, TrendingUp, Banknote, RefreshCw, Clock,
+  Target, TrendingUp, Banknote, RefreshCw, Clock, Layers,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "../lib/constants.js";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES } from "../lib/constants.js";
 import { useApp } from "../store/index.js";
 import {
-  Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip,
+  Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip, Button,
 } from "../components/ui.jsx";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
@@ -52,6 +52,34 @@ function TxRow({ tx, onDelete }) {
   );
 }
 
+function AssetCard({ asset, onOpen }) {
+  const { state } = useApp();
+  const cat = ASSET_CATEGORIES[asset.category] || ASSET_CATEGORIES.other;
+  return (
+    <button
+      onClick={() => onOpen(asset)}
+      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:bg-zinc-900"
+    >
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-800/60"
+        style={{ background: `${cat.color}18` }}>
+        <cat.Icon className="h-5 w-5" style={{ color: cat.color }} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-zinc-100">{asset.name}</div>
+        {asset.description && (
+          <div className="mt-0.5 truncate text-[11px] text-zinc-500">{asset.description}</div>
+        )}
+      </div>
+      <div className="text-right">
+        <div className="text-sm font-semibold tabular-nums text-zinc-100">
+          <Money value={asset.value} hide={state.settings.hideBalances} currency={state.settings.currency} />
+        </div>
+        <div className="mt-0.5 text-[11px] text-zinc-500">{cat.label}</div>
+      </div>
+    </button>
+  );
+}
+
 export default function FinanceScreen() {
   const { state, dispatch, derived } = useApp();
   const [sub, setSub] = useState("flow");
@@ -75,7 +103,7 @@ export default function FinanceScreen() {
   const projCalc = useMemo(() => {
     const rate = derived.avgRate / 100;
     const days = Math.max(1, derived.avgDays || 30);
-    const base = Math.max(0, derived.totalCapital);
+    const base = Math.max(0, derived.workingCapital);
     const cyclesPerYear = 365 / days;
     const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
     const doublingYears = rate > 0
@@ -135,11 +163,12 @@ export default function FinanceScreen() {
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
+      <div className="grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
         {[
           { v: "flow", l: "Movimientos" },
           { v: "categories", l: "Categorías" },
           { v: "projection", l: "Proyección" },
+          { v: "assets", l: "Activos" },
         ].map((s) => {
           const active = sub === s.v;
           return (
@@ -300,6 +329,54 @@ export default function FinanceScreen() {
               </div>
             </Card>
           </div>
+        </>
+      )}
+
+      {sub === "assets" && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total activos</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100">
+                <Money value={derived.totalAssets} hide={hide} currency={cur} />
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Patrimonio total</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-amber-400">
+                <Money value={derived.totalCapital} hide={hide} currency={cur} />
+              </div>
+            </Card>
+          </div>
+
+          {state.assets.length === 0 ? (
+            <EmptyState Icon={Layers} title="Sin activos registrados"
+              hint="Cargá bienes como un auto, propiedad o inversión para ver tu patrimonio real."
+              action={
+                <Button variant="bronze" Icon={Plus}
+                  onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form" } })}>
+                  Agregar activo
+                </Button>
+              }
+            />
+          ) : (
+            <div>
+              <SectionTitle action={
+                <Button variant="bronze" size="sm" Icon={Plus}
+                  onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form" } })}>
+                  Nuevo
+                </Button>
+              }>
+                Mis activos
+              </SectionTitle>
+              <div className="space-y-2">
+                {state.assets.map((asset) => (
+                  <AssetCard key={asset.id} asset={asset}
+                    onOpen={(a) => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form", payload: { editingAsset: a } } })} />
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 

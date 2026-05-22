@@ -13,6 +13,7 @@ export const initialState = {
   expenses: [],
   income: [],
   history: [],
+  assets: [],
   settings: { currency: "$", cashOnHand: 0, hideBalances: false, userName: "" },
   ui: { activeTab: "home", modal: null },
 };
@@ -28,6 +29,7 @@ export function reducer(state, action) {
         expenses: action.payload.expenses ?? state.expenses,
         income: action.payload.income ?? state.income,
         history: action.payload.history ?? state.history,
+        assets: action.payload.assets ?? state.assets,
         settings: { ...state.settings, ...(action.payload.settings || {}) },
       };
     case "SET_TAB":
@@ -104,6 +106,17 @@ export function reducer(state, action) {
       const key = type === "income" ? "income" : "expenses";
       return { ...state, [key]: state[key].filter((t) => t.id !== id) };
     }
+    case "ADD_ASSET":
+      return { ...state, assets: [action.payload, ...state.assets] };
+    case "UPDATE_ASSET":
+      return {
+        ...state,
+        assets: state.assets.map((a) =>
+          a.id === action.payload.id ? { ...a, ...action.payload } : a
+        ),
+      };
+    case "DELETE_ASSET":
+      return { ...state, assets: state.assets.filter((a) => a.id !== action.payload) };
     default:
       return state;
   }
@@ -140,7 +153,9 @@ export function useDerived(state) {
     const collected = loansResolved.reduce((a, l) => a + l._paid, 0);
     const totalDisbursed = loansResolved.filter((l) => !l.refinancedFromId).reduce((a, l) => a + Number(l.amount), 0);
     const available = Number(state.settings.cashOnHand || 0);
-    const totalCapital = available + capitalInvested;
+    const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
+    const workingCapital = available + capitalInvested;
+    const totalCapital = workingCapital + totalAssets;
 
     const thisMonth = monthKey(todayISO());
     const monthlyInterestsCollected = loansResolved.reduce((a, l) => {
@@ -263,10 +278,10 @@ export function useDerived(state) {
     return {
       loansResolved, activeLoans, overdueLoans, paidLoans, refinancedLoans,
       capitalInvested, expectedProfitTotal, accumulatedProfit, collected, available,
-      totalCapital, totalIncome, totalExpense, monthlyInterestsCollected,
-      upcomingDue, expectedInflow30d, months, expenseByCategory, avgRate, avgDays,
-      projections, projectionSeries, clientStats, totalExpectedProfit, totalDisbursed,
-      expectedMonthlyProfit, monthlyReturnPct,
+      totalCapital, workingCapital, totalAssets, totalIncome, totalExpense,
+      monthlyInterestsCollected, upcomingDue, expectedInflow30d, months,
+      expenseByCategory, avgRate, avgDays, projections, projectionSeries, clientStats,
+      totalExpectedProfit, totalDisbursed, expectedMonthlyProfit, monthlyReturnPct,
     };
-  }, [state.loans, state.income, state.expenses, state.settings, state.clients]);
+  }, [state.loans, state.income, state.expenses, state.settings, state.clients, state.assets]);
 }

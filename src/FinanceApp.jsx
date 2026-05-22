@@ -168,6 +168,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
           expenses: Array.isArray(data[STORAGE_KEYS.expenses]) ? data[STORAGE_KEYS.expenses] : [],
           income: Array.isArray(data[STORAGE_KEYS.income]) ? data[STORAGE_KEYS.income] : [],
           history: Array.isArray(data[STORAGE_KEYS.history]) ? data[STORAGE_KEYS.history] : [],
+          assets: Array.isArray(data[STORAGE_KEYS.assets]) ? data[STORAGE_KEYS.assets] : [],
           settings: data[STORAGE_KEYS.settings] && typeof data[STORAGE_KEYS.settings] === "object"
             ? data[STORAGE_KEYS.settings] : {},
         },
@@ -211,6 +212,12 @@ function AuthedApp({ sessionUserId, userEmail }) {
     const t = setTimeout(() => storage.set(STORAGE_KEYS.settings, state.settings), 300);
     return () => clearTimeout(t);
   }, [state.settings, state.loaded]);
+
+  useEffect(() => {
+    if (!state.loaded) return;
+    const t = setTimeout(() => storage.set(STORAGE_KEYS.assets, state.assets), 300);
+    return () => clearTimeout(t);
+  }, [state.assets, state.loaded]);
 
   const signOut = useCallback(async () => {
     try { await supabase?.auth.signOut(); } catch (e) { console.warn("signOut", e); }
