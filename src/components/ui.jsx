@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Shield, ChevronDown, X, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
@@ -287,9 +287,25 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
   );
 }
 
-// Wrapper that defers chart rendering until after first paint to avoid Recharts width/height -1 warning
+// Measures its own dimensions via ResizeObserver and passes them to children as render prop.
+// Bypasses ResponsiveContainer entirely — Recharts never sees width/height -1.
 export function ChartContainer({ className, children }) {
-  const [ready, setReady] = useState(false);
-  useEffect(() => { setReady(true); }, []);
-  return <div className={className}>{ready && children}</div>;
+  const ref = useRef(null);
+  const [size, setSize] = useState(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ width: Math.floor(width), height: Math.floor(height) });
+    });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className={className}>
+      {size ? children(size) : null}
+    </div>
+  );
 }

@@ -11,7 +11,7 @@ import {
 } from "../components/ui.jsx";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 
 function TxRow({ tx, onDelete }) {
@@ -214,8 +214,8 @@ export default function FinanceScreen() {
               <Badge tone="neutral">Últimos 6 meses</Badge>
             </div>
             <ChartContainer className="h-44 min-w-0">
-              <ResponsiveContainer width="100%" height="100%" debounce={50}>
-                <BarChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
+              {({ width, height }) => (
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
                   <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                   <YAxis hide />
@@ -223,7 +223,7 @@ export default function FinanceScreen() {
                   <Bar name="Ingresos" dataKey="income" fill="#10b981" radius={[4, 4, 0, 0]} />
                   <Bar name="Gastos" dataKey="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
+              )}
             </ChartContainer>
           </Card>
 
@@ -270,15 +270,15 @@ export default function FinanceScreen() {
             ) : (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-5">
                 <ChartContainer className="sm:col-span-2 h-48 min-w-0">
-                  <ResponsiveContainer width="100%" height="100%" debounce={50}>
-                    <PieChart>
+                  {({ width, height }) => (
+                    <PieChart width={width} height={height}>
                       <Pie data={derived.expenseByCategory} dataKey="value" nameKey="label"
                         innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none">
                         {derived.expenseByCategory.map((c) => <Cell key={c.key} fill={c.color} />)}
                       </Pie>
                       <Tooltip content={<ChartTooltip hide={hide} currency={cur} />} />
                     </PieChart>
-                  </ResponsiveContainer>
+                  )}
                 </ChartContainer>
                 <div className="sm:col-span-3 space-y-2">
                   {derived.expenseByCategory.sort((a, b) => b.value - a.value).map((c) => {
@@ -465,8 +465,8 @@ export default function FinanceScreen() {
               </Badge>
             </div>
             <ChartContainer className="h-56 min-w-0">
-              <ResponsiveContainer width="100%" height="100%" debounce={50}>
-                <AreaChart data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              {({ width, height }) => (
+                <AreaChart width={width} height={height} data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#d97706" stopOpacity={0.5} />
@@ -508,7 +508,7 @@ export default function FinanceScreen() {
                     dot={{ r: 0 }}
                     activeDot={{ r: 4, fill: "#f59e0b", stroke: "#0a0a0b", strokeWidth: 2 }} />
                 </AreaChart>
-              </ResponsiveContainer>
+              )}
             </ChartContainer>
             <div className="mt-3 text-[11px] text-zinc-600">
               Estimación informativa basada en tasa y plazo promedio de préstamos activos.

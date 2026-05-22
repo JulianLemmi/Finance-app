@@ -10,8 +10,7 @@ import {
   DeltaPill, Badge, IconButton, ChartContainer,
 } from "../components/ui.jsx";
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 
 export default function HomeScreen() {
@@ -202,8 +201,8 @@ export default function HomeScreen() {
             <Badge tone="bronze">Últimos 6 meses</Badge>
           </div>
           <ChartContainer className="h-44 min-w-0">
-            <ResponsiveContainer width="100%" height="100%" debounce={50}>
-              <AreaChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            {({ width, height }) => (
+              <AreaChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="capitalFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#b45309" stopOpacity={0.45} />
@@ -218,7 +217,7 @@ export default function HomeScreen() {
                 <Area type="monotone" name="Capital" dataKey="capital"
                   stroke="#f59e0b" strokeWidth={2} fill="url(#capitalFill)" />
               </AreaChart>
-            </ResponsiveContainer>
+            )}
           </ChartContainer>
         </Card>
 
@@ -233,8 +232,8 @@ export default function HomeScreen() {
             <DeltaPill value={monthDelta} label={monthDelta >= 0 ? "Positivo" : "Negativo"} />
           </div>
           <ChartContainer className="h-44 min-w-0">
-            <ResponsiveContainer width="100%" height="100%" debounce={50}>
-              <BarChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
+            {({ width, height }) => (
+              <BarChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
                 <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                 <YAxis hide />
@@ -243,7 +242,7 @@ export default function HomeScreen() {
                 <Bar name="Ingresos" dataKey={(d) => d.income + d.profit} fill="#10b981" radius={[4, 4, 0, 0]} />
                 <Bar name="Gastos" dataKey="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
+            )}
           </ChartContainer>
         </Card>
       </div>
