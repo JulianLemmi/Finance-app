@@ -4,7 +4,7 @@ import {
   Check, Receipt, Trash2, Calendar, AlertTriangle, CalendarRange,
   TrendingUp, Clock,
 } from "lucide-react";
-import { uid, todayISO, addDays, formatDate, formatShortDate } from "../lib/utils.js";
+import { uid, todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../lib/utils.js";
 import { GUARANTY_TYPES } from "../lib/constants.js";
 import { compoundPeriods } from "../lib/calcs.js";
 import { uploadPhoto, deletePhoto } from "../lib/storage.js";
