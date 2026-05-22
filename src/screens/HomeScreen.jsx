@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Wallet, Sparkles, Target, TrendingUp,
-  Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, CheckCircle2, Search,
+  Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
 import { useApp } from "../store/index.js";
@@ -19,6 +19,9 @@ export default function HomeScreen() {
   const cur = state.settings.currency;
 
   const [now, setNow] = useState(() => new Date());
+  const [showUpcoming, setShowUpcoming] = useState(true);
+  const [showHistory, setShowHistory] = useState(true);
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -250,82 +253,107 @@ export default function HomeScreen() {
 
       <div>
         <SectionTitle action={
-          <button onClick={() => dispatch({ type: "SET_TAB", payload: "loans" })}
-            className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
-            Ver todos
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => dispatch({ type: "SET_TAB", payload: "loans" })}
+              className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300">
+              Ver todos
+            </button>
+            <button
+              onClick={() => setShowUpcoming((v) => !v)}
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-300"
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${showUpcoming ? "" : "-rotate-180"}`} />
+            </button>
+          </div>
         }>
           Próximos vencimientos
         </SectionTitle>
-        {derived.upcomingDue.length === 0 ? (
-          <EmptyState Icon={CheckCircle2} title="No hay vencimientos próximos"
-            hint="Todos los préstamos están al día o sin fecha próxima." />
-        ) : (
-          <Card className="divide-y divide-zinc-800/70">
-            {derived.upcomingDue.map((l) => (
-              <button key={l.id}
-                onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id: l.id } } })}
-                className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-900/60"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                    l._status === "overdue" ? "bg-rose-500/10 text-rose-400"
-                      : l._daysUntilDue !== null && l._daysUntilDue <= 3 ? "bg-amber-500/10 text-amber-400"
-                      : "bg-zinc-800 text-zinc-400"
-                  }`}>
-                    <CalendarClock className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-zinc-100">{l.clientName}</div>
-                    <div className="mt-0.5 text-[11px] text-zinc-500">
-                      {l._status === "overdue"
-                        ? `Atrasado ${Math.abs(l._daysUntilDue)}d · ${formatShortDate(l.dueDate)}`
-                        : l._daysUntilDue === 0
-                        ? `Vence hoy · ${formatShortDate(l.dueDate)}`
-                        : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
+        <div style={{ display: "grid", gridTemplateRows: showUpcoming ? "1fr" : "0fr", transition: "grid-template-rows 300ms ease", overflow: "hidden" }}>
+          <div style={{ minHeight: 0 }}>
+            {derived.upcomingDue.length === 0 ? (
+              <EmptyState Icon={CheckCircle2} title="No hay vencimientos próximos"
+                hint="Todos los préstamos están al día o sin fecha próxima." />
+            ) : (
+              <Card className="divide-y divide-zinc-800/70">
+                {derived.upcomingDue.map((l) => (
+                  <button key={l.id}
+                    onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id: l.id } } })}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-900/60"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                        l._status === "overdue" ? "bg-rose-500/10 text-rose-400"
+                          : l._daysUntilDue !== null && l._daysUntilDue <= 3 ? "bg-amber-500/10 text-amber-400"
+                          : "bg-zinc-800 text-zinc-400"
+                      }`}>
+                        <CalendarClock className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-zinc-100">{l.clientName}</div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500">
+                          {l._status === "overdue"
+                            ? `Atrasado ${Math.abs(l._daysUntilDue)}d · ${formatShortDate(l.dueDate)}`
+                            : l._daysUntilDue === 0
+                            ? `Vence hoy · ${formatShortDate(l.dueDate)}`
+                            : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                      <Money value={l._remaining} hide={hide} currency={cur} />
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                          <Money value={l._remaining} hide={hide} currency={cur} />
+                        </div>
+                        <div className="text-[11px] text-zinc-500 tabular-nums">
+                          {Number(l.interestRate).toFixed(1)}%
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-zinc-600" />
                     </div>
-                    <div className="text-[11px] text-zinc-500 tabular-nums">
-                      {Number(l.interestRate).toFixed(1)}%
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-zinc-600" />
-                </div>
-              </button>
-            ))}
-          </Card>
-        )}
+                  </button>
+                ))}
+              </Card>
+            )}
+          </div>
+        </div>
       </div>
 
       {state.history.length > 0 && (
         <div>
-          <SectionTitle>Actividad reciente</SectionTitle>
-          <Card className="divide-y divide-zinc-800/70">
-            {state.history.slice(0, 5).map((h) => (
-              <div key={h.id} className="flex items-center justify-between px-4 py-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">
-                    {h.kind === "loan_created"
-                      ? <Plus className="h-4 w-4 text-zinc-400" />
-                      : <ArrowDown className="h-4 w-4 text-emerald-400" />}
+          <SectionTitle action={
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-300"
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${showHistory ? "" : "-rotate-180"}`} />
+            </button>
+          }>
+            Actividad reciente
+          </SectionTitle>
+          <div style={{ display: "grid", gridTemplateRows: showHistory ? "1fr" : "0fr", transition: "grid-template-rows 300ms ease", overflow: "hidden" }}>
+            <div style={{ minHeight: 0 }}>
+              <Card className="divide-y divide-zinc-800/70">
+                {state.history.slice(0, 5).map((h) => (
+                  <div key={h.id} className="flex items-center justify-between px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">
+                        {h.kind === "loan_created"
+                          ? <Plus className="h-4 w-4 text-zinc-400" />
+                          : <ArrowDown className="h-4 w-4 text-emerald-400" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm text-zinc-200">{h.label}</div>
+                        <div className="text-[11px] text-zinc-500">{h.date}</div>
+                      </div>
+                    </div>
+                    <div className="text-sm font-medium tabular-nums text-zinc-100">
+                      <Money value={h.amount} hide={hide} currency={cur} />
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-zinc-200">{h.label}</div>
-                    <div className="text-[11px] text-zinc-500">{h.date}</div>
-                  </div>
-                </div>
-                <div className="text-sm font-medium tabular-nums text-zinc-100">
-                  <Money value={h.amount} hide={hide} currency={cur} />
-                </div>
-              </div>
-            ))}
-          </Card>
+                ))}
+              </Card>
+            </div>
+          </div>
         </div>
       )}
     </div>
