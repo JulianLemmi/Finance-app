@@ -25,7 +25,7 @@ export function compoundReturn(loan) {
     return base * Math.pow(1 + rate, periods);
   }
 
-  if (!loan.compoundInterest || !loan.dueDate) return expectedReturn(loan);
+  if (!loan.dueDate) return expectedReturn(loan);
   const daysOverdue = daysBetween(loan.dueDate, today);
   if (daysOverdue <= 0) return expectedReturn(loan);
   const termDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);

@@ -117,18 +117,18 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   const daysOverdue = loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, today)) : 0;
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
 
-  // Build overdue periods for ALL overdue loans regardless of compoundInterest flag
+  // Build overdue periods — starts from i=1 (i=0 is the original due date, already shown as "VENCIDO")
   const overdueTimelinePeriods = useMemo(() => {
     if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
     const rate = Number(loan.interestRate) / 100;
     const base = Number(loan.amount);
     const result = [];
-    for (let i = 0; i <= currentCompoundPeriods; i++) {
+    for (let i = 1; i <= currentCompoundPeriods; i++) {
       const prev = base * Math.pow(1 + rate, i);
       const current = base * Math.pow(1 + rate, i + 1);
       result.push({
-        period: i + 1,
-        date: i === 0 ? loan.dueDate : addDays(loan.dueDate, i * loanTermDays),
+        period: i,
+        date: addDays(loan.dueDate, i * loanTermDays),
         total: current,
         added: current - prev,
         isCurrent: i === currentCompoundPeriods,
@@ -302,7 +302,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                         <div>
                           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-rose-400">
                             <AlertTriangle className="h-3 w-3" />
-                            Cargo por mora — período {p.period}
+                            Cargo por mora {p.period}
                             {p.isCurrent && <Badge tone="danger">Actual</Badge>}
                           </div>
                           <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(p.date)}</div>
