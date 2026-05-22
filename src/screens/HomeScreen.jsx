@@ -3,7 +3,7 @@ import {
   Eye, EyeOff, Bell, Plus, Wallet, Sparkles, Target, TrendingUp,
   Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
 } from "lucide-react";
-import { formatShortDate } from "../lib/utils.js";
+import { formatShortDate, daysBetween, addDays } from "../lib/utils.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
@@ -296,6 +296,9 @@ export default function HomeScreen() {
                             : l._daysUntilDue === 0
                             ? `Vence hoy · ${formatShortDate(l.dueDate)}`
                             : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-600">
+                          ↻ {formatShortDate(addDays(l.dueDate, Math.max(1, daysBetween(l.startDate, l.dueDate))))}
                         </div>
                       </div>
                     </div>
