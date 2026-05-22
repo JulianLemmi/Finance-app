@@ -7,7 +7,7 @@ import { formatShortDate } from "../lib/utils.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES } from "../lib/constants.js";
 import { useApp } from "../store/index.js";
 import {
-  Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip, Button,
+  Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip, Button, ChartContainer,
 } from "../components/ui.jsx";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
@@ -213,7 +213,7 @@ export default function FinanceScreen() {
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Flujo mensual</div>
               <Badge tone="neutral">Últimos 6 meses</Badge>
             </div>
-            <div className="h-44 min-w-0">
+            <ChartContainer className="h-44 min-w-0">
               <ResponsiveContainer width="100%" height="100%" debounce={50}>
                 <BarChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
                   <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
@@ -224,7 +224,7 @@ export default function FinanceScreen() {
                   <Bar name="Gastos" dataKey="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
+            </ChartContainer>
           </Card>
 
           <div>
@@ -269,7 +269,7 @@ export default function FinanceScreen() {
                 hint="Cuando registres gastos vas a ver la distribución por categoría acá." />
             ) : (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-5">
-                <div className="sm:col-span-2 h-48 min-w-0">
+                <ChartContainer className="sm:col-span-2 h-48 min-w-0">
                   <ResponsiveContainer width="100%" height="100%" debounce={50}>
                     <PieChart>
                       <Pie data={derived.expenseByCategory} dataKey="value" nameKey="label"
@@ -279,7 +279,7 @@ export default function FinanceScreen() {
                       <Tooltip content={<ChartTooltip hide={hide} currency={cur} />} />
                     </PieChart>
                   </ResponsiveContainer>
-                </div>
+                </ChartContainer>
                 <div className="sm:col-span-3 space-y-2">
                   {derived.expenseByCategory.sort((a, b) => b.value - a.value).map((c) => {
                     const pct = derived.totalExpense ? (c.value / derived.totalExpense) * 100 : 0;
@@ -464,7 +464,7 @@ export default function FinanceScreen() {
                 Interés compuesto
               </Badge>
             </div>
-            <div className="h-56 min-w-0">
+            <ChartContainer className="h-56 min-w-0">
               <ResponsiveContainer width="100%" height="100%" debounce={50}>
                 <AreaChart data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
@@ -509,7 +509,7 @@ export default function FinanceScreen() {
                     activeDot={{ r: 4, fill: "#f59e0b", stroke: "#0a0a0b", strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
-            </div>
+            </ChartContainer>
             <div className="mt-3 text-[11px] text-zinc-600">
               Estimación informativa basada en tasa y plazo promedio de préstamos activos.
             </div>

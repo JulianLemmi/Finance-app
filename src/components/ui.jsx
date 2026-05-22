@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Shield, ChevronDown, X, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
@@ -285,4 +285,11 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
       </div>
     </div>
   );
+}
+
+// Wrapper that defers chart rendering until after first paint to avoid Recharts width/height -1 warning
+export function ChartContainer({ className, children }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(true); }, []);
+  return <div className={className}>{ready && children}</div>;
 }

@@ -7,7 +7,7 @@ import { formatShortDate } from "../lib/utils.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
-  DeltaPill, Badge, IconButton,
+  DeltaPill, Badge, IconButton, ChartContainer,
 } from "../components/ui.jsx";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -201,7 +201,7 @@ export default function HomeScreen() {
             </div>
             <Badge tone="bronze">Últimos 6 meses</Badge>
           </div>
-          <div className="h-44 min-w-0">
+          <ChartContainer className="h-44 min-w-0">
             <ResponsiveContainer width="100%" height="100%" debounce={50}>
               <AreaChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
@@ -219,7 +219,7 @@ export default function HomeScreen() {
                   stroke="#f59e0b" strokeWidth={2} fill="url(#capitalFill)" />
               </AreaChart>
             </ResponsiveContainer>
-          </div>
+          </ChartContainer>
         </Card>
 
         <Card className="p-5">
@@ -232,7 +232,7 @@ export default function HomeScreen() {
             </div>
             <DeltaPill value={monthDelta} label={monthDelta >= 0 ? "Positivo" : "Negativo"} />
           </div>
-          <div className="h-44 min-w-0">
+          <ChartContainer className="h-44 min-w-0">
             <ResponsiveContainer width="100%" height="100%" debounce={50}>
               <BarChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
                 <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
@@ -244,7 +244,7 @@ export default function HomeScreen() {
                 <Bar name="Gastos" dataKey="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartContainer>
         </Card>
       </div>
 
