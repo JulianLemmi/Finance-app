@@ -137,6 +137,43 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
     return result;
   }, [loan, loanTermDays, currentCompoundPeriods]);
 
+  // Merge all timeline events sorted by date
+  const allTimelineEvents = useMemo(() => {
+    const totalInterestAccrued = Math.max(0, loan._compoundReturn - Number(loan.amount));
+    const events = [];
+
+    events.push({ type: "start", date: loan.startDate });
+    if (loan.dueDate) events.push({ type: "due", date: loan.dueDate });
+    overdueTimelinePeriods.forEach(p => events.push({ type: "mora", ...p }));
+
+    // Payments with cumulative interest tracking
+    let cumulativePaid = 0;
+    [...(loan.payments || [])].sort((a, b) => a.date < b.date ? -1 : 1).forEach(p => {
+      const prevCumulative = cumulativePaid;
+      cumulativePaid += Number(p.amount);
+      const interestBefore = Math.min(prevCumulative, totalInterestAccrued);
+      const interestAfter = Math.min(cumulativePaid, totalInterestAccrued);
+      events.push({
+        type: "payment",
+        id: p.id,
+        date: p.date,
+        amount: Number(p.amount),
+        note: p.note,
+        interestInPayment: interestAfter - interestBefore,
+        totalInterestAccrued,
+      });
+    });
+
+    events.sort((a, b) => {
+      if (a.date < b.date) return -1;
+      if (a.date > b.date) return 1;
+      const order = { start: 0, due: 1, mora: 2, payment: 3 };
+      return (order[a.type] ?? 9) - (order[b.type] ?? 9);
+    });
+
+    return events;
+  }, [loan, overdueTimelinePeriods]);
+
   const nextOverdueDate = loan._status === "overdue" && loan.dueDate
     ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
     : null;
@@ -231,95 +268,115 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
           <div>
             <SectionTitle>Línea de tiempo</SectionTitle>
             <div className="relative">
-              {/* Vertical connecting line */}
               <div className="absolute left-[11px] top-4 bottom-4 w-px bg-zinc-800" />
               <div className="space-y-1">
 
-                {/* Inicio */}
-                <div className="relative flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/40">
-                  <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-emerald-700/60 bg-emerald-950/80">
-                    <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Inicio del préstamo</div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(loan.startDate)}</div>
+                {allTimelineEvents.map((ev, idx) => {
+                  if (ev.type === "start") return (
+                    <div key="start" className="relative flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/40">
+                      <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-emerald-700/60 bg-emerald-950/80">
+                        <div className="h-2 w-2 rounded-full bg-emerald-400" />
                       </div>
-                      <div className="text-right">
-                        <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                          <Money value={loan.amount} hide={hide} currency={cur} />
+                      <div className="flex flex-1 items-center justify-between">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Inicio del préstamo</div>
+                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(loan.startDate)}</div>
                         </div>
-                        <div className="text-[11px] text-zinc-500">Capital prestado</div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                            <Money value={loan.amount} hide={hide} currency={cur} />
+                          </div>
+                          <div className="text-[11px] text-zinc-500">Capital prestado</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  );
 
-                {/* Vencimiento */}
-                <div className={`relative flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/40 ${loan._status === "overdue" ? "bg-rose-950/10" : ""}`}>
-                  <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full ${
-                    loan._status === "overdue"
-                      ? "border border-rose-700/60 bg-rose-950/80"
-                      : "border border-amber-700/60 bg-amber-950/80"
-                  }`}>
-                    <div className={`h-2 w-2 rounded-full ${loan._status === "overdue" ? "bg-rose-400" : "bg-amber-400"}`} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className={`text-xs font-semibold uppercase tracking-wider ${loan._status === "overdue" ? "text-rose-400" : "text-amber-400"}`}>
-                          {loan._status === "overdue" ? "Vencido" : "Vencimiento"}
-                          {loan._status === "overdue" && (
-                            <span className="ml-1.5 font-normal normal-case text-rose-500">
-                              (hace {Math.abs(loan._daysUntilDue ?? 0)}d)
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(loan.dueDate)}</div>
+                  if (ev.type === "due") return (
+                    <div key="due" className={`relative flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/40 ${loan._status === "overdue" ? "bg-rose-950/10" : ""}`}>
+                      <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full ${loan._status === "overdue" ? "border border-rose-700/60 bg-rose-950/80" : "border border-amber-700/60 bg-amber-950/80"}`}>
+                        <div className={`h-2 w-2 rounded-full ${loan._status === "overdue" ? "bg-rose-400" : "bg-amber-400"}`} />
                       </div>
-                      <div className="text-right">
-                        <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                          <Money value={loan._return} hide={hide} currency={cur} />
+                      <div className="flex flex-1 items-center justify-between">
+                        <div>
+                          <div className={`text-xs font-semibold uppercase tracking-wider ${loan._status === "overdue" ? "text-rose-400" : "text-amber-400"}`}>
+                            {loan._status === "overdue" ? "Vencido" : "Vencimiento"}
+                            {loan._status === "overdue" && (
+                              <span className="ml-1.5 font-normal normal-case text-rose-500">(hace {Math.abs(loan._daysUntilDue ?? 0)}d)</span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(loan.dueDate)}</div>
                         </div>
-                        <div className="text-[11px] text-emerald-400/80 tabular-nums">
-                          +<Money value={loan._profit} hide={hide} currency={cur} />
-                          {" "}({Number(loan.interestRate).toFixed(1)}%)
+                        <div className="text-right">
+                          <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                            <Money value={loan._return} hide={hide} currency={cur} />
+                          </div>
+                          <div className="text-[11px] text-emerald-400/80 tabular-nums">
+                            +<Money value={loan._profit} hide={hide} currency={cur} /> ({Number(loan.interestRate).toFixed(1)}%)
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  );
 
-                {/* Períodos de mora */}
-                {overdueTimelinePeriods.map((p) => (
-                  <div key={p.period} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${p.isCurrent ? "bg-rose-950/20 ring-1 ring-rose-900/40" : "hover:bg-zinc-900/40"}`}>
-                    <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-rose-700/70 ${p.isCurrent ? "bg-rose-900/60" : "bg-rose-950/60"}`}>
-                      <div className={`h-2 w-2 rounded-full bg-rose-500 ${p.isCurrent ? "animate-pulse" : ""}`} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
+                  if (ev.type === "mora") return (
+                    <div key={`mora-${ev.period}`} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${ev.isCurrent ? "bg-rose-950/20 ring-1 ring-rose-900/40" : "hover:bg-zinc-900/40"}`}>
+                      <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-rose-700/70 ${ev.isCurrent ? "bg-rose-900/60" : "bg-rose-950/60"}`}>
+                        <div className={`h-2 w-2 rounded-full bg-rose-500 ${ev.isCurrent ? "animate-pulse" : ""}`} />
+                      </div>
+                      <div className="flex flex-1 items-center justify-between">
                         <div>
                           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-rose-400">
                             <AlertTriangle className="h-3 w-3" />
-                            Cargo por mora {p.period}
-                            {p.isCurrent && <Badge tone="danger">Actual</Badge>}
+                            Cargo por mora {ev.period}
+                            {ev.isCurrent && <Badge tone="danger">Actual</Badge>}
                           </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(p.date)}</div>
+                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-semibold tabular-nums text-rose-200">
-                            <Money value={p.total} hide={hide} currency={cur} />
+                            <Money value={ev.total} hide={hide} currency={cur} />
                           </div>
                           <div className="text-[11px] text-rose-400 tabular-nums font-medium">
-                            +<Money value={p.added} hide={hide} currency={cur} />
-                            {" "}({Number(loan.interestRate).toFixed(1)}%)
+                            +<Money value={ev.added} hide={hide} currency={cur} /> ({Number(loan.interestRate).toFixed(1)}%)
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+
+                  if (ev.type === "payment") return (
+                    <div key={ev.id} className="relative flex items-start gap-3 rounded-xl bg-emerald-950/10 px-3 py-3 ring-1 ring-emerald-900/30">
+                      <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-emerald-700/60 bg-emerald-950/80">
+                        <ArrowDown className="h-3 w-3 text-emerald-400" />
+                      </div>
+                      <div className="flex flex-1 items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">
+                            <TrendingUp className="h-3 w-3" />
+                            Pago recibido
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-zinc-500">
+                            {formatDate(ev.date)}{ev.note ? ` · ${ev.note}` : ""}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold tabular-nums text-emerald-300">
+                            <Money value={ev.amount} hide={hide} currency={cur} />
+                          </div>
+                          {ev.interestInPayment > 0.01 && (
+                            <div className="text-[11px] text-zinc-500 tabular-nums">
+                              Interés cubierto: <span className="text-amber-400"><Money value={ev.interestInPayment} hide={hide} currency={cur} /></span>
+                              {" "}<span className="text-zinc-600">/ <Money value={ev.totalInterestAccrued} hide={hide} currency={cur} /></span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+
+                  return null;
+                })}
 
                 {/* Próximo cargo proyectado */}
                 {nextOverdueDate && (
@@ -327,24 +384,16 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                     <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-700/60 bg-zinc-900">
                       <Clock className="h-3 w-3 text-zinc-600" />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                            Próximo cargo proyectado
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-600">
-                            {formatDate(nextOverdueDate)} · si no se paga
-                          </div>
+                    <div className="flex flex-1 items-center justify-between">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Próximo cargo proyectado</div>
+                        <div className="mt-0.5 text-[11px] text-zinc-600">{formatDate(nextOverdueDate)} · si no se paga</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-semibold tabular-nums text-zinc-500">
+                          +<Money value={nextOverdueAdded} hide={hide} currency={cur} />
                         </div>
-                        <div className="text-right">
-                          <div className="text-xs font-semibold tabular-nums text-zinc-500">
-                            +<Money value={nextOverdueAdded} hide={hide} currency={cur} />
-                          </div>
-                          <div className="text-[11px] text-zinc-600">
-                            ({Number(loan.interestRate).toFixed(1)}% adicional)
-                          </div>
-                        </div>
+                        <div className="text-[11px] text-zinc-600">({Number(loan.interestRate).toFixed(1)}% adicional)</div>
                       </div>
                     </div>
                   </div>
