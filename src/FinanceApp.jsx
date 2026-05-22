@@ -1,4 +1,4 @@
-import React, { useReducer, useEffect, useMemo, useState, useCallback } from "react";
+import React, { useReducer, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Briefcase, Sparkles, CheckCircle2 } from "lucide-react";
 import { initialState, reducer, AppContext, useDerived } from "./store/index.js";
 import { STORAGE_KEYS } from "./lib/constants.js";
@@ -9,6 +9,7 @@ import DollarRain from "./components/DollarRain.jsx";
 import BottomTabBar from "./components/BottomTabBar.jsx";
 import ModalRoot from "./components/ModalRoot.jsx";
 import WelcomeSplash from "./components/WelcomeSplash.jsx";
+import GlobalSearch from "./components/GlobalSearch.jsx";
 import HomeScreen from "./screens/HomeScreen.jsx";
 import LoansScreen from "./screens/LoansScreen.jsx";
 import ClientsScreen from "./screens/ClientsScreen.jsx";
@@ -220,29 +221,47 @@ function AuthedApp({ sessionUserId, userEmail }) {
     return () => clearTimeout(t);
   }, [state.assets, state.loaded]);
 
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
   const signOut = useCallback(async () => {
     try { await supabase?.auth.signOut(); } catch (e) { console.warn("signOut", e); }
   }, []);
 
   const ctx = useMemo(
-    () => ({ state, dispatch, derived, userEmail, signOut, userId: sessionUserId }),
-    [state, derived, userEmail, signOut, sessionUserId]
+    () => ({ state, dispatch, derived, userEmail, signOut, userId: sessionUserId, setSearchOpen }),
+    [state, derived, userEmail, signOut, sessionUserId, setSearchOpen]
   );
 
   const activeTab = state.ui.activeTab;
   useEffect(() => { window.scrollTo({ top: 0, behavior: "smooth" }); }, [activeTab]);
 
+  const isLight = state.settings.theme === "light";
+
   return (
     <AppContext.Provider value={ctx}>
       <WelcomeSplash userName={state.settings.userName?.trim()} />
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <GlobalStyles />
-      <div className="relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']">
-        <DollarRain />
-        <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
-          <div className="absolute -right-48 -top-48 h-[520px] w-[520px] rounded-full bg-amber-900/10 blur-[130px]" />
-          <div className="absolute -bottom-48 -left-48 h-[480px] w-[480px] rounded-full bg-amber-950/15 blur-[110px]" />
-          <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-zinc-800/10 blur-[80px]" />
-        </div>
+      <div className={`relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']${isLight ? " theme-light" : ""}`}>
+        {!isLight && <DollarRain />}
+        {!isLight && (
+          <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+            <div className="absolute -right-48 -top-48 h-[520px] w-[520px] rounded-full bg-amber-900/10 blur-[130px]" />
+            <div className="absolute -bottom-48 -left-48 h-[480px] w-[480px] rounded-full bg-amber-950/15 blur-[110px]" />
+            <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-zinc-800/10 blur-[80px]" />
+          </div>
+        )}
         <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8">
           {!state.loaded ? (
             <LoadingSkeleton />

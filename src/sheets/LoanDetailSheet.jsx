@@ -13,6 +13,7 @@ import {
   Sheet, Button, Input, Card, Badge, StatusBadge, SectionTitle,
   EmptyState, Money, ProgressBar,
 } from "../components/ui.jsx";
+import LoanChain from "../components/LoanChain.jsx";
 import PaymentSheet from "./PaymentSheet.jsx";
 import LoanFormSheet from "./LoanFormSheet.jsx";
 
@@ -106,6 +107,26 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
       payload: { id: loan.id, photos: (loan.photos || []).filter((p) => p.id !== photo.id) },
     });
   };
+
+  // Build full refinancing chain (root → ... → current → ... → latest)
+  const loanChain = useMemo(() => {
+    const all = derived.loansResolved;
+    let root = loan;
+    while (root.refinancedFromId) {
+      const parent = all.find((l) => l.id === root.refinancedFromId);
+      if (!parent) break;
+      root = parent;
+    }
+    const chain = [root];
+    let cur = root;
+    while (true) {
+      const next = all.find((l) => l.refinancedFromId === cur.id);
+      if (!next) break;
+      chain.push(next);
+      cur = next;
+    }
+    return chain;
+  }, [loan, derived.loansResolved]);
 
   const G = GUARANTY_TYPES[loan.guarantyType] || GUARANTY_TYPES.other;
   const loanTermDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
@@ -401,6 +422,14 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
               </div>
             </div>
           </div>
+
+          <LoanChain
+            chain={loanChain}
+            currentLoanId={loan.id}
+            onOpenLoan={(id) =>
+              dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id } } })
+            }
+          />
 
           <div>
             <SectionTitle action={

@@ -9,6 +9,7 @@ import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip, Button, ChartContainer,
 } from "../components/ui.jsx";
+import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -514,6 +515,8 @@ export default function FinanceScreen() {
               Estimación informativa basada en tasa y plazo promedio de préstamos activos.
             </div>
           </Card>
+
+          <PortfolioAnalytics />
         </>
       )}
     </div>

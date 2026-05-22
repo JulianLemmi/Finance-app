@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES } from "../lib/constants.js";
-import { uid, todayISO, monthKey, getMonthLabel, daysBetween } from "../lib/utils.js";
+import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, daysUntilDue,
@@ -14,7 +14,7 @@ export const initialState = {
   income: [],
   history: [],
   assets: [],
-  settings: { currency: "$", cashOnHand: 0, hideBalances: false, userName: "" },
+  settings: { currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark" },
   ui: { activeTab: "home", modal: null },
 };
 
@@ -264,6 +264,35 @@ export function useDerived(state) {
       });
     }
 
+    const todayStr = todayISO();
+
+    // Cobrabilidad: % of paid loans settled on time
+    const paidOnTimeCount = paidLoans.filter((l) => {
+      const sorted = [...(l.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+      return sorted.length > 0 && sorted[0].date <= l.dueDate;
+    }).length;
+    const collectabilityRate = paidLoans.length > 0 ? paidOnTimeCount / paidLoans.length : null;
+
+    // Average days late for currently overdue loans
+    const avgDaysLate =
+      overdueLoans.length > 0
+        ? overdueLoans.reduce((s, l) => s + Math.max(0, daysBetween(l.dueDate, todayStr)), 0) /
+          overdueLoans.length
+        : 0;
+
+    // Cash flow: expected collections per day for next 30 days
+    const cashFlow30d = Array.from({ length: 30 }, (_, i) => {
+      const dateStr = addDays(todayStr, i);
+      const dueLoans = [...activeLoans, ...overdueLoans].filter((l) => l.dueDate === dateStr);
+      return {
+        day: i,
+        date: dateStr,
+        expected: dueLoans.reduce((a, l) => a + l._remaining, 0),
+        count: dueLoans.length,
+        label: i === 0 ? "Hoy" : i % 7 === 0 ? `+${i}d` : "",
+      };
+    });
+
     const clientStats = state.clients.map((c) => {
       const cLoans = loansResolved.filter((l) => l.clientId === c.id);
       const active = cLoans.filter((l) => l._status === "active" || l._status === "overdue");
@@ -282,6 +311,7 @@ export function useDerived(state) {
       monthlyInterestsCollected, upcomingDue, expectedInflow30d, months,
       expenseByCategory, avgRate, avgDays, projections, projectionSeries, clientStats,
       totalExpectedProfit, totalDisbursed, expectedMonthlyProfit, monthlyReturnPct,
+      collectabilityRate, avgDaysLate, cashFlow30d, paidOnTimeCount,
     };
   }, [state.loans, state.income, state.expenses, state.settings, state.clients, state.assets]);
 }

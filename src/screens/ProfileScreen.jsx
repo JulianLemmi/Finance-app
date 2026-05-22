@@ -79,6 +79,18 @@ export default function ProfileScreen() {
       </div>
 
       <div className="space-y-3">
+        <SectionTitle>Apariencia</SectionTitle>
+        <Toggle
+          label="Modo claro"
+          hint="Cambia el tema de oscuro a claro en toda la app."
+          checked={state.settings.theme === "light"}
+          onChange={(v) =>
+            dispatch({ type: "UPDATE_SETTINGS", payload: { theme: v ? "light" : "dark" } })
+          }
+        />
+      </div>
+
+      <div className="space-y-3">
         <SectionTitle>Privacidad</SectionTitle>
         <Toggle label="Ocultar saldos" hint="Muestra los montos como ••••• en toda la app."
           checked={state.settings.hideBalances}

@@ -38,6 +38,50 @@ export default function GlobalStyles() {
         animation: shine 3.5s ease-in-out infinite;
         pointer-events: none;
       }
+
+      /* ── Light theme ─────────────────────────────────── */
+      .theme-light { background-color: #f5f2eb; color: #1c1917; color-scheme: light; }
+
+      /* Backgrounds */
+      .theme-light [class*="bg-[#06060a]"],
+      .theme-light [class*="bg-[#0d0a06]"],
+      .theme-light [class*="bg-zinc-950"] { background-color: #f5f2eb !important; }
+      .theme-light [class*="bg-zinc-900"] { background-color: rgba(255,253,249,0.92) !important; }
+      .theme-light [class*="bg-zinc-800"] { background-color: rgba(232,228,220,0.85) !important; }
+
+      /* Gradients from zinc → light */
+      .theme-light [class*="from-zinc-9"] { --tw-gradient-from: rgba(248,245,238,0.95) var(--tw-gradient-from-position) !important; }
+      .theme-light [class*="from-[#0d0a06]"] { --tw-gradient-from: rgba(248,245,238,0.95) var(--tw-gradient-from-position) !important; }
+      .theme-light [class*="via-[#0d0a06]"] { --tw-gradient-via: rgba(248,245,238,0.9) var(--tw-gradient-via-position) !important; }
+      .theme-light [class*="to-zinc-9"],
+      .theme-light [class*="to-amber-950"] { --tw-gradient-to: rgba(245,242,235,0.8) var(--tw-gradient-to-position) !important; }
+
+      /* Text */
+      .theme-light [class*="text-white"] { color: #1c1917 !important; }
+      .theme-light [class*="text-zinc-100"] { color: #1c1917 !important; }
+      .theme-light [class*="text-zinc-200"] { color: #292524 !important; }
+      .theme-light [class*="text-zinc-300"] { color: #44403c !important; }
+      .theme-light [class*="text-zinc-400"] { color: #57534e !important; }
+      .theme-light [class*="text-zinc-600"] { color: #78716c !important; }
+      .theme-light [class*="text-zinc-700"] { color: #a8a29e !important; }
+
+      /* Borders */
+      .theme-light [class*="border-zinc-7"],
+      .theme-light [class*="border-zinc-8"],
+      .theme-light [class*="border-zinc-9"] { border-color: rgba(200,196,188,0.65) !important; }
+
+      /* Form elements */
+      .theme-light input::placeholder,
+      .theme-light textarea::placeholder { color: #a8a29e !important; }
+      .theme-light select { color: #1c1917 !important; }
+      .theme-light select option { background-color: #f5f2eb; color: #1c1917; }
+
+      /* Hide canvas (DollarRain) */
+      .theme-light canvas { display: none !important; }
+
+      /* Scrollbar */
+      .theme-light ::-webkit-scrollbar-thumb { background: rgba(180,174,164,0.6); }
+      .theme-light ::selection { background: rgba(245,158,11,0.28); color: #1c1917; }
     `}</style>
   );
 }

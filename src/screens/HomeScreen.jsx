@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Wallet, Sparkles, Target, TrendingUp,
-  Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, CheckCircle2,
+  Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, CheckCircle2, Search,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
 import { useApp } from "../store/index.js";
@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 export default function HomeScreen() {
-  const { state, dispatch, derived } = useApp();
+  const { state, dispatch, derived, setSearchOpen } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
@@ -66,6 +66,7 @@ export default function HomeScreen() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <IconButton Icon={Search} onClick={() => setSearchOpen?.(true)} />
           <IconButton Icon={hide ? EyeOff : Eye}
             onClick={() => dispatch({ type: "UPDATE_SETTINGS", payload: { hideBalances: !hide } })} />
           <button
@@ -82,7 +83,7 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      <div className="glow-card relative overflow-hidden rounded-3xl border border-amber-800/25 bg-gradient-to-br from-zinc-900/95 via-[#0d0a06]/95 to-amber-950/40 p-6 shadow-[0_0_60px_rgba(120,53,15,0.18)] backdrop-blur-sm">
+      <div className={`relative overflow-hidden rounded-3xl border border-amber-800/25 bg-gradient-to-br from-zinc-900/95 via-[#0d0a06]/95 to-amber-950/40 p-6 shadow-[0_0_60px_rgba(120,53,15,0.18)] backdrop-blur-sm${state.settings.theme !== "light" ? " glow-card" : ""}`}>
         <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-amber-700/12 blur-[60px]" />
         <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-amber-900/18 blur-[50px]" />
         <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(245,158,11,0.02)_0%,transparent_60%)]" />
@@ -175,9 +176,9 @@ export default function HomeScreen() {
         <StatCard label="Ganancia mensual" Icon={TrendingUp} tone="success"
           value={<Money value={derived.monthlyInterestsCollected} hide={hide} currency={cur} />}
           hint="Intereses cobrados este mes" />
-        <StatCard label="Ganancia total esperada" Icon={Briefcase} tone="success"
-          value={<Money value={derived.totalExpectedProfit} hide={hide} currency={cur} />}
-          hint={`${derived.loansResolved.length} préstamo${derived.loansResolved.length === 1 ? "" : "s"} en total`} />
+        <StatCard label="Ganancia por cobrar" Icon={Briefcase} tone="success"
+          value={<Money value={derived.expectedProfitTotal} hide={hide} currency={cur} />}
+          hint={`${derived.activeLoans.length + derived.overdueLoans.length} activo${derived.activeLoans.length + derived.overdueLoans.length === 1 ? "" : "s"}`} />
         <StatCard label="Préstamos activos" Icon={Activity}
           value={derived.activeLoans.length + derived.overdueLoans.length}
           hint={derived.overdueLoans.length > 0
