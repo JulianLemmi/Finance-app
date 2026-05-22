@@ -298,7 +298,18 @@ export default function HomeScreen() {
                             : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
                         </div>
                         <div className="mt-0.5 text-[10px] text-zinc-600">
-                          ↻ {formatShortDate(addDays(l.dueDate < todayISO() ? todayISO() : l.dueDate, Math.max(1, daysBetween(l.startDate, l.dueDate))))}
+                          {(() => {
+                            const term = Math.max(1, daysBetween(l.startDate, l.dueDate) || 30);
+                            let nextDate;
+                            if (l._status === "overdue") {
+                              const overdueDays = Math.max(0, daysBetween(l.dueDate, todayISO()));
+                              const periods = Math.floor(overdueDays / term);
+                              nextDate = addDays(l.dueDate, (periods + 1) * term);
+                            } else {
+                              nextDate = addDays(l.dueDate, term);
+                            }
+                            return `↻ ${formatShortDate(nextDate)}`;
+                          })()}
                         </div>
                       </div>
                     </div>
