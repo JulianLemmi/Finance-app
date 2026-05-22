@@ -213,8 +213,8 @@ export default function FinanceScreen() {
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Flujo mensual</div>
               <Badge tone="neutral">Últimos 6 meses</Badge>
             </div>
-            <div className="h-44">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-44 min-w-0">
+              <ResponsiveContainer width="100%" height="100%" debounce={50}>
                 <BarChart data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
                   <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
@@ -269,8 +269,8 @@ export default function FinanceScreen() {
                 hint="Cuando registres gastos vas a ver la distribución por categoría acá." />
             ) : (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-5">
-                <div className="sm:col-span-2 h-48">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="sm:col-span-2 h-48 min-w-0">
+                  <ResponsiveContainer width="100%" height="100%" debounce={50}>
                     <PieChart>
                       <Pie data={derived.expenseByCategory} dataKey="value" nameKey="label"
                         innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none">
@@ -464,8 +464,8 @@ export default function FinanceScreen() {
                 Interés compuesto
               </Badge>
             </div>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-56 min-w-0">
+              <ResponsiveContainer width="100%" height="100%" debounce={50}>
                 <AreaChart data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
