@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import {
-  Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon, Target,
+  Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon,
+  Target, TrendingUp, Banknote, RefreshCw, Clock,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "../lib/constants.js";
@@ -10,7 +11,7 @@ import {
 } from "../components/ui.jsx";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
 function TxRow({ tx, onDelete }) {
@@ -70,6 +71,53 @@ export default function FinanceScreen() {
   const monthlyBalance = derived.months[derived.months.length - 1]?.income
     - derived.months[derived.months.length - 1]?.expense || 0;
   const cumulativeSaving = derived.months.reduce((a, m) => a + (m.income - m.expense), 0);
+
+  const projCalc = useMemo(() => {
+    const rate = derived.avgRate / 100;
+    const days = Math.max(1, derived.avgDays || 30);
+    const base = Math.max(0, derived.totalCapital);
+    const cyclesPerYear = 365 / days;
+    const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
+    const doublingYears = rate > 0
+      ? (Math.log(2) / Math.log(1 + rate)) * (days / 365)
+      : null;
+    const gainPerCycle = base * rate;
+
+    const n1 = 1;
+    const nYear = Math.max(1, Math.round(cyclesPerYear));
+    const n2yr = Math.max(2, Math.round(cyclesPerYear * 2));
+    const n3yr = Math.max(3, Math.round(cyclesPerYear * 3));
+
+    const cyclePoints = [n1, nYear, n2yr, n3yr].map((n) => {
+      const total = base * Math.pow(1 + rate, n);
+      const approxYears = (n * days) / 365;
+      return {
+        n,
+        label: n === 1 ? "1 ciclo" : `${n} ciclos`,
+        sublabel: n === 1
+          ? `~${Math.round(days)} días`
+          : approxYears < 1.5
+          ? `~${Math.round(approxYears * 12)} meses`
+          : `~${approxYears.toFixed(1)} años`,
+        total,
+        profit: total - base,
+        pct: (Math.pow(1 + rate, n) - 1) * 100,
+      };
+    });
+
+    const profitSeries = Array.from({ length: 25 }, (_, i) => {
+      const cycles = (i * 30) / days;
+      const total = base * Math.pow(1 + rate, cycles);
+      return {
+        mes: i,
+        label: i % 6 === 0 ? (i === 0 ? "Hoy" : `${i}m`) : "",
+        ganancia: Math.round(total - base),
+        total: Math.round(total),
+      };
+    });
+
+    return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
+  }, [derived.avgRate, derived.avgDays, derived.totalCapital]);
 
   return (
     <div className="space-y-5 pb-2">
@@ -257,65 +305,136 @@ export default function FinanceScreen() {
 
       {sub === "projection" && (
         <>
-          <Card className="overflow-hidden p-5">
-            <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wider text-amber-500/80">
+          {/* Tasa efectiva anual + métricas clave */}
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="p-4">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10">
+                <TrendingUp className="h-3.5 w-3.5 text-amber-400" />
+              </div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Tasa efectiva anual</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-amber-400">
+                {(projCalc.tea * 100).toFixed(1)}%
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">
+                {derived.avgRate.toFixed(1)}% × {projCalc.cyclesPerYear.toFixed(1)} ciclos
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10">
+                <Banknote className="h-3.5 w-3.5 text-emerald-400" />
+              </div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia por ciclo</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-400">
+                <Money value={projCalc.gainPerCycle} hide={hide} currency={cur} />
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">
+                cada ~{Math.round(projCalc.days)} días
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-800/70">
+                <Clock className="h-3.5 w-3.5 text-zinc-400" />
+              </div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Duplicación</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-100">
+                {projCalc.doublingYears != null ? `${projCalc.doublingYears.toFixed(1)} años` : "—"}
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">
+                reinvirtiendo todo
+              </div>
+            </Card>
+          </div>
+
+          {/* Proyecciones por ciclo */}
+          <Card className="p-5">
+            <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-amber-500/80">
               <Target className="h-3 w-3" />
-              Proyección
+              Proyección por ciclos de préstamo
             </div>
-            <div className="text-sm text-zinc-300">
-              Asumiendo interés promedio de{" "}
-              <span className="font-medium text-zinc-100 tabular-nums">{derived.avgRate.toFixed(1)}%</span>{" "}
-              y plazo de{" "}
-              <span className="font-medium text-zinc-100 tabular-nums">{Math.round(derived.avgDays)} días</span>.
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { l: "1 mes", v: derived.projections.m1 },
-                { l: "3 meses", v: derived.projections.m3 },
-                { l: "6 meses", v: derived.projections.m6 },
-                { l: "1 año", v: derived.projections.y1 },
-              ].map((p) => (
-                <div key={p.l} className="rounded-xl border border-zinc-800/70 bg-zinc-950/60 p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-zinc-500">{p.l}</div>
-                  <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100">
-                    <Money value={p.v} hide={hide} currency={cur} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {projCalc.cyclePoints.map((p) => (
+                <div key={p.n}
+                  className="rounded-xl border border-zinc-800/70 bg-zinc-950/60 p-3">
+                  <div className="text-[11px] font-medium text-zinc-300">{p.label}</div>
+                  <div className="mt-0.5 text-[10px] text-zinc-600">{p.sublabel}</div>
+                  <div className="mt-2 text-base font-semibold tabular-nums text-zinc-100">
+                    <Money value={p.total} hide={hide} currency={cur} />
                   </div>
-                  <div className="mt-0.5 text-[11px] text-emerald-400 tabular-nums">
-                    +<Money value={p.v - derived.totalCapital} hide={hide} currency={cur} />
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span className="text-[11px] font-medium tabular-nums text-emerald-400">
+                      +<Money value={p.profit} hide={hide} currency={cur} />
+                    </span>
+                    <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 tabular-nums">
+                      +{p.pct.toFixed(1)}%
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
           </Card>
 
+          {/* Gráfico: ganancia acumulada (arranca en 0) */}
           <Card className="p-5">
             <div className="mb-3 flex items-center justify-between">
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">
-                Crecimiento estimado · 12 meses
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Ganancia acumulada proyectada
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-600">24 meses · reinversión continua</div>
               </div>
-              <Badge tone="bronze">Reinversión continua</Badge>
+              <Badge tone="bronze">
+                <RefreshCw className="h-3 w-3" />
+                Interés compuesto
+              </Badge>
             </div>
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={derived.projectionSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="projLine" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#b45309" />
-                      <stop offset="100%" stopColor="#f59e0b" />
+                    <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#d97706" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                  <YAxis hide />
-                  <Tooltip content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Line type="monotone" name="Capital proyectado" dataKey="value"
-                    stroke="url(#projLine)" strokeWidth={2.5} dot={{ r: 0 }}
+                  <XAxis dataKey="label" axisLine={false} tickLine={false}
+                    tick={{ fill: "#71717a", fontSize: 11 }} interval={0} />
+                  <YAxis hide domain={[0, "auto"]} />
+                  <Tooltip
+                    cursor={{ stroke: "#3f3f46", strokeDasharray: "3 3" }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
+                          <div className="mb-1 text-zinc-400">Mes {d.mes}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-amber-500" />
+                            <span className="text-zinc-400">Ganancia:</span>
+                            <span className="font-medium text-zinc-100 tabular-nums">
+                              {hide ? "••••••" : `${cur}${d.ganancia.toLocaleString("es-AR")}`}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-zinc-600" />
+                            <span className="text-zinc-400">Capital:</span>
+                            <span className="font-medium text-zinc-100 tabular-nums">
+                              {hide ? "••••••" : `${cur}${d.total.toLocaleString("es-AR")}`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area type="monotone" name="Ganancia" dataKey="ganancia"
+                    stroke="#f59e0b" strokeWidth={2.5} fill="url(#gainFill)"
+                    dot={{ r: 0 }}
                     activeDot={{ r: 4, fill: "#f59e0b", stroke: "#0a0a0b", strokeWidth: 2 }} />
-                </LineChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-3 text-[11px] text-zinc-500">
-              Estimación informativa, no garantiza rendimiento real. Se recalcula según tus operaciones activas.
+            <div className="mt-3 text-[11px] text-zinc-600">
+              Estimación informativa basada en tasa y plazo promedio de préstamos activos.
             </div>
           </Card>
         </>
