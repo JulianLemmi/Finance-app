@@ -1,34 +1,29 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import {
-  Edit2, RefreshCw, Layers, Banknote, Camera, X, ArrowDown,
-  Check, Receipt, Trash2, Calendar, AlertTriangle, CalendarRange,
-  TrendingUp, Clock, ChevronUp, ChevronDown,
+  Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange,
 } from "lucide-react";
-import { uid, todayISO, todayDate, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
+import { todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
-import { expectedReturn, resolvePaymentPos } from "../../lib/calcs.js";
-import { uploadPhoto, deletePhoto } from "../../lib/storage.js";
 import { useApp } from "../../store/index.js";
+import { uid } from "../../lib/utils.js";
 import {
   Sheet, Button, Input, Card, Badge, StatusBadge, SectionTitle,
-  EmptyState, Money, ProgressBar,
+  Money, ProgressBar,
 } from "../../components/ui.jsx";
 import LoanChain from "./LoanChain.jsx";
 import PaymentSheet from "./PaymentSheet.jsx";
 import LoanFormSheet from "./LoanFormSheet.jsx";
+import LoanTimeline from "./LoanTimeline.jsx";
+import PaymentHistory from "./PaymentHistory.jsx";
+import PhotoGallery from "./PhotoGallery.jsx";
 
 export default function LoanDetailSheet({ open, onClose, loanId }) {
-  const { state, dispatch, derived } = useApp();
+  const { state, dispatch, derived, userId } = useApp();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [extendOpen, setExtendOpen] = useState(false);
   const [extendDays, setExtendDays] = useState("15");
-  const [editingPayment, setEditingPayment] = useState(null);
-  const [deletingPaymentId, setDeletingPaymentId] = useState(null);
-  const [lightboxPhoto, setLightboxPhoto] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const photoInputRef = useRef(null);
 
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
@@ -37,7 +32,14 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
 
   if (!loan) return null;
 
-  const userId = state.userId;
+  const loanTermDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
+
+  const daysOverdue = loan._status === "overdue"
+    ? Math.max(0, daysBetween(loan.dueDate, todayISO()))
+    : 0;
+  const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
 
   const onRefinance = () => {
     const newDue = addDays(todayISO(), 30);
@@ -68,81 +70,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
     setExtendOpen(false);
   };
 
-  const onMarkPaid = () => {
-    const r = loan._remaining;
-    if (r > 0) {
-      dispatch({
-        type: "ADD_PAYMENT",
-        payload: {
-          loanId: loan.id,
-          payment: { id: uid("pay"), amount: r, date: todayISO(), note: "Pago final", createdAt: Date.now() },
-        },
-      });
-    }
-  };
-
   const onDelete = () => {
     dispatch({ type: "DELETE_LOAN", payload: loan.id });
     onClose();
   };
 
-  const onDeletePayment = (paymentId) => {
-    dispatch({
-      type: "UPDATE_LOAN",
-      payload: { id: loan.id, payments: (loan.payments || []).filter((p) => p.id !== paymentId) },
-    });
-    setDeletingPaymentId(null);
-  };
-
-  const movePaymentInTimeline = (paymentId, direction) => {
-    const payment = (loan.payments || []).find((p) => p.id === paymentId);
-    if (!payment) return;
-    const currentPos = payment.timelinePos || 0;
-    const newPos = direction === "down"
-      ? Math.min(currentPos + 1, currentCompoundPeriods)
-      : Math.max(currentPos - 1, 0);
-    const updated = (loan.payments || []).map((p) =>
-      p.id === paymentId ? { ...p, timelinePos: newPos } : p
-    );
-    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
-  };
-
-  const onSavePaymentEdit = () => {
-    if (!editingPayment) return;
-    const updated = (loan.payments || []).map((p) =>
-      p.id === editingPayment.id
-        ? { ...p, amount: Number(editingPayment.amount) || p.amount, date: editingPayment.date || p.date, note: editingPayment.note }
-        : p
-    );
-    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
-    setEditingPayment(null);
-  };
-
-  const addPhotos = async (files) => {
-    if (!files?.length) return;
-    setUploading(true);
-    try {
-      const newPhotos = await Promise.all(
-        Array.from(files).map((file) => uploadPhoto(userId, loan.id, file))
-      );
-      dispatch({
-        type: "UPDATE_LOAN",
-        payload: { id: loan.id, photos: [...(loan.photos || []), ...newPhotos] },
-      });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removePhoto = async (photo) => {
-    await deletePhoto(photo);
-    dispatch({
-      type: "UPDATE_LOAN",
-      payload: { id: loan.id, photos: (loan.photos || []).filter((p) => p.id !== photo.id) },
-    });
-  };
-
-  // Build full refinancing chain (root → ... → current → ... → latest)
   const loanChain = useMemo(() => {
     const all = derived.loansResolved;
     let root = loan;
@@ -163,102 +95,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   }, [loan, derived.loansResolved]);
 
   const G = GUARANTY_TYPES[loan.guarantyType] || GUARANTY_TYPES.other;
-  const loanTermDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
-  const hide = state.settings.hideBalances;
-  const cur = state.settings.currency;
-
-  const daysOverdue = loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, todayDate())) : 0;
-  const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
-
-  // Build overdue periods using the same step-by-step simulation as remainingDebt() in calcs.js.
-  // Each payment's effective position is inferred from its date unless explicitly overridden
-  // by the user via the timeline ▲▼ controls (timelinePos field on the payment).
-  const overdueTimelinePeriods = useMemo(() => {
-    if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
-
-    const rate = Number(loan.interestRate) / 100;
-    const payments = loan.payments || [];
-
-    const getPos = (p) => resolvePaymentPos(p, currentCompoundPeriods, loanTermDays, loan.dueDate);
-
-    let balance = expectedReturn(loan);
-
-    payments
-      .filter((p) => getPos(p) === 0)
-      .forEach((p) => { balance = Math.max(0, balance - Number(p.amount)); });
-
-    const result = [];
-    for (let i = 1; i <= currentCompoundPeriods; i++) {
-      const prevBalance = Math.max(0, balance);
-      const added = prevBalance * rate;
-      const afterMora = prevBalance + added;
-
-      result.push({
-        period: i,
-        date: addDays(loan.dueDate, i * loanTermDays),
-        total: afterMora,
-        added,
-        isCurrent: i === currentCompoundPeriods,
-      });
-
-      balance = afterMora;
-      payments
-        .filter((p) => getPos(p) === i)
-        .forEach((p) => { balance = Math.max(0, balance - Number(p.amount)); });
-    }
-    return result;
-  }, [loan, loanTermDays, currentCompoundPeriods]);
-
-  // Merge all timeline events sorted by date
-  const allTimelineEvents = useMemo(() => {
-    const totalInterestAccrued = Math.max(0, loan._compoundReturn - Number(loan.amount));
-    const events = [];
-
-    events.push({ type: "start", date: loan.startDate });
-    if (loan.dueDate) events.push({ type: "due", date: loan.dueDate });
-    overdueTimelinePeriods.forEach(p => events.push({ type: "mora", ...p }));
-
-    // Payments with cumulative interest tracking
-    let cumulativePaid = 0;
-    [...(loan.payments || [])].sort((a, b) => a.date < b.date ? -1 : 1).forEach(p => {
-      const prevCumulative = cumulativePaid;
-      cumulativePaid += Number(p.amount);
-      const interestBefore = Math.min(prevCumulative, totalInterestAccrued);
-      const interestAfter = Math.min(cumulativePaid, totalInterestAccrued);
-      events.push({
-        type: "payment",
-        id: p.id,
-        date: p.date,
-        amount: Number(p.amount),
-        note: p.note,
-        timelinePos: p.timelinePos || 0,
-        interestInPayment: interestAfter - interestBefore,
-        totalInterestAccrued,
-      });
-    });
-
-    const dateMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
-    events.sort((a, b) => {
-      const getSortKey = (ev) => {
-        if (ev.type === "payment" && ev.timelinePos > 0) {
-          // Place this payment just after mora period ev.timelinePos
-          return dateMs(addDays(loan.dueDate, ev.timelinePos * loanTermDays)) + 500;
-        }
-        const tieBreak = { start: 0, due: 10, mora: 20, payment: 30 }[ev.type] ?? 40;
-        return dateMs(ev.date) + tieBreak;
-      };
-      return getSortKey(a) - getSortKey(b);
-    });
-
-    return events;
-  }, [loan, overdueTimelinePeriods]);
-
-  const nextOverdueDate = loan._status === "overdue" && loan.dueDate
-    ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
-    : null;
-  const nextOverdueAdded = nextOverdueDate
-    ? loan._remaining * (Number(loan.interestRate) / 100)
-    : 0;
 
   return (
     <>
@@ -287,6 +123,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
         }
       >
         <div className="space-y-5">
+          {/* Summary card */}
           <div className="rounded-2xl border border-zinc-800/70 bg-gradient-to-b from-zinc-900/60 to-zinc-950 p-5">
             <div className="mb-3 flex items-center justify-between">
               <StatusBadge status={loan._status} />
@@ -328,6 +165,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
             </div>
           </div>
 
+          {/* Stats grid */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Capital", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
@@ -342,174 +180,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
             ))}
           </div>
 
-          {/* Línea de tiempo del préstamo */}
-          <div>
-            <SectionTitle>Línea de tiempo</SectionTitle>
-            <div className="relative">
-              <div className="absolute left-[11px] top-4 bottom-4 w-px bg-zinc-800" />
-              <div className="space-y-1">
-
-                {allTimelineEvents.map((ev, idx) => {
-                  if (ev.type === "start") return (
-                    <div key="start" className="relative flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/40">
-                      <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-emerald-700/60 bg-emerald-950/80">
-                        <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                      </div>
-                      <div className="flex flex-1 items-center justify-between">
-                        <div>
-                          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Inicio del préstamo</div>
-                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(loan.startDate)}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                            <Money value={loan.amount} hide={hide} currency={cur} />
-                          </div>
-                          <div className="text-[11px] text-zinc-500">Capital prestado</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-
-                  if (ev.type === "due") return (
-                    <div key="due" className={`relative flex items-start gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/40 ${loan._status === "overdue" ? "bg-rose-950/10" : ""}`}>
-                      <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full ${loan._status === "overdue" ? "border border-rose-700/60 bg-rose-950/80" : "border border-amber-700/60 bg-amber-950/80"}`}>
-                        <div className={`h-2 w-2 rounded-full ${loan._status === "overdue" ? "bg-rose-400" : "bg-amber-400"}`} />
-                      </div>
-                      <div className="flex flex-1 items-center justify-between">
-                        <div>
-                          <div className={`text-xs font-semibold uppercase tracking-wider ${loan._status === "overdue" ? "text-rose-400" : "text-amber-400"}`}>
-                            {loan._status === "overdue" ? "Vencido" : "Vencimiento"}
-                            {loan._status === "overdue" && (
-                              <span className="ml-1.5 font-normal normal-case text-rose-500">(hace {Math.abs(loan._daysUntilDue ?? 0)}d)</span>
-                            )}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(loan.dueDate)}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                            <Money value={loan._return} hide={hide} currency={cur} />
-                          </div>
-                          <div className="text-[11px] text-emerald-400/80 tabular-nums">
-                            +<Money value={loan._profit} hide={hide} currency={cur} /> ({Number(loan.interestRate).toFixed(1)}%)
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-
-                  if (ev.type === "mora") return (
-                    <div key={`mora-${ev.period}`} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${ev.isCurrent ? "bg-rose-950/20 ring-1 ring-rose-900/40" : "hover:bg-zinc-900/40"}`}>
-                      <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-rose-700/70 ${ev.isCurrent ? "bg-rose-900/60" : "bg-rose-950/60"}`}>
-                        <div className={`h-2 w-2 rounded-full bg-rose-500 ${ev.isCurrent ? "animate-pulse" : ""}`} />
-                      </div>
-                      <div className="flex flex-1 items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-rose-400">
-                            <AlertTriangle className="h-3 w-3" />
-                            Cargo por mora {ev.period}
-                            {ev.isCurrent && <Badge tone="danger">Actual</Badge>}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold tabular-nums text-rose-200">
-                            <Money value={ev.total} hide={hide} currency={cur} />
-                          </div>
-                          <div className="text-[11px] text-rose-400 tabular-nums font-medium">
-                            +<Money value={ev.added} hide={hide} currency={cur} /> ({Number(loan.interestRate).toFixed(1)}%)
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-
-                  if (ev.type === "payment") {
-                    const canMoveDown = currentCompoundPeriods > 0 && ev.timelinePos < currentCompoundPeriods;
-                    const canMoveUp = ev.timelinePos > 0;
-                    const isReordered = ev.timelinePos > 0;
-                    return (
-                      <div key={ev.id} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ring-1 ${isReordered ? "bg-amber-950/10 ring-amber-900/30" : "bg-emerald-950/10 ring-emerald-900/30"}`}>
-                        <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${isReordered ? "border-amber-700/60 bg-amber-950/80" : "border-emerald-700/60 bg-emerald-950/80"}`}>
-                          <ArrowDown className={`h-3 w-3 ${isReordered ? "text-amber-400" : "text-emerald-400"}`} />
-                        </div>
-                        <div className="flex flex-1 items-center justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${isReordered ? "text-amber-400" : "text-emerald-400"}`}>
-                              <TrendingUp className="h-3 w-3" />
-                              Pago recibido
-                              {isReordered && (
-                                <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-amber-400">
-                                  reordenado
-                                </span>
-                              )}
-                            </div>
-                            <div className="mt-0.5 text-[11px] text-zinc-500">
-                              {formatDate(ev.date)}{ev.note ? ` · ${ev.note}` : ""}
-                            </div>
-                          </div>
-                          {(canMoveUp || canMoveDown) && (
-                            <div className="flex shrink-0 flex-col gap-0.5">
-                              <button
-                                disabled={!canMoveUp}
-                                onClick={() => movePaymentInTimeline(ev.id, "up")}
-                                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed"
-                                title="Mover antes del cargo anterior"
-                              >
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                disabled={!canMoveDown}
-                                onClick={() => movePaymentInTimeline(ev.id, "down")}
-                                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed"
-                                title="Mover después del próximo cargo"
-                              >
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          )}
-                          <div className="text-right">
-                            <div className="text-sm font-semibold tabular-nums text-emerald-300">
-                              <Money value={ev.amount} hide={hide} currency={cur} />
-                            </div>
-                            {ev.interestInPayment > 0.01 && (
-                              <div className="text-[11px] text-zinc-500 tabular-nums">
-                                Interés cubierto: <span className="text-amber-400"><Money value={ev.interestInPayment} hide={hide} currency={cur} /></span>
-                                {" "}<span className="text-zinc-600">/ <Money value={ev.totalInterestAccrued} hide={hide} currency={cur} /></span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return null;
-                })}
-
-                {/* Próximo cargo proyectado */}
-                {nextOverdueDate && (
-                  <div className="relative flex items-start gap-3 rounded-xl border border-dashed border-zinc-800/60 px-3 py-3">
-                    <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-700/60 bg-zinc-900">
-                      <Clock className="h-3 w-3 text-zinc-600" />
-                    </div>
-                    <div className="flex flex-1 items-center justify-between">
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Próximo cargo proyectado</div>
-                        <div className="mt-0.5 text-[11px] text-zinc-600">{formatDate(nextOverdueDate)} · si no se paga</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-semibold tabular-nums text-zinc-500">
-                          +<Money value={nextOverdueAdded} hide={hide} currency={cur} />
-                        </div>
-                        <div className="text-[11px] text-zinc-600">({Number(loan.interestRate).toFixed(1)}% adicional)</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-              </div>
-            </div>
-          </div>
+          <LoanTimeline
+            loan={loan}
+            currentCompoundPeriods={currentCompoundPeriods}
+            loanTermDays={loanTermDays}
+          />
 
           <LoanChain
             chain={loanChain}
@@ -519,126 +194,18 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
             }
           />
 
-          <div>
-            <SectionTitle action={
-              loan._remaining > 0 && (
-                <button onClick={onMarkPaid}
-                  className="text-[11px] font-medium uppercase tracking-wider text-emerald-400 hover:text-emerald-300">
-                  Marcar como pagado
-                </button>
-              )
-            }>
-              Historial de pagos
-            </SectionTitle>
-            {loan.payments?.length ? (
-              <Card className="divide-y divide-zinc-800/70">
-                {[...loan.payments].sort((a, b) => (a.date < b.date ? 1 : -1)).map((p) => (
-                  <div key={p.id}>
-                    {editingPayment?.id === p.id ? (
-                      <div className="space-y-3 px-4 py-4">
-                        <div className="grid grid-cols-2 gap-2">
-                          <Input label="Monto" type="number" inputMode="decimal"
-                            value={editingPayment.amount}
-                            onChange={(e) => setEditingPayment((v) => ({ ...v, amount: e.target.value }))} />
-                          <Input label="Fecha" type="date"
-                            value={editingPayment.date}
-                            onChange={(e) => setEditingPayment((v) => ({ ...v, date: e.target.value }))} />
-                        </div>
-                        <Input label="Nota" placeholder="Opcional"
-                          value={editingPayment.note}
-                          onChange={(e) => setEditingPayment((v) => ({ ...v, note: e.target.value }))} />
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setEditingPayment(null)}>Cancelar</Button>
-                          <Button variant="bronze" size="sm" onClick={onSavePaymentEdit}>Guardar</Button>
-                        </div>
-                      </div>
-                    ) : deletingPaymentId === p.id ? (
-                      <div className="flex items-center justify-between px-4 py-3">
-                        <div className="text-sm text-rose-200">¿Eliminar este pago?</div>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setDeletingPaymentId(null)}>Cancelar</Button>
-                          <Button variant="danger" size="sm" Icon={Trash2} onClick={() => onDeletePayment(p.id)}>Eliminar</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
-                            <ArrowDown className="h-4 w-4 text-emerald-400" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-medium text-zinc-100 tabular-nums">
-                              <Money value={p.amount} hide={hide} currency={cur} />
-                            </div>
-                            <div className="text-xs text-zinc-500">
-                              {formatDate(p.date)}{p.note ? ` · ${p.note}` : ""}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setEditingPayment({ id: p.id, amount: String(p.amount), date: p.date, note: p.note || "" })}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingPaymentId(p.id)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </Card>
-            ) : (
-              <EmptyState Icon={Receipt} title="Sin pagos registrados"
-                hint="Cuando registres un pago aparecerá acá con su fecha y nota." />
-            )}
-          </div>
+          <PaymentHistory loan={loan} />
 
-          {loan.notes ? (
+          {loan.notes && (
             <div>
               <SectionTitle>Notas</SectionTitle>
               <Card className="whitespace-pre-wrap p-4 text-sm text-zinc-300">{loan.notes}</Card>
             </div>
-          ) : null}
+          )}
 
-          <div>
-            <SectionTitle action={
-              <button onClick={() => photoInputRef.current?.click()}
-                className="text-[11px] font-medium uppercase tracking-wider text-amber-500 hover:text-amber-400">
-                {uploading ? "Subiendo..." : "+ Agregar"}
-              </button>
-            }>
-              Fotos adjuntas
-            </SectionTitle>
-            <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden"
-              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
-            {loan.photos?.length ? (
-              <div className="grid grid-cols-3 gap-2">
-                {loan.photos.map((photo) => (
-                  <div key={photo.id}
-                    className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800/70">
-                    <img src={photo.url || photo.data} alt={photo.name}
-                      className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
-                      onClick={() => setLightboxPhoto(photo)} />
-                    <button onClick={() => removePhoto(photo)}
-                      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 opacity-0 transition-opacity group-hover:opacity-100">
-                      <X className="h-3.5 w-3.5 text-white" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState Icon={Camera} title="Sin fotos adjuntas"
-                hint="Comprobantes, garantías o documentación del préstamo." />
-            )}
-          </div>
+          <PhotoGallery loan={loan} userId={userId} />
 
+          {/* Delete */}
           <div className="pt-2">
             {confirmDelete ? (
               <div className="flex items-center justify-between rounded-2xl border border-rose-900/40 bg-rose-950/20 px-4 py-3">
@@ -694,19 +261,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
           )}
         </div>
       </Sheet>
-
-      {lightboxPhoto && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/92 p-4"
-          onClick={() => setLightboxPhoto(null)}>
-          <img src={lightboxPhoto.url || lightboxPhoto.data} alt={lightboxPhoto.name}
-            className="max-h-[88vh] max-w-full rounded-2xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()} />
-          <button onClick={() => setLightboxPhoto(null)}
-            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900/90 text-zinc-300 hover:text-white">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      )}
     </>
   );
 }

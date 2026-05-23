@@ -3,7 +3,8 @@ import {
   Eye, EyeOff, Bell, Plus, Wallet, Sparkles, Target, TrendingUp,
   Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
 } from "lucide-react";
-import { formatShortDate, daysBetween, addDays, todayISO } from "../lib/utils.js";
+import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
+import { UI_LIMITS } from "../lib/constants.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
@@ -78,7 +79,7 @@ export default function HomeScreen() {
           >
             <Bell className="h-4 w-4" />
             {derived.overdueLoans.length + derived.upcomingDue.filter(
-              (l) => l._daysUntilDue !== null && l._daysUntilDue <= 3 && l._daysUntilDue >= 0
+              (l) => l._daysUntilDue !== null && l._daysUntilDue <= UI_LIMITS.ALERT_DAYS_THRESHOLD && l._daysUntilDue >= 0
             ).length > 0 && (
               <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
             )}
@@ -283,7 +284,7 @@ export default function HomeScreen() {
                     <div className="flex min-w-0 items-center gap-3">
                       <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
                         l._status === "overdue" ? "bg-rose-500/10 text-rose-400"
-                          : l._daysUntilDue !== null && l._daysUntilDue <= 3 ? "bg-amber-500/10 text-amber-400"
+                          : l._daysUntilDue !== null && l._daysUntilDue <= UI_LIMITS.ALERT_DAYS_THRESHOLD ? "bg-amber-500/10 text-amber-400"
                           : "bg-zinc-800 text-zinc-400"
                       }`}>
                         <CalendarClock className="h-4 w-4" />
@@ -298,18 +299,7 @@ export default function HomeScreen() {
                             : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
                         </div>
                         <div className="mt-0.5 text-[10px] text-zinc-600">
-                          {(() => {
-                            const term = Math.max(1, daysBetween(l.startDate, l.dueDate) || 30);
-                            let nextDate;
-                            if (l._status === "overdue") {
-                              const overdueDays = Math.max(0, daysBetween(l.dueDate, todayISO()));
-                              const periods = Math.floor(overdueDays / term);
-                              nextDate = addDays(l.dueDate, (periods + 1) * term);
-                            } else {
-                              nextDate = addDays(l.dueDate, term);
-                            }
-                            return `↻ ${formatShortDate(nextDate)}`;
-                          })()}
+                          ↻ {formatShortDate(getNextRenewalDate(l))}
                         </div>
                       </div>
                     </div>
@@ -347,7 +337,7 @@ export default function HomeScreen() {
           <div style={{ display: "grid", gridTemplateRows: showHistory ? "1fr" : "0fr", transition: "grid-template-rows 300ms ease", overflow: "hidden" }}>
             <div style={{ minHeight: 0 }}>
               <Card className="divide-y divide-zinc-800/70">
-                {state.history.slice(0, 5).map((h) => (
+                {state.history.slice(0, UI_LIMITS.HISTORY_HOME_MAX).map((h) => (
                   <div key={h.id} className="flex items-center justify-between px-4 py-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">

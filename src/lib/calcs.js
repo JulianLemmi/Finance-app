@@ -1,4 +1,4 @@
-import { PAYMENT_TYPES } from "./constants.js";
+import { PAYMENT_TYPES, CALC } from "./constants.js";
 import { daysBetween, parseISO, addDays, todayDate } from "./utils.js";
 
 export function expectedProfit(loan) {
@@ -100,7 +100,7 @@ export function daysUntilDue(loan) {
 
 export function resolveStatus(loan) {
   if (loan.status === "paid" || loan.status === "refinanced") return loan.status;
-  if (remainingDebt(loan) <= 0.001) return "paid";
+  if (remainingDebt(loan) <= CALC.PAID_THRESHOLD) return "paid";
   if (isOverdue(loan)) return "overdue";
   return "active";
 }

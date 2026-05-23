@@ -56,6 +56,14 @@ export const formatShortDate = (iso) => {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 };
 
+// Returns the next renewal/mora date for a loan (works for both active and overdue)
+export function getNextRenewalDate(loan) {
+  const term = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
+  const overdueDays = Math.max(0, daysBetween(loan.dueDate, todayISO()));
+  const periods = overdueDays > 0 ? Math.floor(overdueDays / term) : 0;
+  return addDays(loan.dueDate, (periods + 1) * term);
+}
+
 export const getMonthLabel = (iso) => {
   const d = parseISO(iso + "-01");
   if (!d) return iso;

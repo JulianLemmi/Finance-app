@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo } from "react";
-import { EXPENSE_CATEGORIES } from "../lib/constants.js";
+import { EXPENSE_CATEGORIES, UI_LIMITS } from "../lib/constants.js";
 import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
@@ -51,7 +51,7 @@ export function reducer(state, action) {
             amount: action.payload.amount, date: todayISO(),
           },
           ...state.history,
-        ].slice(0, 200),
+        ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
       };
     case "UPDATE_LOAN":
       return {
@@ -82,7 +82,7 @@ export function reducer(state, action) {
             amount: payment.amount, date: payment.date,
           },
           ...state.history,
-        ].slice(0, 200),
+        ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
       };
     }
     case "ADD_CLIENT":
@@ -177,7 +177,7 @@ export function useDerived(state) {
     const upcomingDue = deployed
       .filter((l) => l._daysUntilDue !== null)
       .sort((a, b) => a._daysUntilDue - b._daysUntilDue)
-      .slice(0, 8);
+      .slice(0, UI_LIMITS.UPCOMING_DUE_MAX);
 
     const expectedInflow30d = activeLoans
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30)

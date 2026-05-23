@@ -1,7 +1,7 @@
 import {
   Banknote, Car, Coins, Package, MoreHorizontal,
   Fuel, UtensilsCrossed, Dumbbell, TrendingUp, ShoppingBag, Wrench,
-  Building2,
+  Building2, ArrowUpRight,
 } from "lucide-react";
 
 export const STORAGE_KEYS = {
@@ -47,10 +47,10 @@ export const EXPENSE_CATEGORIES = {
 };
 
 export const INCOME_CATEGORIES = {
-  intereses: { label: "Intereses", color: "#10b981" },
-  capital: { label: "Capital", color: "#0ea5e9" },
-  retorno: { label: "Retorno", color: "#8b5cf6" },
-  otros: { label: "Otros", color: "#71717a" },
+  intereses: { label: "Intereses", color: "#10b981", Icon: TrendingUp },
+  capital: { label: "Capital", color: "#0ea5e9", Icon: Banknote },
+  retorno: { label: "Retorno", color: "#8b5cf6", Icon: ArrowUpRight },
+  otros: { label: "Otros", color: "#71717a", Icon: MoreHorizontal },
 };
 
 export const RISK_LEVELS = {
@@ -67,6 +67,17 @@ export const ASSET_CATEGORIES = {
   gold: { label: "Oro", Icon: Coins, color: "#f59e0b" },
   equipment: { label: "Equipamiento", Icon: Wrench, color: "#7c3aed" },
   other: { label: "Otro", Icon: Package, color: "#71717a" },
+};
+
+export const UI_LIMITS = {
+  UPCOMING_DUE_MAX: 8,
+  HISTORY_HOME_MAX: 5,
+  HISTORY_STORE_MAX: 200,
+  ALERT_DAYS_THRESHOLD: 3,
+};
+
+export const CALC = {
+  PAID_THRESHOLD: 0.001,
 };
 
 export const TONES = {
