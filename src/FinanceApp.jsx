@@ -1,20 +1,23 @@
-import React, { useReducer, useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, { lazy, Suspense, useReducer, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Briefcase, Sparkles, CheckCircle2 } from "lucide-react";
 import { initialState, reducer, AppContext, useDerived } from "./store/index.js";
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import GlobalStyles from "./components/GlobalStyles.jsx";
 import DollarRain from "./components/DollarRain.jsx";
 import BottomTabBar from "./components/BottomTabBar.jsx";
 import ModalRoot from "./components/ModalRoot.jsx";
 import WelcomeSplash from "./components/WelcomeSplash.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
-import HomeScreen from "./screens/HomeScreen.jsx";
-import LoansScreen from "./screens/LoansScreen.jsx";
-import ClientsScreen from "./screens/ClientsScreen.jsx";
-import FinanceScreen from "./screens/FinanceScreen.jsx";
-import ProfileScreen from "./screens/ProfileScreen.jsx";
+
+// Lazy load screens to split Recharts and per-screen code into separate chunks
+const HomeScreen = lazy(() => import("./screens/HomeScreen.jsx"));
+const LoansScreen = lazy(() => import("./screens/LoansScreen.jsx"));
+const ClientsScreen = lazy(() => import("./screens/ClientsScreen.jsx"));
+const FinanceScreen = lazy(() => import("./screens/FinanceScreen.jsx"));
+const ProfileScreen = lazy(() => import("./screens/ProfileScreen.jsx"));
 
 /* ── Loading skeletons ── */
 
@@ -266,13 +269,17 @@ function AuthedApp({ sessionUserId, userEmail }) {
           {!state.loaded ? (
             <LoadingSkeleton />
           ) : (
-            <div className="fa-rise">
-              {activeTab === "home" && <HomeScreen />}
-              {activeTab === "loans" && <LoansScreen />}
-              {activeTab === "clients" && <ClientsScreen />}
-              {activeTab === "finance" && <FinanceScreen />}
-              {activeTab === "profile" && <ProfileScreen />}
-            </div>
+            <ErrorBoundary key={activeTab}>
+              <Suspense fallback={<LoadingSkeleton />}>
+                <div className="fa-rise">
+                  {activeTab === "home" && <HomeScreen />}
+                  {activeTab === "loans" && <LoansScreen />}
+                  {activeTab === "clients" && <ClientsScreen />}
+                  {activeTab === "finance" && <FinanceScreen />}
+                  {activeTab === "profile" && <ProfileScreen />}
+                </div>
+              </Suspense>
+            </ErrorBoundary>
           )}
         </div>
         <BottomTabBar />

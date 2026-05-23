@@ -4,7 +4,7 @@ import {
   Target, TrendingUp, Banknote, RefreshCw, Clock, Layers,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS } from "../lib/constants.js";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import { calcProjection } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
@@ -13,8 +13,23 @@ import {
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
 import {
   BarChart, Bar, PieChart, Pie, Cell,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
+
+function RoiTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
+      <div className="mb-1 font-medium text-zinc-200">{d.label}</div>
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS.gainStroke }} />
+        <span className="text-zinc-300">ROI mensual:</span>
+        <span className="font-medium text-zinc-100 tabular-nums">{d.roi.toFixed(2)}%</span>
+      </div>
+    </div>
+  );
+}
 
 function ProjectionTooltip({ active, payload, hide, currency = "$" }) {
   if (!active || !payload?.length) return null;
@@ -227,7 +242,7 @@ export default function FinanceScreen() {
               />
             ) : (
               <Card className="divide-y divide-zinc-800/70">
-                {txAll.slice(0, 40).map((tx) => (
+                {txAll.slice(0, BUSINESS_RULES.TX_LIST_MAX).map((tx) => (
                   <TxRow key={tx.id} tx={tx}
                     onDelete={(t) => dispatch({ type: "DELETE_TX", payload: { id: t.id, type: t.type } })} />
                 ))}
@@ -378,6 +393,9 @@ export default function FinanceScreen() {
               <div className="mt-0.5 text-[10px] text-zinc-600">
                 {derived.avgRate.toFixed(1)}% × {projCalc.cyclesPerYear.toFixed(1)} ciclos
               </div>
+              <div className="mt-1 text-[10px] text-zinc-600">
+                Mediana <span className="text-zinc-400 tabular-nums">{derived.medianRate.toFixed(1)}%</span>
+              </div>
             </Card>
             <Card className="p-4">
               <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10">
@@ -430,6 +448,47 @@ export default function FinanceScreen() {
                   </div>
                 </div>
               ))}
+            </div>
+          </Card>
+
+          {/* ROI histórico mes a mes */}
+          <Card className="p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  ROI histórico mensual
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-600">Rendimiento real cobrado vs capital desplegado</div>
+              </div>
+              <Badge tone="neutral">
+                <TrendingUp className="h-3 w-3" />
+                {BUSINESS_RULES.CHART_HISTORY_MONTHS} meses
+              </Badge>
+            </div>
+            {derived.months.every((m) => m.roi === 0) ? (
+              <div className="flex h-32 items-center justify-center text-xs text-zinc-600">
+                Aún no hay suficiente historial de pagos para calcular ROI
+              </div>
+            ) : (
+              <ChartContainer className="h-44 min-w-0">
+                {({ width, height }) => (
+                  <LineChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false}
+                      tick={{ fill: CHART_COLORS.axis, fontSize: 11 }} />
+                    <YAxis hide domain={[0, "auto"]} />
+                    <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine, strokeDasharray: "3 3" }}
+                      content={<RoiTooltip />} />
+                    <Line type="monotone" dataKey="roi"
+                      stroke={CHART_COLORS.gainStroke} strokeWidth={2.5}
+                      dot={{ r: 3, fill: CHART_COLORS.gainStroke, stroke: "#0a0a0b", strokeWidth: 2 }}
+                      activeDot={{ r: 5, fill: CHART_COLORS.gainStroke, stroke: "#0a0a0b", strokeWidth: 2 }} />
+                  </LineChart>
+                )}
+              </ChartContainer>
+            )}
+            <div className="mt-3 text-[11px] text-zinc-600">
+              ROI = ganancia cobrada en el mes / capital efectivamente prestado ese mes.
             </div>
           </Card>
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { User as UserIcon, Banknote, Hash, Trash2 } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { initialState } from "../store/index.js";
+import { BUSINESS_RULES } from "../lib/constants.js";
 import {
   Card, SectionTitle, Input, Select, Toggle, Button, Money,
 } from "../components/ui.jsx";
@@ -12,12 +13,23 @@ export default function ProfileScreen() {
   const [capital, setCapital] = useState(String(state.settings.cashOnHand || ""));
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [resetCountdown, setResetCountdown] = useState(0);
 
   useEffect(() => {
     setName(state.settings.userName || "");
     setCapital(String(state.settings.cashOnHand || ""));
     setCurrency(state.settings.currency || "$");
   }, [state.settings]);
+
+  // Tick down the cooldown counter when confirm dialog opens
+  useEffect(() => {
+    if (!confirmReset) return;
+    setResetCountdown(BUSINESS_RULES.RESET_COOLDOWN_SECS);
+    const t = setInterval(() => {
+      setResetCountdown((n) => (n > 0 ? n - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [confirmReset]);
 
   const saveName = () => dispatch({ type: "UPDATE_SETTINGS", payload: { userName: name } });
   const saveCapital = () =>
@@ -140,7 +152,9 @@ export default function ProfileScreen() {
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setConfirmReset(false)}>Cancelar</Button>
-              <Button variant="danger" size="sm" Icon={Trash2} onClick={onReset}>Borrar todo</Button>
+              <Button variant="danger" size="sm" Icon={Trash2} onClick={onReset} disabled={resetCountdown > 0}>
+                {resetCountdown > 0 ? `Esperá ${resetCountdown}s` : "Borrar todo"}
+              </Button>
             </div>
           </Card>
         ) : (

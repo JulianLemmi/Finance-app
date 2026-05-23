@@ -79,9 +79,24 @@ export const storage = {
       return;
     }
     if (typeof window !== "undefined" && window.storage?.set) {
-      try { await window.storage.set(key, value, { shared: false }); return; } catch {}
+      try { await window.storage.set(key, value, { shared: false }); return; } catch (e) {
+        console.warn(`storage.set(${key}) window.storage error`, e);
+      }
     }
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      const quotaExceeded = e?.name === "QuotaExceededError"
+        || e?.code === 22
+        || e?.code === 1014
+        || /quota/i.test(e?.message || "");
+      console.warn(`storage.set(${key}) localStorage error${quotaExceeded ? " — quota exceeded" : ""}`, e);
+      if (quotaExceeded && typeof window !== "undefined") {
+        try {
+          window.dispatchEvent(new CustomEvent("finance:storage-quota-exceeded", { detail: { key } }));
+        } catch {}
+      }
+    }
   },
 };
 

@@ -1,9 +1,10 @@
 import { createContext, useContext, useMemo } from "react";
-import { EXPENSE_CATEGORIES, UI_LIMITS } from "../lib/constants.js";
+import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
 import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, daysUntilDue,
+  loanIntegrityErrors,
 } from "../lib/calcs.js";
 
 export const initialState = {
@@ -56,14 +57,27 @@ export function reducer(state, action) {
     case "UPDATE_LOAN":
       return {
         ...state,
-        loans: state.loans.map((l) =>
-          l.id === action.payload.id ? { ...l, ...action.payload } : l
-        ),
+        loans: state.loans.map((l) => {
+          if (l.id !== action.payload.id) return l;
+          const merged = { ...l, ...action.payload };
+          // Reject corrupting updates: dueDate must not precede startDate
+          if (merged.startDate && merged.dueDate && merged.dueDate < merged.startDate) {
+            console.warn("[UPDATE_LOAN] dueDate < startDate — update rejected", merged.id);
+            return l;
+          }
+          return merged;
+        }),
       };
     case "DELETE_LOAN":
       return { ...state, loans: state.loans.filter((l) => l.id !== action.payload) };
     case "ADD_PAYMENT": {
       const { loanId, payment } = action.payload;
+      const exists = state.loans.find((l) => l.id === loanId);
+      const amount = Number(payment?.amount);
+      if (!exists || !Number.isFinite(amount) || amount <= 0) {
+        console.warn("[ADD_PAYMENT] invalid payment — rejected", { loanId, amount });
+        return state;
+      }
       const newLoans = state.loans.map((l) => {
         if (l.id !== loanId) return l;
         const payments = [...(l.payments || []), payment];
@@ -128,17 +142,22 @@ export const useApp = () => useContext(AppContext);
 export function useDerived(state) {
   // Stage 1: resolve each loan's computed fields — reruns only when loans change
   const loansResolved = useMemo(() =>
-    state.loans.map((l) => ({
-      ...l,
-      _status: resolveStatus(l),
-      _paid: paidAmount(l),
-      _remaining: remainingDebt(l),
-      _profit: expectedProfit(l),
-      _return: expectedReturn(l),
-      _compoundReturn: compoundReturn(l),
-      _progress: loanProgress(l),
-      _daysUntilDue: daysUntilDue(l),
-    })),
+    state.loans.map((l) => {
+      const integrityErrors = loanIntegrityErrors(l);
+      return {
+        ...l,
+        _status: resolveStatus(l),
+        _paid: paidAmount(l),
+        _remaining: remainingDebt(l),
+        _profit: expectedProfit(l),
+        _return: expectedReturn(l),
+        _compoundReturn: compoundReturn(l),
+        _progress: loanProgress(l),
+        _daysUntilDue: daysUntilDue(l),
+        _invalid: integrityErrors.length > 0,
+        _integrityErrors: integrityErrors,
+      };
+    }),
   [state.loans]);
 
   // Stage 2: group loans by status — reruns only when loansResolved changes
@@ -201,18 +220,22 @@ export function useDerived(state) {
       }))
       .filter((c) => c.value > 0);
 
-    const avgRate = activeLoans.length
-      ? activeLoans.reduce((a, l) => a + Number(l.interestRate), 0) / activeLoans.length
-      : 7;
+    const median = (arr) => {
+      if (!arr.length) return 0;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    };
 
-    const avgDays = (() => {
-      if (!activeLoans.length) return 30;
-      const terms = activeLoans
-        .map((l) => Math.max(1, daysBetween(l.startDate, l.dueDate) || 30))
-        .sort((a, b) => a - b);
-      const mid = Math.floor(terms.length / 2);
-      return terms.length % 2 === 0 ? (terms[mid - 1] + terms[mid]) / 2 : terms[mid];
-    })();
+    const rates = activeLoans.map((l) => Number(l.interestRate)).filter(Number.isFinite);
+    const terms = activeLoans
+      .map((l) => Math.max(1, daysBetween(l.startDate, l.dueDate) || BUSINESS_RULES.DEFAULT_LOAN_DAYS));
+
+    // avgRate falls back to 0 (not 7) when no active loans; UI should treat 0 as "no data"
+    const avgRate = rates.length ? rates.reduce((a, r) => a + r, 0) / rates.length : 0;
+    const medianRate = median(rates);
+    const avgDays = terms.length ? terms.reduce((a, t) => a + t, 0) / terms.length : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
+    const medianDays = terms.length ? median(terms) : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
 
     const reinvestmentFactor = (m) => {
       const cycles = avgDays > 0 ? (m * 30) / avgDays : 0;
@@ -265,7 +288,8 @@ export function useDerived(state) {
       totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
       workingCapital, totalCapital, monthlyInterestsCollected, upcomingDue,
       expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
-      avgRate, avgDays, projections, projectionSeries, paidOnTimeCount,
+      avgRate, avgDays, medianRate, medianDays,
+      projections, projectionSeries, paidOnTimeCount,
       collectabilityRate, avgDaysLate, cashFlow30d,
     };
   }, [loanGroups, loansResolved, state.income, state.expenses, state.settings, state.assets]);
@@ -274,10 +298,10 @@ export function useDerived(state) {
   const chartData = useMemo(() => {
     const now = new Date();
     const months = [];
-    for (let i = 5; i >= 0; i--) {
+    for (let i = BUSINESS_RULES.CHART_HISTORY_MONTHS - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.toISOString().slice(0, 7);
-      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, profit: 0 });
+      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, profit: 0, roi: 0 });
     }
     const monthIdx = Object.fromEntries(months.map((m, i) => [m.key, i]));
     state.income.forEach((t) => {
@@ -308,6 +332,8 @@ export function useDerived(state) {
         })
         .reduce((acc, l) => acc + Number(l.amount), 0);
       m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
+      // ROI % = monthly profit / capital deployed that month
+      m.roi = investedAtMonth > 0 ? (m.profit / investedAtMonth) * 100 : 0;
     });
     return { months };
   }, [loansResolved, state.income, state.expenses, state.settings]);

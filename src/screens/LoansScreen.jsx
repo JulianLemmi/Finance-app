@@ -151,13 +151,26 @@ export default function LoansScreen() {
 
       {filtered.length === 0 ? (
         <EmptyState Icon={Wallet}
-          title={query ? "Sin resultados" : filter === "all" ? "Aún no hay préstamos" : "Sin préstamos en esta categoría"}
-          hint={query ? "Probá con otro nombre o alias."
-            : "Creá tu primer préstamo para comenzar a gestionar capital y ganancias."}
+          title={
+            query ? "Sin resultados"
+              : filter === "all" ? "Aún no hay préstamos"
+              : filter === "active" ? "Sin préstamos activos"
+              : filter === "overdue" ? "Ningún préstamo atrasado"
+              : filter === "paid" ? "Ningún préstamo pagado todavía"
+              : "Sin préstamos en esta categoría"
+          }
+          hint={
+            query ? `No encontramos clientes ni alias que coincidan con "${query}". Probá con otro término.`
+              : filter === "all"
+                ? "Tu primer préstamo se asocia automáticamente al cliente. El monto, tasa y plazo definen la ganancia y el vencimiento."
+              : filter === "overdue" ? "Buen trabajo — todos los préstamos están al día."
+              : filter === "paid" ? "Cuando un préstamo se salda por completo aparece acá."
+              : "No hay préstamos en este estado todavía."
+          }
           action={!query && filter === "all" && (
             <Button variant="bronze" Icon={Plus}
               onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-form" } })}>
-              Registrar préstamo
+              Registrar primer préstamo
             </Button>
           )}
         />

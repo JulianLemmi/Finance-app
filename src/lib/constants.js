@@ -80,6 +80,17 @@ export const CALC = {
   PAID_THRESHOLD: 0.001,
 };
 
+export const BUSINESS_RULES = {
+  DEFAULT_LOAN_DAYS: 30,
+  UPCOMING_DUE_DAYS: 3,
+  PUNCTUALITY_GOOD_THRESHOLD: 0.8,
+  PROJECTION_MONTHS: 13,
+  CHART_HISTORY_MONTHS: 6,
+  TX_LIST_MAX: 40,
+  MAX_INTEREST_RATE: 100,
+  RESET_COOLDOWN_SECS: 3,
+};
+
 export const CHART_COLORS = {
   capital: "#b45309",
   capitalStroke: "#f59e0b",

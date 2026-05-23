@@ -1,4 +1,4 @@
-import { PAYMENT_TYPES, CALC } from "./constants.js";
+import { PAYMENT_TYPES, CALC, BUSINESS_RULES } from "./constants.js";
 import { daysBetween, parseISO, addDays, todayDate } from "./utils.js";
 
 export function expectedProfit(loan) {
@@ -14,9 +14,22 @@ function getOverdueMeta(loan) {
   if (!loan.dueDate) return null;
   const daysOverdue = daysBetween(loan.dueDate, todayDate());
   if (daysOverdue <= 0) return null;
-  const termDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
-  const overduePeriods = Math.floor(daysOverdue / termDays);
+  const termDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || BUSINESS_RULES.DEFAULT_LOAN_DAYS);
+  const overduePeriods = termDays > 0 ? Math.floor(daysOverdue / termDays) : 0;
   return { daysOverdue, termDays, overduePeriods, rate: Number(loan.interestRate) / 100 };
+}
+
+// Inspects a loan object and returns a list of integrity errors. Empty means clean.
+export function loanIntegrityErrors(loan) {
+  const errors = [];
+  const amount = Number(loan.amount);
+  if (!Number.isFinite(amount) || amount <= 0) errors.push("Monto inválido");
+  if (!loan.clientName?.trim()) errors.push("Cliente faltante");
+  if (!loan.startDate) errors.push("Fecha de inicio faltante");
+  if (loan.startDate && loan.dueDate && loan.dueDate < loan.startDate) errors.push("Vencimiento anterior al inicio");
+  const rate = Number(loan.interestRate);
+  if (!Number.isFinite(rate) || rate < 0) errors.push("Tasa inválida");
+  return errors;
 }
 
 // Resolves a payment's effective timeline position.
@@ -80,8 +93,10 @@ export function remainingDebt(loan) {
 
 export function loanProgress(loan) {
   const total = expectedReturn(loan);
-  if (total <= 0) return 0;
-  return Math.min(1, paidAmount(loan) / total);
+  if (!total || total <= 0 || !Number.isFinite(total)) return 0;
+  const paid = paidAmount(loan);
+  if (!Number.isFinite(paid)) return 0;
+  return Math.min(1, Math.max(0, paid / total));
 }
 
 export function isOverdue(loan, today = todayDate()) {
@@ -165,6 +180,7 @@ export function validateLoan(form) {
   if (!form.amount || Number.isNaN(amount) || amount <= 0) errors.amount = "Ingresá un monto mayor a 0";
   const rate = Number(form.interestRate);
   if (form.interestRate === "" || Number.isNaN(rate) || rate < 0) errors.interestRate = "La tasa debe ser 0 o mayor";
+  else if (rate > BUSINESS_RULES.MAX_INTEREST_RATE) errors.interestRate = `La tasa no puede superar ${BUSINESS_RULES.MAX_INTEREST_RATE}%`;
   if (!form.noDueDate) {
     if (form.paymentType === "custom") {
       const d = Number(form.customDays);
