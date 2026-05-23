@@ -105,6 +105,78 @@ export function resolveStatus(loan) {
   return "active";
 }
 
+// Pure projection calculation — moved here from FinanceScreen to keep math in calcs.
+export function calcProjection({ activeLoans = [], overdueLoans = [], workingCapital = 0, avgRate = 0 }) {
+  const deployedLoans = [...activeLoans, ...overdueLoans];
+  const deployedCapital = deployedLoans.reduce((a, l) => a + Number(l.amount), 0);
+  const base = Math.max(0, deployedCapital || workingCapital);
+
+  const weightedRate =
+    deployedCapital > 0
+      ? deployedLoans.reduce((a, l) => a + Number(l.amount) * Number(l.interestRate), 0) /
+        deployedCapital /
+        100
+      : avgRate / 100;
+
+  const rate = weightedRate;
+  const days = 30;
+  const cyclesPerYear = 365 / days;
+  const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
+  const doublingYears = rate > 0 ? (Math.log(2) / Math.log(1 + rate)) * (days / 365) : null;
+  const gainPerCycle = base * rate;
+
+  const cyclePoints = [1, Math.max(1, Math.round(cyclesPerYear)), Math.max(2, Math.round(cyclesPerYear * 2)), Math.max(3, Math.round(cyclesPerYear * 3))].map((n) => {
+    const total = base * Math.pow(1 + rate, n);
+    const approxYears = (n * days) / 365;
+    return {
+      n,
+      label: n === 1 ? "1 ciclo" : `${n} ciclos`,
+      sublabel:
+        n === 1
+          ? `~${Math.round(days)} días`
+          : approxYears < 1.5
+          ? `~${Math.round(approxYears * 12)} meses`
+          : `~${approxYears.toFixed(1)} años`,
+      total,
+      profit: total - base,
+      pct: (Math.pow(1 + rate, n) - 1) * 100,
+    };
+  });
+
+  const profitSeries = Array.from({ length: 25 }, (_, i) => {
+    const cycles = (i * 30) / days;
+    const total = base * Math.pow(1 + rate, cycles);
+    return {
+      mes: i,
+      label: i % 6 === 0 ? (i === 0 ? "Hoy" : `${i}m`) : "",
+      ganancia: Math.round(total - base),
+      total: Math.round(total),
+    };
+  });
+
+  return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
+}
+
+// Returns validation errors for a loan form object. Empty array means valid.
+export function validateLoan(form) {
+  const errors = {};
+  if (!form.clientName?.trim()) errors.clientName = "El nombre es obligatorio";
+  const amount = Number(form.amount);
+  if (!form.amount || Number.isNaN(amount) || amount <= 0) errors.amount = "Ingresá un monto mayor a 0";
+  const rate = Number(form.interestRate);
+  if (form.interestRate === "" || Number.isNaN(rate) || rate < 0) errors.interestRate = "La tasa debe ser 0 o mayor";
+  if (!form.noDueDate) {
+    if (form.paymentType === "custom") {
+      const d = Number(form.customDays);
+      if (!form.customDays || Number.isNaN(d) || d <= 0) errors.customDays = "Ingresá una cantidad de días mayor a 0";
+    }
+    if (form.startDate && form.dueDate && form.dueDate <= form.startDate) {
+      errors.dueDate = "El vencimiento debe ser posterior a la fecha de inicio";
+    }
+  }
+  return errors;
+}
+
 export function compoundPeriods(loan) {
   const rate = Number(loan.interestRate) / 100;
   const base = Number(loan.amount);

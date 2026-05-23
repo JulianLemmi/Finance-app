@@ -80,6 +80,20 @@ export const CALC = {
   PAID_THRESHOLD: 0.001,
 };
 
+export const CHART_COLORS = {
+  capital: "#b45309",
+  capitalStroke: "#f59e0b",
+  income: "#10b981",
+  expense: "#f43f5e",
+  gain: "#d97706",
+  gainStroke: "#f59e0b",
+  cashflow: "#d97706",
+  grid: "#1f1f22",
+  axis: "#71717a",
+  cursor: "#27272a55",
+  cursorLine: "#3f3f46",
+};
+
 export const TONES = {
   neutral: "bg-zinc-800/70 text-zinc-300 border-zinc-700/50",
   success: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { uid, todayISO, addDays, formatMoney, formatDate } from "../../lib/utils.js";
 import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
+import { validateLoan } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
 
@@ -46,7 +47,8 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
   const onCustomDaysChange = (v) =>
     setForm((f) => ({ ...f, customDays: v, dueDate: recalcDueDate(f.startDate, "custom", v) }));
 
-  const canSubmit = form.clientName.trim() && Number(form.amount) > 0 && Number(form.interestRate) >= 0;
+  const errors = validateLoan(form);
+  const canSubmit = Object.keys(errors).length === 0;
   const profit = (Number(form.amount || 0) * Number(form.interestRate || 0)) / 100;
 
   const onSubmit = () => {
@@ -103,16 +105,19 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input label="Cliente" placeholder="Nombre y apellido" value={form.clientName}
-            onChange={(e) => updateField("clientName", e.target.value)} Icon={UserIcon} />
+            onChange={(e) => updateField("clientName", e.target.value)} Icon={UserIcon}
+            error={errors.clientName} />
           <Input label="Alias / descripción" placeholder="Préstamo auto, vacaciones, etc."
             value={form.alias} onChange={(e) => updateField("alias", e.target.value)} Icon={Tag} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input label="Monto prestado" type="number" inputMode="decimal" placeholder="0"
-            value={form.amount} onChange={(e) => updateField("amount", e.target.value)} Icon={Banknote} />
+            value={form.amount} onChange={(e) => updateField("amount", e.target.value)} Icon={Banknote}
+            error={errors.amount} />
           <Input label="Interés (%)" type="number" inputMode="decimal" placeholder="8"
-            value={form.interestRate} onChange={(e) => updateField("interestRate", e.target.value)} Icon={TrendingUp} />
+            value={form.interestRate} onChange={(e) => updateField("interestRate", e.target.value)} Icon={TrendingUp}
+            error={errors.interestRate} />
         </div>
 
         {!form.noDueDate && (
@@ -143,10 +148,12 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
             </div>
           ) : form.paymentType === "custom" ? (
             <Input label="Días" type="number" value={form.customDays}
-              onChange={(e) => onCustomDaysChange(e.target.value)} Icon={Hash} />
+              onChange={(e) => onCustomDaysChange(e.target.value)} Icon={Hash}
+              error={errors.customDays} />
           ) : (
             <Input label="Vencimiento" type="date" value={form.dueDate}
-              onChange={(e) => updateField("dueDate", e.target.value)} Icon={CalendarClock} />
+              onChange={(e) => updateField("dueDate", e.target.value)} Icon={CalendarClock}
+              error={errors.dueDate} />
           )}
         </div>
 

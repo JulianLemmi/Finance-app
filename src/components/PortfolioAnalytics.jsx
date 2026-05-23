@@ -5,7 +5,8 @@ import {
 } from "recharts";
 import { useApp } from "../store/index.js";
 import { formatShortDate } from "../lib/utils.js";
-import { Card, SectionTitle, Money, ChartContainer, ChartTooltip } from "./ui.jsx";
+import { CHART_COLORS } from "../lib/constants.js";
+import { Card, SectionTitle, Money, ChartContainer, ChartTooltip, StatCard } from "./ui.jsx";
 
 /* ── Cobrabilidad metrics ─────────────────────────────── */
 function CollectabilitySection() {
@@ -59,21 +60,6 @@ function CollectabilitySection() {
     },
   ];
 
-  const toneClasses = {
-    success: {
-      icon: "bg-emerald-500/10 text-emerald-400",
-      value: "text-emerald-400",
-    },
-    danger: {
-      icon: "bg-rose-500/10 text-rose-400",
-      value: "text-rose-400",
-    },
-    warning: {
-      icon: "bg-amber-500/10 text-amber-400",
-      value: "text-amber-400",
-    },
-  };
-
   return (
     <Card className="p-5">
       <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
@@ -81,19 +67,9 @@ function CollectabilitySection() {
         Tasa de cobrabilidad
       </div>
       <div className="grid grid-cols-3 gap-3">
-        {items.map((item) => {
-          const tc = toneClasses[item.tone] || toneClasses.success;
-          return (
-            <div key={item.label} className="rounded-xl border border-zinc-800/60 bg-zinc-950/50 p-3">
-              <div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-lg ${tc.icon}`}>
-                <item.Icon className="h-3.5 w-3.5" />
-              </div>
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500">{item.label}</div>
-              <div className={`mt-1 text-lg font-semibold tabular-nums ${tc.value}`}>{item.value}</div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">{item.hint}</div>
-            </div>
-          );
-        })}
+        {items.map((item) => (
+          <StatCard key={item.label} label={item.label} value={item.value} hint={item.hint} tone={item.tone} Icon={item.Icon} />
+        ))}
       </div>
     </Card>
   );
@@ -154,7 +130,7 @@ function CashFlowChart() {
                     <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
                       <div className="mb-1 text-zinc-400">{formatShortDate(d.date)}</div>
                       <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS.cashflow }} />
                         <span className="text-zinc-400">Cobrar:</span>
                         <span className="font-medium text-zinc-100 tabular-nums">
                           {hide ? "••••••" : `${cur}${Math.round(d.expected).toLocaleString("es-AR")}`}
@@ -169,7 +145,7 @@ function CashFlowChart() {
               />
               <Bar
                 dataKey="expected"
-                fill="#d97706"
+                fill={CHART_COLORS.cashflow}
                 radius={[3, 3, 0, 0]}
                 maxBarSize={20}
               />

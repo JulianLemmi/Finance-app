@@ -4,16 +4,41 @@ import {
   Target, TrendingUp, Banknote, RefreshCw, Clock, Layers,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES } from "../lib/constants.js";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS } from "../lib/constants.js";
+import { calcProjection } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip, Button, ChartContainer,
 } from "../components/ui.jsx";
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
 import {
-  BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
+  BarChart, Bar, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
+
+function ProjectionTooltip({ active, payload, hide, currency = "$" }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
+      <div className="mb-1 text-zinc-400">Mes {d.mes}</div>
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS.gainStroke }} />
+        <span className="text-zinc-400">Ganancia:</span>
+        <span className="font-medium text-zinc-100 tabular-nums">
+          {hide ? "••••••" : `${currency}${d.ganancia.toLocaleString("es-AR")}`}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-zinc-600" />
+        <span className="text-zinc-400">Capital:</span>
+        <span className="font-medium text-zinc-100 tabular-nums">
+          {hide ? "••••••" : `${currency}${d.total.toLocaleString("es-AR")}`}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function TxRow({ tx, onDelete }) {
   const { state } = useApp();
@@ -101,65 +126,15 @@ export default function FinanceScreen() {
     - derived.months[derived.months.length - 1]?.expense || 0;
   const cumulativeSaving = derived.months.reduce((a, m) => a + (m.income - m.expense), 0);
 
-  const projCalc = useMemo(() => {
-    // Use capital effectively deployed (active + overdue loans only)
-    const deployedLoans = [...derived.activeLoans, ...derived.overdueLoans];
-    const deployedCapital = deployedLoans.reduce((a, l) => a + Number(l.amount), 0);
-    const base = Math.max(0, deployedCapital || derived.workingCapital);
-
-    // Weighted average rate by loan amount — matches "Ganancia por cobrar" exactly
-    const weightedRate =
-      deployedCapital > 0
-        ? deployedLoans.reduce((a, l) => a + Number(l.amount) * Number(l.interestRate), 0) /
-          deployedCapital /
-          100
-        : derived.avgRate / 100;
-
-    const rate = weightedRate;
-    const days = 30; // Fixed monthly cycle — reinvestment unit is always 30 days
-    const cyclesPerYear = 365 / days;
-    const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
-    const doublingYears = rate > 0
-      ? (Math.log(2) / Math.log(1 + rate)) * (days / 365)
-      : null;
-    // gainPerCycle = deployedCapital × weightedRate = expectedProfitTotal
-    const gainPerCycle = base * rate;
-
-    const n1 = 1;
-    const nYear = Math.max(1, Math.round(cyclesPerYear));
-    const n2yr = Math.max(2, Math.round(cyclesPerYear * 2));
-    const n3yr = Math.max(3, Math.round(cyclesPerYear * 3));
-
-    const cyclePoints = [n1, nYear, n2yr, n3yr].map((n) => {
-      const total = base * Math.pow(1 + rate, n);
-      const approxYears = (n * days) / 365;
-      return {
-        n,
-        label: n === 1 ? "1 ciclo" : `${n} ciclos`,
-        sublabel: n === 1
-          ? `~${Math.round(days)} días`
-          : approxYears < 1.5
-          ? `~${Math.round(approxYears * 12)} meses`
-          : `~${approxYears.toFixed(1)} años`,
-        total,
-        profit: total - base,
-        pct: (Math.pow(1 + rate, n) - 1) * 100,
-      };
-    });
-
-    const profitSeries = Array.from({ length: 25 }, (_, i) => {
-      const cycles = (i * 30) / days;
-      const total = base * Math.pow(1 + rate, cycles);
-      return {
-        mes: i,
-        label: i % 6 === 0 ? (i === 0 ? "Hoy" : `${i}m`) : "",
-        ganancia: Math.round(total - base),
-        total: Math.round(total),
-      };
-    });
-
-    return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
-  }, [derived.avgRate, derived.avgDays, derived.activeLoans, derived.overdueLoans, derived.workingCapital]);
+  const projCalc = useMemo(
+    () => calcProjection({
+      activeLoans: derived.activeLoans,
+      overdueLoans: derived.overdueLoans,
+      workingCapital: derived.workingCapital,
+      avgRate: derived.avgRate,
+    }),
+    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate]
+  );
 
   return (
     <div className="space-y-5 pb-2">
@@ -168,13 +143,10 @@ export default function FinanceScreen() {
           <h1 className="text-xl font-semibold tracking-tight text-white">Finanzas</h1>
           <p className="mt-0.5 text-xs text-zinc-500">Flujo personal, categorías y proyecciones</p>
         </div>
-        <button
-          onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "tx-form" } })}
-          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-amber-600 to-amber-800 px-4 py-2 text-sm font-medium text-amber-50 shadow-[0_4px_20px_rgba(180,83,9,0.45)]"
-        >
-          <Plus className="h-4 w-4" />
+        <Button variant="bronze" Icon={Plus}
+          onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "tx-form" } })}>
           Movimiento
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
@@ -230,12 +202,12 @@ export default function FinanceScreen() {
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
                 <BarChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
-                  <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                  <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis, fontSize: 11 }} />
                   <YAxis hide />
-                  <Tooltip cursor={{ fill: "#27272a55" }} content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey="income" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar name="Gastos" dataKey="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                  <Tooltip cursor={{ fill: CHART_COLORS.cursor }} content={<ChartTooltip hide={hide} currency={cur} />} />
+                  <Bar name="Ingresos" dataKey="income" fill={CHART_COLORS.income} radius={[4, 4, 0, 0]} />
+                  <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense} radius={[4, 4, 0, 0]} />
                 </BarChart>
               )}
             </ChartContainer>
@@ -247,13 +219,10 @@ export default function FinanceScreen() {
               <EmptyState Icon={ArrowUp} title="Aún no cargaste movimientos"
                 hint="Registrá ingresos y gastos personales para visualizar tu flujo de caja real."
                 action={
-                  <button
-                    onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "tx-form" } })}
-                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-amber-600 to-amber-800 px-4 py-2 text-sm font-medium text-amber-50"
-                  >
-                    <Plus className="h-4 w-4" />
+                  <Button variant="bronze" Icon={Plus}
+                    onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "tx-form" } })}>
                     Cargar movimiento
-                  </button>
+                  </Button>
                 }
               />
             ) : (
@@ -483,44 +452,22 @@ export default function FinanceScreen() {
                 <AreaChart width={width} height={height} data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#d97706" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor={CHART_COLORS.gain} stopOpacity={0.5} />
+                      <stop offset="100%" stopColor={CHART_COLORS.gain} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false}
-                    tick={{ fill: "#71717a", fontSize: 11 }} interval={0} />
+                    tick={{ fill: CHART_COLORS.axis, fontSize: 11 }} interval={0} />
                   <YAxis hide domain={[0, "auto"]} />
                   <Tooltip
-                    cursor={{ stroke: "#3f3f46", strokeDasharray: "3 3" }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload;
-                      return (
-                        <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
-                          <div className="mb-1 text-zinc-400">Mes {d.mes}</div>
-                          <div className="flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full bg-amber-500" />
-                            <span className="text-zinc-400">Ganancia:</span>
-                            <span className="font-medium text-zinc-100 tabular-nums">
-                              {hide ? "••••••" : `${cur}${d.ganancia.toLocaleString("es-AR")}`}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full bg-zinc-600" />
-                            <span className="text-zinc-400">Capital:</span>
-                            <span className="font-medium text-zinc-100 tabular-nums">
-                              {hide ? "••••••" : `${cur}${d.total.toLocaleString("es-AR")}`}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }}
+                    cursor={{ stroke: CHART_COLORS.cursorLine, strokeDasharray: "3 3" }}
+                    content={<ProjectionTooltip hide={hide} currency={cur} />}
                   />
                   <Area type="monotone" name="Ganancia" dataKey="ganancia"
-                    stroke="#f59e0b" strokeWidth={2.5} fill="url(#gainFill)"
+                    stroke={CHART_COLORS.gainStroke} strokeWidth={2.5} fill="url(#gainFill)"
                     dot={{ r: 0 }}
-                    activeDot={{ r: 4, fill: "#f59e0b", stroke: "#0a0a0b", strokeWidth: 2 }} />
+                    activeDot={{ r: 4, fill: CHART_COLORS.gainStroke, stroke: "#0a0a0b", strokeWidth: 2 }} />
                 </AreaChart>
               )}
             </ChartContainer>

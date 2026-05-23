@@ -50,9 +50,10 @@ export const Button = ({ variant = "primary", size = "md", Icon, children, class
   );
 };
 
-export const IconButton = ({ Icon, className = "", ...rest }) => (
+export const IconButton = ({ Icon, "aria-label": ariaLabel, className = "", ...rest }) => (
   <button
     {...rest}
+    aria-label={ariaLabel}
     className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800/70 bg-zinc-900/70 text-zinc-300 transition-all hover:bg-zinc-800 hover:text-white active:scale-95 ${className}`}
   >
     <Icon className="h-4 w-4" />
@@ -121,6 +122,8 @@ export const Textarea = ({ label, ...rest }) => (
 export const Toggle = ({ checked, onChange, label, hint }) => (
   <button
     type="button"
+    role="switch"
+    aria-checked={checked}
     onClick={() => onChange(!checked)}
     className="flex w-full items-center justify-between rounded-2xl border border-zinc-800/70 bg-zinc-900/60 px-4 py-3 text-left transition-colors hover:bg-zinc-900"
   >
@@ -198,11 +201,18 @@ export const ProgressBar = ({ value, tone = "bronze" }) => {
     rose: "bg-rose-500",
     zinc: "bg-zinc-400",
   };
+  const pct = Math.round(Math.max(0, Math.min(100, value * 100)));
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+    <div
+      role="progressbar"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800"
+    >
       <div
         className={`h-full rounded-full transition-all duration-500 ${colors[tone]}`}
-        style={{ width: `${Math.max(0, Math.min(100, value * 100))}%` }}
+        style={{ width: `${pct}%` }}
       />
     </div>
   );

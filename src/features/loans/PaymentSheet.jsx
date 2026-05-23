@@ -18,8 +18,13 @@ export default function PaymentSheet({ open, onClose, loan }) {
   if (!loan) return null;
 
   const remaining = remainingDebt(loan);
+  const parsedAmount = Number(amount);
+  const amountError = amount && parsedAmount > remaining + 0.001
+    ? `Supera el saldo restante (${state.settings.currency}${Math.round(remaining).toLocaleString("es-AR")})`
+    : null;
+
   const onSubmit = () => {
-    const value = Number(amount);
+    const value = parsedAmount;
     if (!(value > 0)) return;
     dispatch({
       type: "ADD_PAYMENT",
@@ -40,7 +45,7 @@ export default function PaymentSheet({ open, onClose, loan }) {
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button variant="bronze" onClick={onSubmit} disabled={!(Number(amount) > 0)}>
+          <Button variant="bronze" onClick={onSubmit} disabled={!(parsedAmount > 0) || !!amountError}>
             Confirmar pago
           </Button>
         </div>
@@ -55,6 +60,7 @@ export default function PaymentSheet({ open, onClose, loan }) {
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           Icon={Banknote}
+          error={amountError}
         />
         <div className="grid grid-cols-3 gap-2">
           {[0.25, 0.5, 1].map((f) => (

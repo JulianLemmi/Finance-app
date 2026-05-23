@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Wallet, Sparkles, Target, TrendingUp,
   Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
-import { UI_LIMITS } from "../lib/constants.js";
+import { UI_LIMITS, CHART_COLORS } from "../lib/constants.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
@@ -14,36 +14,51 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 
-export default function HomeScreen() {
-  const { state, dispatch, derived, setSearchOpen } = useApp();
-  const hide = state.settings.hideBalances;
-  const cur = state.settings.currency;
+function getGreet(h) {
+  if (h < 6) return "Buenas noches";
+  if (h < 13) return "Buen día";
+  if (h < 20) return "Buenas tardes";
+  return "Buenas noches";
+}
 
+// Isolated component — only it re-renders every second, not the whole HomeScreen.
+function LiveClock() {
+  const { state } = useApp();
   const [now, setNow] = useState(() => new Date());
-  const [showUpcoming, setShowUpcoming] = useState(true);
-  const [showHistory, setShowHistory] = useState(true);
-
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
-
-  const greet = useMemo(() => {
-    const h = now.getHours();
-    if (h < 6) return "Buenas noches";
-    if (h < 13) return "Buen día";
-    if (h < 20) return "Buenas tardes";
-    return "Buenas noches";
-  }, [now]);
-
+  const userName = state.settings.userName?.trim();
+  const greet = getGreet(now.getHours());
   const dateLabel = now.toLocaleDateString("es-AR", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
   const timeLabel = now.toLocaleTimeString("es-AR", {
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   });
+  return (
+    <div className="min-w-0">
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{greet}</div>
+      <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-white">
+        {userName || "Panel financiero"}
+      </h1>
+      <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+        <span className="capitalize">{dateLabel}</span>
+        <span className="text-zinc-700">·</span>
+        <span className="tabular-nums text-zinc-400">{timeLabel}</span>
+      </div>
+    </div>
+  );
+}
 
-  const userName = state.settings.userName?.trim();
+export default function HomeScreen() {
+  const { state, dispatch, derived, setSearchOpen } = useApp();
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
+
+  const [showUpcoming, setShowUpcoming] = useState(true);
+  const [showHistory, setShowHistory] = useState(true);
   const hasAnyData = state.loans.length > 0 || state.clients.length > 0
     || state.expenses.length > 0 || state.income.length > 0;
 
@@ -58,17 +73,7 @@ export default function HomeScreen() {
   return (
     <div className="space-y-6 pb-2">
       <div className="flex items-center justify-between pt-1">
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{greet}</div>
-          <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-white">
-            {userName || "Panel financiero"}
-          </h1>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
-            <span className="capitalize">{dateLabel}</span>
-            <span className="text-zinc-700">·</span>
-            <span className="tabular-nums text-zinc-400">{timeLabel}</span>
-          </div>
-        </div>
+        <LiveClock />
         <div className="flex items-center gap-2">
           <IconButton Icon={Search} onClick={() => setSearchOpen?.(true)} />
           <IconButton Icon={hide ? EyeOff : Eye}
@@ -210,17 +215,17 @@ export default function HomeScreen() {
               <AreaChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="capitalFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#b45309" stopOpacity={0.45} />
-                    <stop offset="100%" stopColor="#b45309" stopOpacity={0} />
+                    <stop offset="0%" stopColor={CHART_COLORS.capital} stopOpacity={0.45} />
+                    <stop offset="100%" stopColor={CHART_COLORS.capital} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis, fontSize: 11 }} />
                 <YAxis hide />
-                <Tooltip cursor={{ stroke: "#3f3f46", strokeDasharray: "3 3" }}
+                <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine, strokeDasharray: "3 3" }}
                   content={<ChartTooltip hide={hide} currency={cur} />} />
                 <Area type="monotone" name="Capital" dataKey="capital"
-                  stroke="#f59e0b" strokeWidth={2} fill="url(#capitalFill)" />
+                  stroke={CHART_COLORS.capitalStroke} strokeWidth={2} fill="url(#capitalFill)" />
               </AreaChart>
             )}
           </ChartContainer>
@@ -239,13 +244,13 @@ export default function HomeScreen() {
           <ChartContainer className="h-44 min-w-0">
             {({ width, height }) => (
               <BarChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
-                <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis, fontSize: 11 }} />
                 <YAxis hide />
-                <Tooltip cursor={{ fill: "#27272a55" }}
+                <Tooltip cursor={{ fill: CHART_COLORS.cursor }}
                   content={<ChartTooltip hide={hide} currency={cur} />} />
-                <Bar name="Ingresos" dataKey={(d) => d.income + d.profit} fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar name="Gastos" dataKey="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                <Bar name="Ingresos" dataKey={(d) => d.income + d.profit} fill={CHART_COLORS.income} radius={[4, 4, 0, 0]} />
+                <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense} radius={[4, 4, 0, 0]} />
               </BarChart>
             )}
           </ChartContainer>
