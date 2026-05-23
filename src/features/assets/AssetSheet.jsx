@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { Trash2, DollarSign } from "lucide-react";
-import { uid } from "../lib/utils.js";
-import { ASSET_CATEGORIES } from "../lib/constants.js";
-import { useApp } from "../store/index.js";
-import { Sheet, Button, Input, Textarea } from "../components/ui.jsx";
+import { uid } from "../../lib/utils.js";
+import { ASSET_CATEGORIES } from "../../lib/constants.js";
+import { useApp } from "../../store/index.js";
+import { Sheet, Button, Input, Textarea } from "../../components/ui.jsx";
 
 export default function AssetSheet({ open, onClose, editingAsset }) {
   const { dispatch } = useApp();

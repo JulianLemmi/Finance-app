@@ -1,11 +1,11 @@
 import { useState, useMemo } from "react";
 import { Edit2, Plus, Wallet, Trash2, AlertTriangle } from "lucide-react";
-import { formatDate } from "../lib/utils.js";
-import { useApp } from "../store/index.js";
+import { formatDate } from "../../lib/utils.js";
+import { useApp } from "../../store/index.js";
 import {
   Sheet, Button, Card, Badge, RiskBadge, SectionTitle,
   EmptyState, Money, ProgressBar, StatusBadge,
-} from "../components/ui.jsx";
+} from "../../components/ui.jsx";
 import ClientFormSheet from "./ClientFormSheet.jsx";
 
 export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan }) {

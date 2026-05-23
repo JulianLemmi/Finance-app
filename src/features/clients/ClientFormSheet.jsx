@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { User as UserIcon, Phone, Shield } from "lucide-react";
-import { uid } from "../lib/utils.js";
-import { RISK_LEVELS } from "../lib/constants.js";
-import { useApp } from "../store/index.js";
-import { Sheet, Button, Input, Select, Textarea } from "../components/ui.jsx";
+import { uid } from "../../lib/utils.js";
+import { RISK_LEVELS } from "../../lib/constants.js";
+import { useApp } from "../../store/index.js";
+import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
 
 export default function ClientFormSheet({ open, onClose, editingClient }) {
   const { dispatch } = useApp();

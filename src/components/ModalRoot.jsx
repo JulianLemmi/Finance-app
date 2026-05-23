@@ -1,10 +1,10 @@
 import { useApp } from "../store/index.js";
 import LoanFormSheet from "../features/loans/LoanFormSheet.jsx";
 import LoanDetailSheet from "../features/loans/LoanDetailSheet.jsx";
-import ClientFormSheet from "../sheets/ClientFormSheet.jsx";
-import ClientDetailSheet from "../sheets/ClientDetailSheet.jsx";
+import ClientFormSheet from "../features/clients/ClientFormSheet.jsx";
+import ClientDetailSheet from "../features/clients/ClientDetailSheet.jsx";
 import TransactionSheet from "../sheets/TransactionSheet.jsx";
-import AssetSheet from "../sheets/AssetSheet.jsx";
+import AssetSheet from "../features/assets/AssetSheet.jsx";
 
 export default function ModalRoot() {
   const { state, dispatch } = useApp();
