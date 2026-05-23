@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from "react";
 import {
   Edit2, RefreshCw, Layers, Banknote, Camera, X, ArrowDown,
   Check, Receipt, Trash2, Calendar, AlertTriangle, CalendarRange,
-  TrendingUp, Clock,
+  TrendingUp, Clock, ChevronUp, ChevronDown,
 } from "lucide-react";
 import { uid, todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../lib/utils.js";
 import { GUARANTY_TYPES } from "../lib/constants.js";
@@ -92,6 +92,19 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
       payload: { id: loan.id, payments: (loan.payments || []).filter((p) => p.id !== paymentId) },
     });
     setDeletingPaymentId(null);
+  };
+
+  const movePaymentInTimeline = (paymentId, direction) => {
+    const payment = (loan.payments || []).find((p) => p.id === paymentId);
+    if (!payment) return;
+    const currentPos = payment.timelinePos || 0;
+    const newPos = direction === "down"
+      ? Math.min(currentPos + 1, currentCompoundPeriods)
+      : Math.max(currentPos - 1, 0);
+    const updated = (loan.payments || []).map((p) =>
+      p.id === paymentId ? { ...p, timelinePos: newPos } : p
+    );
+    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
   };
 
   const onSavePaymentEdit = () => {
@@ -201,16 +214,23 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
         date: p.date,
         amount: Number(p.amount),
         note: p.note,
+        timelinePos: p.timelinePos || 0,
         interestInPayment: interestAfter - interestBefore,
         totalInterestAccrued,
       });
     });
 
+    const dateMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
     events.sort((a, b) => {
-      if (a.date < b.date) return -1;
-      if (a.date > b.date) return 1;
-      const order = { start: 0, due: 1, mora: 2, payment: 3 };
-      return (order[a.type] ?? 9) - (order[b.type] ?? 9);
+      const getSortKey = (ev) => {
+        if (ev.type === "payment" && ev.timelinePos > 0) {
+          // Place this payment just after mora period ev.timelinePos
+          return dateMs(addDays(loan.dueDate, ev.timelinePos * loanTermDays)) + 500;
+        }
+        const tieBreak = { start: 0, due: 10, mora: 20, payment: 30 }[ev.type] ?? 40;
+        return dateMs(ev.date) + tieBreak;
+      };
+      return getSortKey(a) - getSortKey(b);
     });
 
     return events;
@@ -386,35 +406,65 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                     </div>
                   );
 
-                  if (ev.type === "payment") return (
-                    <div key={ev.id} className="relative flex items-start gap-3 rounded-xl bg-emerald-950/10 px-3 py-3 ring-1 ring-emerald-900/30">
-                      <div className="relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-emerald-700/60 bg-emerald-950/80">
-                        <ArrowDown className="h-3 w-3 text-emerald-400" />
-                      </div>
-                      <div className="flex flex-1 items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">
-                            <TrendingUp className="h-3 w-3" />
-                            Pago recibido
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-500">
-                            {formatDate(ev.date)}{ev.note ? ` · ${ev.note}` : ""}
-                          </div>
+                  if (ev.type === "payment") {
+                    const canMoveDown = currentCompoundPeriods > 0 && ev.timelinePos < currentCompoundPeriods;
+                    const canMoveUp = ev.timelinePos > 0;
+                    const isReordered = ev.timelinePos > 0;
+                    return (
+                      <div key={ev.id} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ring-1 ${isReordered ? "bg-amber-950/10 ring-amber-900/30" : "bg-emerald-950/10 ring-emerald-900/30"}`}>
+                        <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${isReordered ? "border-amber-700/60 bg-amber-950/80" : "border-emerald-700/60 bg-emerald-950/80"}`}>
+                          <ArrowDown className={`h-3 w-3 ${isReordered ? "text-amber-400" : "text-emerald-400"}`} />
                         </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold tabular-nums text-emerald-300">
-                            <Money value={ev.amount} hide={hide} currency={cur} />
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${isReordered ? "text-amber-400" : "text-emerald-400"}`}>
+                              <TrendingUp className="h-3 w-3" />
+                              Pago recibido
+                              {isReordered && (
+                                <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-amber-400">
+                                  reordenado
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-zinc-500">
+                              {formatDate(ev.date)}{ev.note ? ` · ${ev.note}` : ""}
+                            </div>
                           </div>
-                          {ev.interestInPayment > 0.01 && (
-                            <div className="text-[11px] text-zinc-500 tabular-nums">
-                              Interés cubierto: <span className="text-amber-400"><Money value={ev.interestInPayment} hide={hide} currency={cur} /></span>
-                              {" "}<span className="text-zinc-600">/ <Money value={ev.totalInterestAccrued} hide={hide} currency={cur} /></span>
+                          {(canMoveUp || canMoveDown) && (
+                            <div className="flex shrink-0 flex-col gap-0.5">
+                              <button
+                                disabled={!canMoveUp}
+                                onClick={() => movePaymentInTimeline(ev.id, "up")}
+                                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed"
+                                title="Mover antes del cargo anterior"
+                              >
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                disabled={!canMoveDown}
+                                onClick={() => movePaymentInTimeline(ev.id, "down")}
+                                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-20 disabled:cursor-not-allowed"
+                                title="Mover después del próximo cargo"
+                              >
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           )}
+                          <div className="text-right">
+                            <div className="text-sm font-semibold tabular-nums text-emerald-300">
+                              <Money value={ev.amount} hide={hide} currency={cur} />
+                            </div>
+                            {ev.interestInPayment > 0.01 && (
+                              <div className="text-[11px] text-zinc-500 tabular-nums">
+                                Interés cubierto: <span className="text-amber-400"><Money value={ev.interestInPayment} hide={hide} currency={cur} /></span>
+                                {" "}<span className="text-zinc-600">/ <Money value={ev.totalInterestAccrued} hide={hide} currency={cur} /></span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  }
 
                   return null;
                 })}
