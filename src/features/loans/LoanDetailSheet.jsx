@@ -4,9 +4,9 @@ import {
   Check, Receipt, Trash2, Calendar, AlertTriangle, CalendarRange,
   TrendingUp, Clock, ChevronUp, ChevronDown,
 } from "lucide-react";
-import { uid, todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
+import { uid, todayISO, todayDate, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
-import { compoundPeriods, expectedReturn } from "../../lib/calcs.js";
+import { expectedReturn, resolvePaymentPos } from "../../lib/calcs.js";
 import { uploadPhoto, deletePhoto } from "../../lib/storage.js";
 import { useApp } from "../../store/index.js";
 import {
@@ -167,9 +167,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysOverdue = loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, today)) : 0;
+  const daysOverdue = loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, todayDate())) : 0;
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
 
   // Build overdue periods using the same step-by-step simulation as remainingDebt() in calcs.js.
@@ -181,14 +179,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
     const rate = Number(loan.interestRate) / 100;
     const payments = loan.payments || [];
 
-    // Mirror of getPos() in calcs.js — must stay in sync
-    const getPos = (p) => {
-      if (typeof p.timelinePos === "number") return p.timelinePos;
-      for (let i = 1; i <= currentCompoundPeriods; i++) {
-        if (p.date < addDays(loan.dueDate, i * loanTermDays)) return i - 1;
-      }
-      return currentCompoundPeriods;
-    };
+    const getPos = (p) => resolvePaymentPos(p, currentCompoundPeriods, loanTermDays, loan.dueDate);
 
     let balance = expectedReturn(loan);
 

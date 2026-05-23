@@ -126,8 +126,9 @@ export const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
 
 export function useDerived(state) {
-  return useMemo(() => {
-    const loansResolved = state.loans.map((l) => ({
+  // Stage 1: resolve each loan's computed fields — reruns only when loans change
+  const loansResolved = useMemo(() =>
+    state.loans.map((l) => ({
       ...l,
       _status: resolveStatus(l),
       _paid: paidAmount(l),
@@ -137,15 +138,24 @@ export function useDerived(state) {
       _compoundReturn: compoundReturn(l),
       _progress: loanProgress(l),
       _daysUntilDue: daysUntilDue(l),
-    }));
+    })),
+  [state.loans]);
 
-    const activeLoans = loansResolved.filter((l) => l._status === "active");
-    const overdueLoans = loansResolved.filter((l) => l._status === "overdue");
-    const paidLoans = loansResolved.filter((l) => l._status === "paid");
-    const refinancedLoans = loansResolved.filter((l) => l._status === "refinanced");
+  // Stage 2: group loans by status — reruns only when loansResolved changes
+  const loanGroups = useMemo(() => ({
+    activeLoans: loansResolved.filter((l) => l._status === "active"),
+    overdueLoans: loansResolved.filter((l) => l._status === "overdue"),
+    paidLoans: loansResolved.filter((l) => l._status === "paid"),
+    refinancedLoans: loansResolved.filter((l) => l._status === "refinanced"),
+  }), [loansResolved]);
 
-    const capitalInvested = [...activeLoans, ...overdueLoans].reduce((a, l) => a + Number(l.amount), 0);
-    const expectedProfitTotal = [...activeLoans, ...overdueLoans].reduce((a, l) => a + l._profit, 0);
+  // Stage 3: financial aggregates — reruns when loans/income/expenses/settings/assets change
+  const financials = useMemo(() => {
+    const { activeLoans, overdueLoans, paidLoans } = loanGroups;
+    const deployed = [...activeLoans, ...overdueLoans];
+
+    const capitalInvested = deployed.reduce((a, l) => a + Number(l.amount), 0);
+    const expectedProfitTotal = deployed.reduce((a, l) => a + l._profit, 0);
     const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);
     const accumulatedProfit = paidLoans.reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
     const totalIncome = state.income.reduce((a, t) => a + Number(t.amount), 0);
@@ -164,7 +174,7 @@ export function useDerived(state) {
       return a + monthPayments.reduce((s, p) => s + Number(p.amount), 0) * margin;
     }, 0);
 
-    const upcomingDue = [...activeLoans, ...overdueLoans]
+    const upcomingDue = deployed
       .filter((l) => l._daysUntilDue !== null)
       .sort((a, b) => a._daysUntilDue - b._daysUntilDue)
       .slice(0, 8);
@@ -181,46 +191,6 @@ export function useDerived(state) {
       }, 0);
 
     const monthlyReturnPct = totalCapital > 0 ? (expectedMonthlyProfit / totalCapital) * 100 : 0;
-
-    const months = [];
-    const now = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = d.toISOString().slice(0, 7);
-      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, profit: 0 });
-    }
-
-    const monthIdx = Object.fromEntries(months.map((m, i) => [m.key, i]));
-    state.income.forEach((t) => {
-      const i = monthIdx[monthKey(t.date)];
-      if (i !== undefined) months[i].income += Number(t.amount);
-    });
-    state.expenses.forEach((t) => {
-      const i = monthIdx[monthKey(t.date)];
-      if (i !== undefined) months[i].expense += Number(t.amount);
-    });
-    loansResolved.forEach((l) => {
-      const margin = l._return > 0 ? l._profit / l._return : 0;
-      (l.payments || []).forEach((p) => {
-        const i = monthIdx[monthKey(p.date)];
-        if (i !== undefined) months[i].profit += Number(p.amount) * margin;
-      });
-    });
-
-    months.forEach((m) => {
-      const [yr, mo] = m.key.split("-").map(Number);
-      const cutoff = new Date(yr, mo, 0).toISOString().slice(0, 10);
-      const investedAtMonth = loansResolved
-        .filter((l) => {
-          if (l.startDate > cutoff) return false;
-          const paidUpTo = (l.payments || [])
-            .filter((p) => p.date <= cutoff)
-            .reduce((s, p) => s + Number(p.amount), 0);
-          return paidUpTo < expectedReturn(l);
-        })
-        .reduce((acc, l) => acc + Number(l.amount), 0);
-      m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
-    });
 
     const expenseByCategory = Object.keys(EXPENSE_CATEGORIES)
       .map((k) => ({
@@ -241,9 +211,7 @@ export function useDerived(state) {
         .map((l) => Math.max(1, daysBetween(l.startDate, l.dueDate) || 30))
         .sort((a, b) => a - b);
       const mid = Math.floor(terms.length / 2);
-      return terms.length % 2 === 0
-        ? (terms[mid - 1] + terms[mid]) / 2
-        : terms[mid];
+      return terms.length % 2 === 0 ? (terms[mid - 1] + terms[mid]) / 2 : terms[mid];
     })();
 
     const reinvestmentFactor = (m) => {
@@ -251,43 +219,38 @@ export function useDerived(state) {
       return Math.pow(1 + avgRate / 100, cycles);
     };
     const baseCapital = Math.max(0, totalCapital);
+    const now = new Date();
     const projections = {
       m1: baseCapital * reinvestmentFactor(1),
       m3: baseCapital * reinvestmentFactor(3),
       m6: baseCapital * reinvestmentFactor(6),
       y1: baseCapital * reinvestmentFactor(12),
     };
-
-    const projectionSeries = [];
-    for (let i = 0; i <= 12; i++) {
+    const projectionSeries = Array.from({ length: 13 }, (_, i) => {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      projectionSeries.push({
+      return {
         key: d.toISOString().slice(0, 7),
         label: d.toLocaleDateString("es-AR", { month: "short" }),
         value: baseCapital * reinvestmentFactor(i),
-      });
-    }
+      };
+    });
 
     const todayStr = todayISO();
-
-    // Cobrabilidad: % of paid loans settled on time
     const paidOnTimeCount = paidLoans.filter((l) => {
       const sorted = [...(l.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
       return sorted.length > 0 && sorted[0].date <= l.dueDate;
     }).length;
     const collectabilityRate = paidLoans.length > 0 ? paidOnTimeCount / paidLoans.length : null;
 
-    // Average days late for currently overdue loans
     const avgDaysLate =
       overdueLoans.length > 0
         ? overdueLoans.reduce((s, l) => s + Math.max(0, daysBetween(l.dueDate, todayStr)), 0) /
           overdueLoans.length
         : 0;
 
-    // Cash flow: expected collections per day for next 30 days
     const cashFlow30d = Array.from({ length: 30 }, (_, i) => {
       const dateStr = addDays(todayStr, i);
-      const dueLoans = [...activeLoans, ...overdueLoans].filter((l) => l.dueDate === dateStr);
+      const dueLoans = deployed.filter((l) => l.dueDate === dateStr);
       return {
         day: i,
         date: dateStr,
@@ -297,7 +260,61 @@ export function useDerived(state) {
       };
     });
 
-    const clientStats = state.clients.map((c) => {
+    return {
+      capitalInvested, expectedProfitTotal, totalExpectedProfit, accumulatedProfit,
+      totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
+      workingCapital, totalCapital, monthlyInterestsCollected, upcomingDue,
+      expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
+      avgRate, avgDays, projections, projectionSeries, paidOnTimeCount,
+      collectabilityRate, avgDaysLate, cashFlow30d,
+    };
+  }, [loanGroups, loansResolved, state.income, state.expenses, state.settings, state.assets]);
+
+  // Stage 4: monthly chart data — reruns when loans, income or expenses change
+  const chartData = useMemo(() => {
+    const now = new Date();
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.toISOString().slice(0, 7);
+      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, profit: 0 });
+    }
+    const monthIdx = Object.fromEntries(months.map((m, i) => [m.key, i]));
+    state.income.forEach((t) => {
+      const i = monthIdx[monthKey(t.date)];
+      if (i !== undefined) months[i].income += Number(t.amount);
+    });
+    state.expenses.forEach((t) => {
+      const i = monthIdx[monthKey(t.date)];
+      if (i !== undefined) months[i].expense += Number(t.amount);
+    });
+    loansResolved.forEach((l) => {
+      const margin = l._return > 0 ? l._profit / l._return : 0;
+      (l.payments || []).forEach((p) => {
+        const i = monthIdx[monthKey(p.date)];
+        if (i !== undefined) months[i].profit += Number(p.amount) * margin;
+      });
+    });
+    months.forEach((m) => {
+      const [yr, mo] = m.key.split("-").map(Number);
+      const cutoff = new Date(yr, mo, 0).toISOString().slice(0, 10);
+      const investedAtMonth = loansResolved
+        .filter((l) => {
+          if (l.startDate > cutoff) return false;
+          const paidUpTo = (l.payments || [])
+            .filter((p) => p.date <= cutoff)
+            .reduce((s, p) => s + Number(p.amount), 0);
+          return paidUpTo < expectedReturn(l);
+        })
+        .reduce((acc, l) => acc + Number(l.amount), 0);
+      m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
+    });
+    return { months };
+  }, [loansResolved, state.income, state.expenses, state.settings]);
+
+  // Stage 5: client stats — reruns only when clients or loans change
+  const clientStats = useMemo(() =>
+    state.clients.map((c) => {
       const cLoans = loansResolved.filter((l) => l.clientId === c.id);
       const active = cLoans.filter((l) => l._status === "active" || l._status === "overdue");
       const debt = active.reduce((a, l) => a + l._remaining, 0);
@@ -306,16 +323,14 @@ export function useDerived(state) {
         .reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
       const overdueCount = cLoans.filter((l) => l._status === "overdue").length;
       return { ...c, _loans: cLoans, _active: active, _debt: debt, _totalGenerated: totalGenerated, _overdueCount: overdueCount };
-    });
+    }),
+  [state.clients, loansResolved]);
 
-    return {
-      loansResolved, activeLoans, overdueLoans, paidLoans, refinancedLoans,
-      capitalInvested, expectedProfitTotal, accumulatedProfit, collected, available,
-      totalCapital, workingCapital, totalAssets, totalIncome, totalExpense,
-      monthlyInterestsCollected, upcomingDue, expectedInflow30d, months,
-      expenseByCategory, avgRate, avgDays, projections, projectionSeries, clientStats,
-      totalExpectedProfit, totalDisbursed, expectedMonthlyProfit, monthlyReturnPct,
-      collectabilityRate, avgDaysLate, cashFlow30d, paidOnTimeCount,
-    };
-  }, [state.loans, state.income, state.expenses, state.settings, state.clients, state.assets]);
+  return useMemo(() => ({
+    loansResolved,
+    ...loanGroups,
+    ...financials,
+    ...chartData,
+    clientStats,
+  }), [loansResolved, loanGroups, financials, chartData, clientStats]);
 }
