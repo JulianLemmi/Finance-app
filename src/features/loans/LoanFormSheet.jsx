@@ -3,10 +3,10 @@ import {
   User as UserIcon, Tag, Banknote, TrendingUp, Calendar, Clock, Hash,
   CalendarClock, Shield, FileText, HelpCircle,
 } from "lucide-react";
-import { uid, todayISO, addDays, formatMoney, formatDate } from "../lib/utils.js";
-import { PAYMENT_TYPES, GUARANTY_TYPES } from "../lib/constants.js";
-import { useApp } from "../store/index.js";
-import { Sheet, Button, Input, Select, Textarea } from "../components/ui.jsx";
+import { uid, todayISO, addDays, formatMoney, formatDate } from "../../lib/utils.js";
+import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
+import { useApp } from "../../store/index.js";
+import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
 
 function emptyLoan() {
   const start = todayISO();

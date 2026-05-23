@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { Banknote, Calendar } from "lucide-react";
-import { uid, todayISO, formatMoney } from "../lib/utils.js";
-import { remainingDebt } from "../lib/calcs.js";
-import { useApp } from "../store/index.js";
-import { Sheet, Button, Input, Textarea } from "../components/ui.jsx";
+import { uid, todayISO, formatMoney } from "../../lib/utils.js";
+import { remainingDebt } from "../../lib/calcs.js";
+import { useApp } from "../../store/index.js";
+import { Sheet, Button, Input, Textarea } from "../../components/ui.jsx";
 
 export default function PaymentSheet({ open, onClose, loan }) {
   const { state, dispatch } = useApp();

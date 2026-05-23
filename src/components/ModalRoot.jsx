@@ -1,6 +1,6 @@
 import { useApp } from "../store/index.js";
-import LoanFormSheet from "../sheets/LoanFormSheet.jsx";
-import LoanDetailSheet from "../sheets/LoanDetailSheet.jsx";
+import LoanFormSheet from "../features/loans/LoanFormSheet.jsx";
+import LoanDetailSheet from "../features/loans/LoanDetailSheet.jsx";
 import ClientFormSheet from "../sheets/ClientFormSheet.jsx";
 import ClientDetailSheet from "../sheets/ClientDetailSheet.jsx";
 import TransactionSheet from "../sheets/TransactionSheet.jsx";

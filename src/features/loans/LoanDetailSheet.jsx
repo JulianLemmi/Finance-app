@@ -4,16 +4,16 @@ import {
   Check, Receipt, Trash2, Calendar, AlertTriangle, CalendarRange,
   TrendingUp, Clock, ChevronUp, ChevronDown,
 } from "lucide-react";
-import { uid, todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../lib/utils.js";
-import { GUARANTY_TYPES } from "../lib/constants.js";
-import { compoundPeriods, expectedReturn } from "../lib/calcs.js";
-import { uploadPhoto, deletePhoto } from "../lib/storage.js";
-import { useApp } from "../store/index.js";
+import { uid, todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
+import { GUARANTY_TYPES } from "../../lib/constants.js";
+import { compoundPeriods, expectedReturn } from "../../lib/calcs.js";
+import { uploadPhoto, deletePhoto } from "../../lib/storage.js";
+import { useApp } from "../../store/index.js";
 import {
   Sheet, Button, Input, Card, Badge, StatusBadge, SectionTitle,
   EmptyState, Money, ProgressBar,
-} from "../components/ui.jsx";
-import LoanChain from "../components/LoanChain.jsx";
+} from "../../components/ui.jsx";
+import LoanChain from "./LoanChain.jsx";
 import PaymentSheet from "./PaymentSheet.jsx";
 import LoanFormSheet from "./LoanFormSheet.jsx";
 

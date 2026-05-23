@@ -1,7 +1,7 @@
 import { Layers, ChevronRight } from "lucide-react";
-import { formatShortDate } from "../lib/utils.js";
-import { SectionTitle, Money, StatusBadge } from "./ui.jsx";
-import { useApp } from "../store/index.js";
+import { formatShortDate } from "../../lib/utils.js";
+import { SectionTitle, Money, StatusBadge } from "../../components/ui.jsx";
+import { useApp } from "../../store/index.js";
 
 export default function LoanChain({ chain, currentLoanId, onOpenLoan }) {
   const { state } = useApp();
