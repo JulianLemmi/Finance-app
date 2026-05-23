@@ -40,16 +40,9 @@ export function paidAmount(loan) {
 
 export function remainingDebt(loan) {
   const payments = loan.payments || [];
-
-  // Only use simulation when the user has explicitly repositioned at least one payment
-  const hasCustomPositions = payments.some((p) => p.timelinePos > 0);
-  if (!hasCustomPositions) {
-    return Math.max(0, compoundReturn(loan) - paidAmount(loan));
-  }
-
-  // Position-aware simulation: apply payments at their declared timeline position
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
   if (!loan.dueDate) return Math.max(0, expectedReturn(loan) - paidAmount(loan));
 
   const daysOverdue = daysBetween(loan.dueDate, today);
@@ -61,19 +54,29 @@ export function remainingDebt(loan) {
 
   const rate = Number(loan.interestRate) / 100;
 
-  // Start from expectedReturn (amount × (1+rate)) — the base at due date
+  // Resolve each payment's effective timeline position:
+  //   - explicit timelinePos set by user takes absolute priority
+  //   - otherwise infer from payment date: find the first mora period whose date
+  //     is AFTER the payment date → payment falls in the period before that mora
+  const getPos = (p) => {
+    if (typeof p.timelinePos === "number") return p.timelinePos;
+    for (let i = 1; i <= overduePeriods; i++) {
+      if (p.date < addDays(loan.dueDate, i * termDays)) return i - 1;
+    }
+    return overduePeriods;
+  };
+
+  // Simulate running balance step by step
   let balance = expectedReturn(loan);
 
-  // Apply payments at position 0 (before any mora charge)
   payments
-    .filter((p) => !p.timelinePos || p.timelinePos === 0)
+    .filter((p) => getPos(p) === 0)
     .forEach((p) => { balance = Math.max(0, balance - Number(p.amount)); });
 
-  // For each mora period: compound the running balance, then apply payments at that position
   for (let i = 1; i <= overduePeriods; i++) {
     if (balance > 0) balance *= 1 + rate;
     payments
-      .filter((p) => p.timelinePos === i)
+      .filter((p) => getPos(p) === i)
       .forEach((p) => { balance = Math.max(0, balance - Number(p.amount)); });
   }
 
