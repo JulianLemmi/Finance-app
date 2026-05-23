@@ -15,7 +15,10 @@ export const initialState = {
   income: [],
   history: [],
   assets: [],
-  settings: { currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark" },
+  settings: {
+    currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark",
+    defaultRate: 8, defaultDays: 30,
+  },
   ui: { activeTab: "home", modal: null },
 };
 

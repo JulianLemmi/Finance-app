@@ -3,6 +3,7 @@ import { Briefcase, Sparkles, CheckCircle2 } from "lucide-react";
 import { initialState, reducer, AppContext, useDerived } from "./store/index.js";
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
+import { useStorageSync } from "./lib/hooks.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import GlobalStyles from "./components/GlobalStyles.jsx";
@@ -182,47 +183,13 @@ function AuthedApp({ sessionUserId, userEmail }) {
     return () => { cancelled = true; };
   }, [sessionUserId]);
 
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.loans, state.loans), 300);
-    return () => clearTimeout(t);
-  }, [state.loans, state.loaded]);
-
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.clients, state.clients), 300);
-    return () => clearTimeout(t);
-  }, [state.clients, state.loaded]);
-
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.expenses, state.expenses), 300);
-    return () => clearTimeout(t);
-  }, [state.expenses, state.loaded]);
-
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.income, state.income), 300);
-    return () => clearTimeout(t);
-  }, [state.income, state.loaded]);
-
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.history, state.history), 300);
-    return () => clearTimeout(t);
-  }, [state.history, state.loaded]);
-
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.settings, state.settings), 300);
-    return () => clearTimeout(t);
-  }, [state.settings, state.loaded]);
-
-  useEffect(() => {
-    if (!state.loaded) return;
-    const t = setTimeout(() => storage.set(STORAGE_KEYS.assets, state.assets), 300);
-    return () => clearTimeout(t);
-  }, [state.assets, state.loaded]);
+  useStorageSync(STORAGE_KEYS.loans, state.loans, state.loaded);
+  useStorageSync(STORAGE_KEYS.clients, state.clients, state.loaded);
+  useStorageSync(STORAGE_KEYS.expenses, state.expenses, state.loaded);
+  useStorageSync(STORAGE_KEYS.income, state.income, state.loaded);
+  useStorageSync(STORAGE_KEYS.history, state.history, state.loaded);
+  useStorageSync(STORAGE_KEYS.settings, state.settings, state.loaded);
+  useStorageSync(STORAGE_KEYS.assets, state.assets, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
 

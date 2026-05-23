@@ -9,12 +9,15 @@ import { validateLoan } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
 
-function emptyLoan() {
+function emptyLoan(defaults = {}) {
   const start = todayISO();
+  const rate = defaults.defaultRate ?? 8;
+  const days = defaults.defaultDays ?? 30;
+  const paymentType = days === 15 || days === 30 ? String(days) : "custom";
   return {
     id: "", clientId: "", clientName: "", alias: "", amount: "",
-    interestRate: "8", startDate: start, paymentType: "30",
-    customDays: 30, dueDate: addDays(start, 30), guarantyType: "cash",
+    interestRate: String(rate), startDate: start, paymentType,
+    customDays: days, dueDate: addDays(start, days), guarantyType: "cash",
     guarantyDetail: "", status: "active", notes: "", payments: [],
     compoundInterest: false, noDueDate: false,
   };
@@ -22,11 +25,11 @@ function emptyLoan() {
 
 export default function LoanFormSheet({ open, onClose, editingLoan }) {
   const { state, dispatch } = useApp();
-  const [form, setForm] = useState(() => emptyLoan());
+  const [form, setForm] = useState(() => emptyLoan(state.settings));
 
   useEffect(() => {
-    if (open) setForm(editingLoan ? { ...emptyLoan(), ...editingLoan } : emptyLoan());
-  }, [open, editingLoan]);
+    if (open) setForm(editingLoan ? { ...emptyLoan(state.settings), ...editingLoan } : emptyLoan(state.settings));
+  }, [open, editingLoan, state.settings.defaultRate, state.settings.defaultDays]);
 
   const updateField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
