@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { uid, todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../lib/utils.js";
 import { GUARANTY_TYPES } from "../lib/constants.js";
-import { compoundPeriods } from "../lib/calcs.js";
+import { compoundPeriods, expectedReturn } from "../lib/calcs.js";
 import { uploadPhoto, deletePhoto } from "../lib/storage.js";
 import { useApp } from "../store/index.js";
 import {
@@ -173,21 +173,58 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
 
   // Build overdue periods — starts from i=1 (i=0 is the original due date, already shown as "VENCIDO")
+  // When payments have custom timeline positions, simulate the running balance step by step
+  // so each mora row shows the correct amount based on the balance AFTER prior payments.
   const overdueTimelinePeriods = useMemo(() => {
     if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
     const rate = Number(loan.interestRate) / 100;
-    const base = Number(loan.amount);
+    const payments = loan.payments || [];
+    const hasCustomPositions = payments.some((p) => p.timelinePos > 0);
+
+    if (!hasCustomPositions) {
+      // Original formula — no custom positions, use compound on principal
+      const base = Number(loan.amount);
+      return Array.from({ length: currentCompoundPeriods }, (_, idx) => {
+        const i = idx + 1;
+        const prev = base * Math.pow(1 + rate, i);
+        const current = base * Math.pow(1 + rate, i + 1);
+        return {
+          period: i,
+          date: addDays(loan.dueDate, i * loanTermDays),
+          total: current,
+          added: current - prev,
+          isCurrent: i === currentCompoundPeriods,
+        };
+      });
+    }
+
+    // Position-aware simulation: mirrors the logic in remainingDebt() in calcs.js
+    let balance = expectedReturn(loan);
+
+    // Apply payments positioned before any mora (pos 0 / default)
+    payments
+      .filter((p) => !p.timelinePos || p.timelinePos === 0)
+      .forEach((p) => { balance = Math.max(0, balance - Number(p.amount)); });
+
     const result = [];
     for (let i = 1; i <= currentCompoundPeriods; i++) {
-      const prev = base * Math.pow(1 + rate, i);
-      const current = base * Math.pow(1 + rate, i + 1);
+      const prevBalance = Math.max(0, balance);
+      const added = prevBalance * rate;
+      const afterMora = prevBalance + added; // = prevBalance * (1 + rate)
+
       result.push({
         period: i,
         date: addDays(loan.dueDate, i * loanTermDays),
-        total: current,
-        added: current - prev,
+        total: afterMora,       // debt after this mora charge, before payments at pos i
+        added,                  // interest added this period
         isCurrent: i === currentCompoundPeriods,
       });
+
+      // Reduce balance by payments applied at this mora position for the next iteration
+      balance = afterMora;
+      payments
+        .filter((p) => p.timelinePos === i)
+        .forEach((p) => { balance = Math.max(0, balance - Number(p.amount)); });
     }
     return result;
   }, [loan, loanTermDays, currentCompoundPeriods]);
