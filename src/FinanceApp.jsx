@@ -4,6 +4,7 @@ import { initialState, reducer, AppContext, useDerived } from "./store/index.js"
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
 import { useStorageSync } from "./lib/hooks.js";
+import { getLockConfig } from "./lib/lock.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import GlobalStyles from "./components/GlobalStyles.jsx";
@@ -12,6 +13,7 @@ import BottomTabBar from "./components/BottomTabBar.jsx";
 import ModalRoot from "./components/ModalRoot.jsx";
 import WelcomeSplash from "./components/WelcomeSplash.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
+import LockScreen from "./components/LockScreen.jsx";
 
 // Lazy load screens to split Recharts and per-screen code into separate chunks
 const HomeScreen = lazy(() => import("./screens/HomeScreen.jsx"));
@@ -160,6 +162,19 @@ function LoginScreen() {
 function AuthedApp({ sessionUserId, userEmail }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const derived = useDerived(state);
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+  const [locked, setLocked] = useState(() => isStandalone && getLockConfig().enabled);
+
+  // Re-lock when app comes back to foreground (only in standalone/installed mode)
+  useEffect(() => {
+    if (!isStandalone) return;
+    const onVisibility = () => {
+      if (!document.hidden && getLockConfig().enabled) setLocked(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [isStandalone]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,6 +235,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
 
   return (
     <AppContext.Provider value={ctx}>
+      {locked && <LockScreen onUnlock={() => setLocked(false)} />}
       <WelcomeSplash userName={state.settings.userName?.trim()} />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <GlobalStyles />
