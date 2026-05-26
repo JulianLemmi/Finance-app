@@ -134,9 +134,13 @@ export default function HomeScreen() {
             <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
               <span>{Math.round(allocationPct * 100)}% asignado</span>
               <span className="flex items-center gap-1.5">
-                Próx. 30d{" "}
+                Total{" "}
                 <span className="text-zinc-300 tabular-nums">
-                  <Money value={derived.expectedInflow30d} hide={hide} currency={cur} />
+                  <Money
+                    value={derived.totalCapital + Number(state.settings.mpBalance || 0)}
+                    hide={hide}
+                    currency={cur}
+                  />
                 </span>
                 {derived.monthlyReturnPct > 0 && (
                   <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 tabular-nums">
