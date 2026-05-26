@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { CheckCircle2, Clock, TrendingDown, CalendarDays, BarChart2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import { useApp } from "../store/index.js";
-import { formatShortDate } from "../lib/utils.js";
+import { formatShortDate, todayISO, addDays, getNextRenewalDate } from "../lib/utils.js";
 import { CHART_COLORS } from "../lib/constants.js";
 import { Card, SectionTitle, Money, ChartContainer, ChartTooltip, StatCard } from "./ui.jsx";
 
@@ -162,18 +162,95 @@ function VencimientosHeatmap() {
   const { derived, state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
+  const [openCell, setOpenCell] = useState(null);
+  const pressTimerRef = useRef(null);
+  const suppressClickRef = useRef(false);
+  const closeTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
 
   const cells = useMemo(() => {
-    return derived.cashFlow30d.map((d) => {
-      const date = new Date(d.date + "T00:00:00");
-      const dayName = date.toLocaleDateString("es-AR", { weekday: "short" }).slice(0, 3);
-      const dayNum = date.getDate();
-      const monthName = date.toLocaleDateString("es-AR", { month: "short" });
-      return { ...d, dayName, dayNum, monthName };
+    const today = todayISO();
+    const entries = Array.from({ length: 30 }, (_, i) => {
+      const dateStr = addDays(today, i);
+      const date = new Date(dateStr + "T00:00:00");
+      return {
+        date: dateStr,
+        day: i,
+        dayName: date.toLocaleDateString("es-AR", { weekday: "short" }).slice(0, 3),
+        dayNum: date.getDate(),
+        dueLoans: [],
+      };
     });
-  }, [derived.cashFlow30d]);
+    const idx = new Map(entries.map((e, i) => [e.date, i]));
 
-  const maxAmount = Math.max(...cells.map((c) => c.expected), 1);
+    for (const l of derived.activeLoans) {
+      const i = idx.get(l.dueDate);
+      if (i !== undefined) {
+        entries[i].dueLoans.push({
+          loan: l,
+          gain: Number(l._profit) || 0,
+          isRenewal: false,
+        });
+      }
+    }
+    for (const l of derived.overdueLoans) {
+      const next = getNextRenewalDate(l);
+      const i = idx.get(next);
+      if (i !== undefined) {
+        const periodicGain = Number(l._remaining) * (Number(l.interestRate) / 100);
+        entries[i].dueLoans.push({
+          loan: l,
+          gain: Number.isFinite(periodicGain) ? periodicGain : 0,
+          isRenewal: true,
+        });
+      }
+    }
+
+    return entries.map((e) => ({
+      ...e,
+      gain: e.dueLoans.reduce((s, x) => s + x.gain, 0),
+      count: e.dueLoans.length,
+    }));
+  }, [derived.activeLoans, derived.overdueLoans]);
+
+  const maxGain = Math.max(...cells.map((c) => c.gain), 1);
+
+  const handlePointerDown = (cell) => {
+    if (cell.dueLoans.length === 0) return;
+    suppressClickRef.current = false;
+    pressTimerRef.current = setTimeout(() => {
+      suppressClickRef.current = true;
+      setOpenCell(cell.date);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => setOpenCell(null), 4000);
+    }, 500);
+  };
+  const cancelPress = () => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+  const handleClick = (cell) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (cell.dueLoans.length === 1) {
+      dispatch({
+        type: "OPEN_MODAL",
+        payload: { type: "loan-detail", payload: { id: cell.dueLoans[0].loan.id } },
+      });
+    } else if (cell.dueLoans.length > 1) {
+      setOpenCell(cell.date);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => setOpenCell(null), 4000);
+    }
+  };
 
   return (
     <Card className="p-5">
@@ -183,28 +260,22 @@ function VencimientosHeatmap() {
       </div>
       <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-10">
         {cells.map((cell) => {
-          const intensity = cell.expected > 0 ? Math.max(0.15, cell.expected / maxAmount) : 0;
-          const hasDue = cell.expected > 0;
+          const intensity = cell.gain > 0 ? Math.max(0.15, cell.gain / maxGain) : 0;
+          const hasDue = cell.gain > 0;
           const isToday = cell.day === 0;
-
-          // Find loans due on this day for tooltip
-          const dueLoans = [...derived.activeLoans, ...derived.overdueLoans].filter(
-            (l) => l.dueDate === cell.date
-          );
+          const isOpen = openCell === cell.date;
 
           return (
             <button
               key={cell.date}
               disabled={!hasDue}
-              onClick={() => {
-                if (dueLoans.length === 1) {
-                  dispatch({
-                    type: "OPEN_MODAL",
-                    payload: { type: "loan-detail", payload: { id: dueLoans[0].id } },
-                  });
-                }
-              }}
-              className={`group relative flex flex-col items-center rounded-xl border px-1 py-2 text-center transition-all ${
+              onClick={() => handleClick(cell)}
+              onPointerDown={() => handlePointerDown(cell)}
+              onPointerUp={cancelPress}
+              onPointerLeave={cancelPress}
+              onPointerCancel={cancelPress}
+              onContextMenu={(e) => e.preventDefault()}
+              className={`group relative flex select-none flex-col items-center rounded-xl border px-1 py-2 text-center transition-all ${
                 isToday
                   ? "border-amber-600/50 bg-amber-900/20"
                   : hasDue
@@ -231,25 +302,33 @@ function VencimientosHeatmap() {
                 <span className="mt-0.5 text-[8px] font-medium tabular-nums text-emerald-400">
                   {hide
                     ? "•••"
-                    : cell.expected >= 1000
-                    ? `${cur}${Math.round(cell.expected / 1000)}k`
-                    : `${cur}${Math.round(cell.expected)}`}
+                    : cell.gain >= 1000
+                    ? `${cur}${Math.round(cell.gain / 1000)}k`
+                    : `${cur}${Math.round(cell.gain)}`}
                 </span>
               )}
               {cell.count > 1 && (
                 <span className="mt-0.5 h-1 w-1 rounded-full bg-emerald-500" />
               )}
-              {/* Tooltip on hover */}
-              {hasDue && dueLoans.length > 0 && (
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 hidden w-40 -translate-x-1/2 rounded-lg border border-zinc-800 bg-zinc-950/95 p-2 text-[10px] shadow-xl group-hover:block">
+              {hasDue && cell.dueLoans.length > 0 && (
+                <div
+                  className={`pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-44 -translate-x-1/2 rounded-lg border border-zinc-800 bg-zinc-950/95 p-2 text-[10px] shadow-xl ${
+                    isOpen ? "block" : "hidden group-hover:block"
+                  }`}
+                >
                   <div className="mb-1 font-medium text-zinc-300">{formatShortDate(cell.date)}</div>
-                  {dueLoans.slice(0, 3).map((l) => (
-                    <div key={l.id} className="truncate text-zinc-500">
-                      {l.clientName} · {hide ? "•••" : `${cur}${Math.round(l._remaining).toLocaleString("es-AR")}`}
+                  {cell.dueLoans.slice(0, 3).map((entry, i) => (
+                    <div key={`${entry.loan.id}_${i}`} className="flex items-center justify-between gap-2 text-zinc-500">
+                      <span className="truncate">
+                        {entry.loan.clientName}{entry.isRenewal ? " ↻" : ""}
+                      </span>
+                      <span className="shrink-0 text-emerald-400 tabular-nums">
+                        +{hide ? "•••" : `${cur}${Math.round(entry.gain).toLocaleString("es-AR")}`}
+                      </span>
                     </div>
                   ))}
-                  {dueLoans.length > 3 && (
-                    <div className="text-zinc-600">+{dueLoans.length - 3} más</div>
+                  {cell.dueLoans.length > 3 && (
+                    <div className="text-zinc-600">+{cell.dueLoans.length - 3} más</div>
                   )}
                 </div>
               )}
@@ -270,6 +349,7 @@ function VencimientosHeatmap() {
           <span className="h-2 w-2 rounded-sm border border-zinc-800/40 bg-zinc-900/20" />
           Sin vencimiento
         </span>
+        <span className="ml-auto text-zinc-600">↻ = renovación</span>
       </div>
     </Card>
   );
