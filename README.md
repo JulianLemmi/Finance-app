@@ -135,6 +135,62 @@ await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
 });
 ```
 
+### Daily digest (cron)
+
+`supabase/functions/daily-digest/index.ts` corre 1×/día, calcula los vencimientos del día por usuario (originales + renovaciones de atrasados) y dispara `send-push` con el resumen.
+
+1. **Generar un secret aleatorio y configurarlo:**
+   ```bash
+   supabase secrets set CRON_SECRET=$(openssl rand -hex 32)
+   # En PowerShell:
+   # supabase secrets set CRON_SECRET=$(-join ((48..57)+(97..122) | Get-Random -Count 64 | % {[char]$_}))
+   ```
+   Anotá el valor — lo vas a necesitar para el SQL del cron.
+
+2. **Desplegar la función:**
+   ```bash
+   supabase functions deploy daily-digest --no-verify-jwt
+   ```
+
+3. **Habilitar las extensiones de cron y HTTP en Supabase:**
+
+   Dashboard → Database → Extensions → buscar y activar:
+   - `pg_cron`
+   - `pg_net`
+
+4. **Programar el cron** (Dashboard → SQL Editor):
+   ```sql
+   select cron.schedule(
+     'finance-daily-digest',
+     '0 12 * * *',  -- 12:00 UTC = 09:00 Argentina
+     $$
+     select net.http_post(
+       url := 'https://lolbedlxkcclkjwuhfma.functions.supabase.co/daily-digest',
+       headers := jsonb_build_object(
+         'X-Cron-Secret', 'PEGA_AQUI_TU_CRON_SECRET',
+         'Content-Type', 'application/json'
+       ),
+       body := '{}'::jsonb
+     );
+     $$
+   );
+   ```
+   Reemplazá `PEGA_AQUI_TU_CRON_SECRET` con el valor del paso 1.
+
+5. **Verificar / disparar manualmente:**
+   ```bash
+   curl -X POST \
+     -H "X-Cron-Secret: TU_CRON_SECRET" \
+     https://lolbedlxkcclkjwuhfma.functions.supabase.co/daily-digest
+   ```
+   Respuesta esperada: `{"processed": N, "sent": M}`.
+
+6. **Para listar / borrar el cron:**
+   ```sql
+   select * from cron.job;
+   select cron.unschedule('finance-daily-digest');
+   ```
+
 ## Estructura
 
 ```
