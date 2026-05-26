@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { User as UserIcon, Banknote, Hash, Trash2, TrendingUp, Clock, Download, Upload, AlertTriangle, CheckCircle2, Wallet } from "lucide-react";
+import { User as UserIcon, Banknote, Hash, Trash2, TrendingUp, Clock, Download, Upload, AlertTriangle, CheckCircle2, Wallet, Send } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { initialState } from "../store/index.js";
 import { BUSINESS_RULES } from "../lib/constants.js";
 import { downloadBackup, readBackupFile } from "../lib/backup.js";
+import { sendTelegramNotification } from "../lib/telegram.js";
 import {
   Card, SectionTitle, Input, Select, Toggle, Button, Money,
 } from "../components/ui.jsx";
@@ -16,6 +17,8 @@ export default function ProfileScreen() {
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [defaultRate, setDefaultRate] = useState(String(state.settings.defaultRate ?? 8));
   const [defaultDays, setDefaultDays] = useState(String(state.settings.defaultDays ?? 30));
+  const [telegramChatId, setTelegramChatId] = useState(state.settings.telegramChatId || "");
+  const [telegramStatus, setTelegramStatus] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetCountdown, setResetCountdown] = useState(0);
   const [importPreview, setImportPreview] = useState(null);
@@ -30,6 +33,7 @@ export default function ProfileScreen() {
     setCurrency(state.settings.currency || "$");
     setDefaultRate(String(state.settings.defaultRate ?? 8));
     setDefaultDays(String(state.settings.defaultDays ?? 30));
+    setTelegramChatId(state.settings.telegramChatId || "");
   }, [state.settings]);
 
   // Tick down the cooldown counter when confirm dialog opens
@@ -47,6 +51,23 @@ export default function ProfileScreen() {
     dispatch({ type: "UPDATE_SETTINGS", payload: { cashOnHand: Number(capital) || 0 } });
   const saveMpBalance = () =>
     dispatch({ type: "UPDATE_SETTINGS", payload: { mpBalance: Number(mpBalance) || 0 } });
+  const saveTelegramChatId = () => {
+    const id = telegramChatId.trim();
+    dispatch({ type: "UPDATE_SETTINGS", payload: { telegramChatId: id } });
+  };
+
+  const testTelegramNotification = async () => {
+    const id = telegramChatId.trim();
+    if (!id) { setTelegramStatus("error"); return; }
+    setTelegramStatus("sending");
+    const ok = await sendTelegramNotification(
+      id,
+      `✅ Finance App conectada correctamente.\n\nYa podés usar los comandos:\n/resumen /vencimientos /gasto /ingreso`,
+    );
+    setTelegramStatus(ok ? "sent" : "error");
+    setTimeout(() => setTelegramStatus(""), 3000);
+  };
+
   const saveCurrency = (v) => {
     setCurrency(v);
     dispatch({ type: "UPDATE_SETTINGS", payload: { currency: v } });
@@ -220,6 +241,71 @@ export default function ProfileScreen() {
             </div>
           </Card>
         </div>
+      </div>
+
+      <div className="space-y-3">
+        <SectionTitle>Telegram Bot</SectionTitle>
+        <Card className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400">
+              <Send className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-3">
+              <div>
+                <div className="text-sm font-medium text-zinc-100">Vincular Telegram</div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  Conectá tu cuenta para recibir alertas y registrar gastos desde Telegram.
+                </div>
+              </div>
+              <ol className="space-y-1 text-xs text-zinc-400">
+                <li>1. Buscá tu bot en Telegram y enviá <code className="rounded bg-zinc-800 px-1 text-zinc-200">/chatid</code></li>
+                <li>2. Copiá el número que te responde</li>
+                <li>3. Pegalo acá y guardá</li>
+              </ol>
+              <Input
+                label="Chat ID"
+                type="text"
+                inputMode="numeric"
+                placeholder="Ej: 123456789"
+                value={telegramChatId}
+                onChange={(e) => setTelegramChatId(e.target.value)}
+                onBlur={saveTelegramChatId}
+              />
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  Icon={Send}
+                  onClick={testTelegramNotification}
+                  disabled={telegramStatus === "sending" || !telegramChatId.trim()}
+                >
+                  {telegramStatus === "sending" ? "Enviando..." : "Probar notificación"}
+                </Button>
+                {telegramStatus === "sent" && (
+                  <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Enviado
+                  </span>
+                )}
+                {telegramStatus === "error" && (
+                  <span className="flex items-center gap-1.5 text-xs text-rose-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Error — verificá el Chat ID y que el bot esté desplegado
+                  </span>
+                )}
+              </div>
+              <div className="rounded-xl border border-zinc-800/50 bg-zinc-900/50 p-3 text-xs text-zinc-400">
+                <div className="mb-1 font-medium text-zinc-300">Comandos disponibles</div>
+                <div className="space-y-0.5 font-mono text-[11px]">
+                  <div><span className="text-sky-400">/resumen</span> — Capital y préstamos</div>
+                  <div><span className="text-sky-400">/vencimientos</span> — Próximos 7 días</div>
+                  <div><span className="text-sky-400">/gasto 5000 nafta</span> — Registrar gasto</div>
+                  <div><span className="text-sky-400">/ingreso 10000 cuota</span> — Registrar ingreso</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <div className="space-y-3">

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="128" fill="#0d0a06"/>
+  <circle cx="256" cy="256" r="185" fill="#1a1208"/>
+  <circle cx="256" cy="256" r="185" fill="none" stroke="#f59e0b" stroke-width="6" opacity="0.25"/>
+  <!-- Vertical bar of $ -->
+  <rect x="240" y="128" width="32" height="256" rx="8" fill="#f59e0b"/>
+  <!-- Top arc of S -->
+  <path d="M 180 200 Q 180 148 256 148 Q 332 148 332 200 Q 332 248 256 248" fill="none" stroke="#f59e0b" stroke-width="30" stroke-linecap="round"/>
+  <!-- Bottom arc of S -->
+  <path d="M 332 312 Q 332 364 256 364 Q 180 364 180 312 Q 180 264 256 264" fill="none" stroke="#f59e0b" stroke-width="30" stroke-linecap="round"/>
+</svg>

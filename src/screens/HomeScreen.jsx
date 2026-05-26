@@ -13,6 +13,7 @@ import {
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
+import DolarBlue from "../components/DolarBlue.jsx";
 
 function getGreet(h) {
   if (h < 6) return "Buenas noches";
@@ -224,6 +225,8 @@ export default function HomeScreen() {
           </button>
         </div>
       </Card>
+
+      <DolarBlue />
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">

@@ -17,7 +17,7 @@ export const initialState = {
   assets: [],
   settings: {
     currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark",
-    defaultRate: 8, defaultDays: 30, mpBalance: 0,
+    defaultRate: 8, defaultDays: 30, mpBalance: 0, telegramChatId: "",
   },
   ui: { activeTab: "home", modal: null },
 };
