@@ -182,17 +182,23 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                 </span>
               </div>
             </div>
-            <div className="mt-4 flex items-center gap-2 rounded-xl border border-zinc-800/60 bg-zinc-950/50 px-3 py-2 text-xs text-zinc-400">
+            <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-zinc-800/60 bg-zinc-950/50 px-3 py-2 text-xs text-zinc-400">
               <CalendarRange className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
-              <span className="text-zinc-500">Inicio</span>
-              <span className="font-medium text-zinc-200">{formatDate(loan.startDate)}</span>
+              <span className="whitespace-nowrap">
+                <span className="text-zinc-500">Inicio </span>
+                <span className="font-medium text-zinc-200">{formatDate(loan.startDate)}</span>
+              </span>
               <span className="text-zinc-700">·</span>
-              <span className="text-zinc-500">Plazo</span>
-              <span className="font-medium text-zinc-200">{loanTermDays} días</span>
+              <span className="whitespace-nowrap">
+                <span className="text-zinc-500">Plazo </span>
+                <span className="font-medium text-zinc-200">{loanTermDays} días</span>
+              </span>
               <span className="text-zinc-700">·</span>
-              <span className="text-zinc-500">Vence</span>
-              <span className={`font-medium ${loan._status === "overdue" ? "text-rose-400" : "text-zinc-200"}`}>
-                {formatDate(loan.dueDate)}
+              <span className="whitespace-nowrap">
+                <span className="text-zinc-500">Vence </span>
+                <span className={`font-medium ${loan._status === "overdue" ? "text-rose-400" : "text-zinc-200"}`}>
+                  {formatDate(loan.dueDate)}
+                </span>
               </span>
             </div>
           </div>
@@ -203,7 +209,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
               { label: "Capital inicial", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
               { label: "Ganancia", value: <Money value={loan._profit} hide={hide} currency={cur} />, cls: "text-emerald-400" },
               { label: "Interés", value: `${Number(loan.interestRate).toFixed(1)}%`, cls: "text-zinc-100" },
-              { label: "Vence", value: formatShortDate(loan.dueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
+              { label: "Vence", value: formatDate(loan.dueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
             ].map(({ label, value, cls }) => (
               <Card key={label} className="p-3">
                 <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
