@@ -1,10 +1,14 @@
-const MP_TOKEN = import.meta.env.VITE_MP_ACCESS_TOKEN;
-export const MP_READY = Boolean(MP_TOKEN);
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+export const MP_READY = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 export async function fetchMPBalance() {
-  if (!MP_TOKEN) throw new Error("Token no configurado");
-  const res = await fetch("https://api.mercadopago.com/v1/account/balance", {
-    headers: { Authorization: `Bearer ${MP_TOKEN}` },
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mp-balance`, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
   });
   if (!res.ok) throw new Error(`Error ${res.status}`);
   return res.json();
