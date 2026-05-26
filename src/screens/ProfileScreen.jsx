@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { User as UserIcon, Banknote, Hash, Trash2, TrendingUp, Clock, Download, Upload, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { User as UserIcon, Banknote, Hash, Trash2, TrendingUp, Clock, Download, Upload, AlertTriangle, CheckCircle2, Wallet } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { initialState } from "../store/index.js";
 import { BUSINESS_RULES } from "../lib/constants.js";
@@ -12,6 +12,7 @@ export default function ProfileScreen() {
   const { state, dispatch, derived, userEmail, signOut } = useApp();
   const [name, setName] = useState(state.settings.userName || "");
   const [capital, setCapital] = useState(String(state.settings.cashOnHand || ""));
+  const [mpBalance, setMpBalance] = useState(String(state.settings.mpBalance || ""));
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [defaultRate, setDefaultRate] = useState(String(state.settings.defaultRate ?? 8));
   const [defaultDays, setDefaultDays] = useState(String(state.settings.defaultDays ?? 30));
@@ -25,6 +26,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     setName(state.settings.userName || "");
     setCapital(String(state.settings.cashOnHand || ""));
+    setMpBalance(String(state.settings.mpBalance || ""));
     setCurrency(state.settings.currency || "$");
     setDefaultRate(String(state.settings.defaultRate ?? 8));
     setDefaultDays(String(state.settings.defaultDays ?? 30));
@@ -43,6 +45,8 @@ export default function ProfileScreen() {
   const saveName = () => dispatch({ type: "UPDATE_SETTINGS", payload: { userName: name } });
   const saveCapital = () =>
     dispatch({ type: "UPDATE_SETTINGS", payload: { cashOnHand: Number(capital) || 0 } });
+  const saveMpBalance = () =>
+    dispatch({ type: "UPDATE_SETTINGS", payload: { mpBalance: Number(mpBalance) || 0 } });
   const saveCurrency = (v) => {
     setCurrency(v);
     dispatch({ type: "UPDATE_SETTINGS", payload: { currency: v } });
@@ -140,6 +144,10 @@ export default function ProfileScreen() {
           value={capital} onChange={(e) => setCapital(e.target.value)} onBlur={saveCapital}
           Icon={Banknote}
           hint="Dinero en efectivo que tenés disponible actualmente, fuera de los préstamos." />
+        <Input label="Saldo Mercado Pago" type="number" inputMode="decimal" placeholder="0"
+          value={mpBalance} onChange={(e) => setMpBalance(e.target.value)} onBlur={saveMpBalance}
+          Icon={Wallet}
+          hint="Tu saldo actual en la cuenta de Mercado Pago. Se muestra en el inicio." />
         <Select label="Moneda" value={currency} onChange={saveCurrency} Icon={Hash}
           options={[
             { value: "$", label: "$ (Peso)" },

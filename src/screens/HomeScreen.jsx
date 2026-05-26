@@ -1,12 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
-  Eye, EyeOff, Bell, Plus, Wallet, Sparkles, Target, TrendingUp,
+  Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp,
   Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
-  RefreshCw,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
 import { UI_LIMITS, CHART_COLORS } from "../lib/constants.js";
-import { MP_READY, fetchMPBalance } from "../lib/mercadopago.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
@@ -63,24 +61,6 @@ export default function HomeScreen() {
   const [showHistory, setShowHistory] = useState(true);
   const hasAnyData = state.loans.length > 0 || state.clients.length > 0
     || state.expenses.length > 0 || state.income.length > 0;
-
-  const [mpBalance, setMpBalance] = useState(null);
-  const [mpLoading, setMpLoading] = useState(false);
-  const [mpError, setMpError] = useState(null);
-  const refreshMP = useCallback(async () => {
-    if (!MP_READY) return;
-    setMpLoading(true);
-    setMpError(null);
-    try {
-      const data = await fetchMPBalance();
-      setMpBalance(data.available_balance ?? data.total ?? null);
-    } catch (e) {
-      setMpError(e.message);
-    } finally {
-      setMpLoading(false);
-    }
-  }, []);
-  useEffect(() => { refreshMP(); }, [refreshMP]);
 
   const allocationPct = derived.workingCapital > 0
     ? derived.capitalInvested / derived.workingCapital : 0;
@@ -219,42 +199,31 @@ export default function HomeScreen() {
           hint={`Próximos: ${derived.upcomingDue.length}`} />
       </div>
 
-      {MP_READY && (
-        <Card className="p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#009ee3]/10">
-                <svg className="h-5 w-5" viewBox="0 0 48 48" fill="none">
-                  <path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#009ee3"/>
-                  <path d="M31.5 18h-8c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h8c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5zm-1 9h-6v-7h6v7z" fill="white"/>
-                  <path d="M16.5 18H14c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h2.5c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5z" fill="white"/>
-                </svg>
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Saldo Mercado Pago</div>
-                <div className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-100">
-                  {mpLoading ? (
-                    <span className="text-zinc-500 text-sm">Cargando...</span>
-                  ) : mpError ? (
-                    <span className="text-rose-400 text-xs">{mpError}</span>
-                  ) : mpBalance !== null ? (
-                    hide ? "••••••" : `${cur}${Number(mpBalance).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  ) : (
-                    <span className="text-zinc-500 text-sm">—</span>
-                  )}
-                </div>
+      <Card className="p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#009ee3]/10">
+              <svg className="h-5 w-5" viewBox="0 0 48 48" fill="none">
+                <path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#009ee3"/>
+                <path d="M31.5 18h-8c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h8c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5zm-1 9h-6v-7h6v7z" fill="white"/>
+                <path d="M16.5 18H14c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h2.5c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5z" fill="white"/>
+              </svg>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Saldo Mercado Pago</div>
+              <div className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-100">
+                <Money value={state.settings.mpBalance || 0} hide={hide} currency={cur} />
               </div>
             </div>
-            <button
-              onClick={refreshMP}
-              disabled={mpLoading}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-all hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-40"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${mpLoading ? "animate-spin" : ""}`} />
-            </button>
           </div>
-        </Card>
-      )}
+          <button
+            onClick={() => dispatch({ type: "SET_TAB", payload: "profile" })}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-all hover:bg-zinc-800 hover:text-zinc-300"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">
