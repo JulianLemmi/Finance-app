@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useReducer, useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Briefcase, Sparkles, CheckCircle2 } from "lucide-react";
+import { Briefcase, Sparkles, CheckCircle2, Search } from "lucide-react";
 import { initialState, reducer, AppContext, useDerived } from "./store/index.js";
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
@@ -207,6 +207,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
   useStorageSync(STORAGE_KEYS.assets, state.assets, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [quotaWarning, setQuotaWarning] = useState(null);
 
   useEffect(() => {
     const handler = (e) => {
@@ -217,6 +218,12 @@ function AuthedApp({ sessionUserId, userEmail }) {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    const onQuota = (e) => setQuotaWarning(e?.detail?.key || "datos");
+    window.addEventListener("finance:storage-quota-exceeded", onQuota);
+    return () => window.removeEventListener("finance:storage-quota-exceeded", onQuota);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -265,6 +272,35 @@ function AuthedApp({ sessionUserId, userEmail }) {
             </ErrorBoundary>
           )}
         </div>
+        {quotaWarning && (
+          <div className="fixed inset-x-0 top-3 z-40 mx-auto flex max-w-md justify-center px-3">
+            <div className="flex items-start gap-3 rounded-2xl border border-rose-900/50 bg-rose-950/90 px-4 py-3 text-xs text-rose-100 shadow-2xl backdrop-blur">
+              <span className="mt-0.5 inline-flex h-2 w-2 shrink-0 rounded-full bg-rose-400" />
+              <div className="flex-1">
+                <div className="font-medium">Sin espacio para guardar localmente</div>
+                <div className="mt-0.5 text-rose-200/80">
+                  Tus datos no se están sincronizando ({quotaWarning}). Exportá un backup desde Perfil y borrá historial viejo.
+                </div>
+              </div>
+              <button
+                onClick={() => setQuotaWarning(null)}
+                className="-mr-1 -mt-1 rounded-md p-1 text-rose-300 hover:bg-rose-900/40"
+                aria-label="Cerrar aviso"
+              >
+                <span aria-hidden>×</span>
+              </button>
+            </div>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setSearchOpen(true)}
+          aria-label="Buscar"
+          className="fixed right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700/40 bg-zinc-950/85 text-zinc-300 shadow-[0_4px_18px_rgba(0,0,0,0.55)] backdrop-blur-xl transition-colors hover:bg-zinc-900 hover:text-amber-300"
+          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)" }}
+        >
+          <Search className="h-4 w-4" />
+        </button>
         <BottomTabBar />
         <ModalRoot />
       </div>

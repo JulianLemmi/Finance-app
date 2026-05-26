@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { User as UserIcon, Banknote, Hash, Trash2, TrendingUp, Clock, Download, Upload, AlertTriangle, CheckCircle2, Wallet, Send, Lock, Fingerprint, Delete } from "lucide-react";
+import { User as UserIcon, Banknote, Hash, Trash2, TrendingUp, Clock, Download, Upload, AlertTriangle, CheckCircle2, Wallet, Send, Lock, Fingerprint, Delete, Bell, BellOff } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { initialState } from "../store/index.js";
 import { BUSINESS_RULES } from "../lib/constants.js";
 import { downloadBackup, readBackupFile } from "../lib/backup.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
+import {
+  PUSH_SUPPORTED, PUSH_CONFIGURED,
+  getSubscriptionState, subscribePush, unsubscribePush, sendTestPush,
+} from "../lib/push.js";
 import {
   getLockConfig, saveLockConfig, clearLockConfig,
   isBiometricAvailable, registerBiometric, hashPin, checkPin,
@@ -36,6 +40,39 @@ export default function ProfileScreen() {
   useEffect(() => {
     isBiometricAvailable().then(setBiometricSupported);
   }, []);
+
+  // Push notifications
+  const [pushState, setPushState] = useState({ supported: false, permission: "default", subscribed: false });
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushStatus, setPushStatus] = useState({ kind: "", msg: "" });
+  const refreshPushState = async () => setPushState(await getSubscriptionState());
+  useEffect(() => { refreshPushState(); }, []);
+  const togglePush = async () => {
+    setPushStatus({ kind: "", msg: "" });
+    setPushBusy(true);
+    try {
+      if (pushState.subscribed) await unsubscribePush();
+      else await subscribePush();
+      await refreshPushState();
+    } catch (e) {
+      setPushStatus({ kind: "error", msg: e?.message || "Error" });
+    } finally {
+      setPushBusy(false);
+    }
+  };
+  const testPush = async () => {
+    setPushStatus({ kind: "", msg: "" });
+    setPushBusy(true);
+    try {
+      await sendTestPush();
+      setPushStatus({ kind: "ok", msg: "Enviada — revisá las notificaciones" });
+    } catch (e) {
+      setPushStatus({ kind: "error", msg: e?.message || "Error — ¿desplegaste send-push y configuraste VAPID?" });
+    } finally {
+      setPushBusy(false);
+      setTimeout(() => setPushStatus({ kind: "", msg: "" }), 4000);
+    }
+  };
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetCountdown, setResetCountdown] = useState(0);
   const [importPreview, setImportPreview] = useState(null);
@@ -510,6 +547,71 @@ export default function ProfileScreen() {
                   <div><span className="text-sky-400">/ingreso 10000 cuota</span> — Registrar ingreso</div>
                 </div>
               </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="space-y-3">
+        <SectionTitle>Notificaciones push</SectionTitle>
+        <Card className="p-4">
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${pushState.subscribed ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-800/70 text-zinc-400"}`}>
+              {pushState.subscribed ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0 flex-1 space-y-3">
+              <div>
+                <div className="text-sm font-medium text-zinc-100">Alertas en el dispositivo</div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  Recibí avisos de vencimientos y pagos en este browser/celular, aunque la app esté cerrada.
+                </div>
+              </div>
+
+              {!PUSH_SUPPORTED && (
+                <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3 py-2 text-xs text-zinc-400">
+                  Tu navegador no soporta notificaciones push.
+                </div>
+              )}
+
+              {PUSH_SUPPORTED && !PUSH_CONFIGURED && (
+                <div className="rounded-xl border border-amber-900/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200/90">
+                  Falta cargar <code className="rounded bg-zinc-800 px-1 text-zinc-200">VITE_VAPID_PUBLIC_KEY</code> en el <code>.env</code>. Generala con{" "}
+                  <code className="rounded bg-zinc-800 px-1 text-zinc-200">npx web-push generate-vapid-keys</code> (ver README).
+                </div>
+              )}
+
+              {PUSH_SUPPORTED && pushState.permission === "denied" && (
+                <div className="rounded-xl border border-rose-900/40 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
+                  Permiso bloqueado por el navegador. Habilitalo desde la configuración del sitio.
+                </div>
+              )}
+
+              {PUSH_SUPPORTED && PUSH_CONFIGURED && pushState.permission !== "denied" && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant={pushState.subscribed ? "secondary" : "bronze"}
+                    size="sm"
+                    Icon={pushState.subscribed ? BellOff : Bell}
+                    onClick={togglePush}
+                    disabled={pushBusy}
+                  >
+                    {pushBusy ? "..." : pushState.subscribed ? "Desactivar" : "Activar"}
+                  </Button>
+                  {pushState.subscribed && (
+                    <Button variant="secondary" size="sm" Icon={Send} onClick={testPush} disabled={pushBusy}>
+                      Probar
+                    </Button>
+                  )}
+                  {pushStatus.msg && (
+                    <span className={`flex items-center gap-1.5 text-xs ${pushStatus.kind === "ok" ? "text-emerald-400" : "text-rose-400"}`}>
+                      {pushStatus.kind === "ok"
+                        ? <CheckCircle2 className="h-3.5 w-3.5" />
+                        : <AlertTriangle className="h-3.5 w-3.5" />}
+                      {pushStatus.msg}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </Card>

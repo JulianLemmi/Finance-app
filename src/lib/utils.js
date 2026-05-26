@@ -56,9 +56,21 @@ export const formatShortDate = (iso) => {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 };
 
+// Returns the cycle length in days for a loan, based on its paymentType.
+// Prefers explicit paymentType/customDays over the start→due span, which
+// can be wrong after manual extensions.
+export function getLoanCycleDays(loan) {
+  if (loan?.paymentType === "15") return 15;
+  if (loan?.paymentType === "30") return 30;
+  const custom = Number(loan?.customDays);
+  if (Number.isFinite(custom) && custom > 0) return custom;
+  const span = daysBetween(loan?.startDate, loan?.dueDate);
+  return Math.max(1, span || 30);
+}
+
 // Returns the next renewal/mora date for a loan (works for both active and overdue)
 export function getNextRenewalDate(loan) {
-  const term = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
+  const term = getLoanCycleDays(loan);
   const overdueDays = Math.max(0, daysBetween(loan.dueDate, todayISO()));
   const periods = overdueDays > 0 ? Math.floor(overdueDays / term) : 0;
   return addDays(loan.dueDate, (periods + 1) * term);
