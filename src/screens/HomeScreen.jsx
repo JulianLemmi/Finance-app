@@ -131,24 +131,28 @@ export default function HomeScreen() {
                 style={{ width: `${Math.max(0, Math.min(100, allocationPct * 100))}%` }}
               />
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
-              <span>{Math.round(allocationPct * 100)}% asignado</span>
-              <span className="flex items-center gap-1.5">
-                Total{" "}
-                <span className="text-zinc-300 tabular-nums">
-                  <Money
-                    value={derived.totalCapital + Number(state.settings.mpBalance || 0) + derived.expectedProfitTotal}
-                    hide={hide}
-                    currency={cur}
-                  />
-                </span>
-                {derived.monthlyReturnPct > 0 && (
-                  <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 tabular-nums">
-                    +{derived.monthlyReturnPct.toFixed(1)}%
+            {(() => {
+              const totalProjected = derived.totalCapital + Number(state.settings.mpBalance || 0) + derived.expectedProfitTotal;
+              const gainPct = totalProjected > 0
+                ? ((totalProjected - derived.totalCapital) / totalProjected) * 100
+                : 0;
+              return (
+                <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
+                  <span>{Math.round(allocationPct * 100)}% asignado</span>
+                  <span className="flex items-center gap-1.5">
+                    Total{" "}
+                    <span className="text-zinc-300 tabular-nums">
+                      <Money value={totalProjected} hide={hide} currency={cur} />
+                    </span>
+                    {gainPct > 0 && (
+                      <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 tabular-nums">
+                        +{gainPct.toFixed(1)}%
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-            </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
