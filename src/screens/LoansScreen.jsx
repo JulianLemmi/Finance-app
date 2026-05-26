@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Plus, Search, Wallet, CalendarClock, Calendar } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES } from "../lib/constants.js";
-import { formatShortDate } from "../lib/utils.js";
+import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
 import {
   EmptyState, Input, Button, Money, ProgressBar, StatusBadge,
 } from "../components/ui.jsx";
@@ -13,6 +13,11 @@ function LoanCard({ loan, onOpen }) {
   const dueIn = loan._daysUntilDue;
   const overdue = loan._status === "overdue";
   const upcoming = loan._status === "active" && dueIn !== null && dueIn <= 3;
+  const ongoing = loan._status === "active" || loan._status === "overdue";
+  const nextRenewalDate = ongoing ? getNextRenewalDate(loan) : null;
+  const nextChargeAmount = ongoing
+    ? loan._remaining * (Number(loan.interestRate) / 100)
+    : 0;
 
   const dueText = (() => {
     if (loan._status === "paid") return "Cerrado";
@@ -44,13 +49,10 @@ function LoanCard({ loan, onOpen }) {
         </div>
         <div className="text-right">
           <div className="text-sm font-semibold tracking-tight text-zinc-100 tabular-nums">
-            <Money value={loan.amount} hide={state.settings.hideBalances} currency={state.settings.currency} />
+            <Money value={loan._remaining} hide={state.settings.hideBalances} currency={state.settings.currency} />
           </div>
           <div className="mt-0.5 text-[11px] text-zinc-500 tabular-nums">
-            {Number(loan.interestRate).toFixed(1)}% ·{" "}
-            <span className="text-emerald-400">
-              <Money value={loan._profit} hide={state.settings.hideBalances} currency={state.settings.currency} />
-            </span>
+            {Number(loan.interestRate).toFixed(1)}%
           </div>
         </div>
       </div>
@@ -65,6 +67,17 @@ function LoanCard({ loan, onOpen }) {
       <div className="mt-2">
         <ProgressBar value={loan._progress} tone={overdue ? "rose" : "bronze"} />
       </div>
+      {nextRenewalDate && (
+        <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500 tabular-nums">
+          <span className="flex items-center gap-1">
+            <span className="text-zinc-600">↻</span>
+            Próx. vence {formatShortDate(nextRenewalDate)}
+          </span>
+          <span className="text-emerald-400">
+            +<Money value={nextChargeAmount} hide={state.settings.hideBalances} currency={state.settings.currency} />
+          </span>
+        </div>
+      )}
       <div className="mt-3 flex items-center justify-between text-[11px]">
         <span className="flex items-center gap-1.5 text-zinc-500">
           <G.Icon className="h-3.5 w-3.5" />
