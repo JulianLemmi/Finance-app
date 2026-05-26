@@ -137,7 +137,7 @@ export default function HomeScreen() {
                 Total{" "}
                 <span className="text-zinc-300 tabular-nums">
                   <Money
-                    value={derived.totalCapital + Number(state.settings.mpBalance || 0)}
+                    value={derived.totalCapital + Number(state.settings.mpBalance || 0) + derived.expectedMonthlyProfit}
                     hide={hide}
                     currency={cur}
                   />
