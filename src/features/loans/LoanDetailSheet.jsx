@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import {
-  Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, TrendingUp,
+  Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
 } from "lucide-react";
 import { todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
@@ -42,6 +42,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
     ? Math.max(0, daysBetween(loan.dueDate, todayISO()))
     : 0;
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
+  const monthsOverdue = Math.floor(daysOverdue / 30);
+  const extraDaysOverdue = daysOverdue % 30;
+  const overdueLabel = monthsOverdue > 0
+    ? `${monthsOverdue} ${monthsOverdue === 1 ? "mes" : "meses"}${extraDaysOverdue > 0 ? ` ${extraDaysOverdue}d` : ""}`
+    : `${daysOverdue}d`;
 
   const openRefinance = () => {
     setRefinanceForm({
@@ -153,6 +158,12 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                 {G.label}
               </Badge>
             </div>
+            {loan._status === "overdue" && daysOverdue > 0 && (
+              <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-rose-900/40 bg-rose-950/30 px-2.5 py-1 text-[11px] font-medium text-rose-300">
+                <CalendarClock className="h-3 w-3" />
+                Vencido hace {overdueLabel}
+              </div>
+            )}
             <div className="text-[11px] uppercase tracking-wider text-zinc-500">Deuda restante</div>
             <div className="mt-1 text-3xl font-semibold tracking-tight text-white">
               <Money value={loan._remaining} hide={hide} currency={cur} />
@@ -189,7 +200,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
           {/* Stats grid */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: "Capital", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
+              { label: "Capital inicial", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
               { label: "Ganancia", value: <Money value={loan._profit} hide={hide} currency={cur} />, cls: "text-emerald-400" },
               { label: "Interés", value: `${Number(loan.interestRate).toFixed(1)}%`, cls: "text-zinc-100" },
               { label: "Vence", value: formatShortDate(loan.dueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },

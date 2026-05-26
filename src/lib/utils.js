@@ -47,7 +47,7 @@ export const formatMoney = (value, hidden = false, currency = "$") => {
 export const formatDate = (iso) => {
   const d = parseISO(iso);
   if (!d) return "—";
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 };
 
 export const formatShortDate = (iso) => {
