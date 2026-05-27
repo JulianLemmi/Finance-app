@@ -1,6 +1,13 @@
 const BACKUP_VERSION = 1;
 const BACKUP_KEYS = ["loans", "clients", "expenses", "income", "history", "assets", "settings"];
 
+// Per-version migrations: each fn receives a payload at version N and must
+// return one at version N+1. When you bump BACKUP_VERSION to 2, add an entry
+// at key 1 that translates v1 → v2. Old backups stay importable.
+const MIGRATIONS = {
+  // 1: (p) => ({ ...p, version: 2, /* new fields */ }),
+};
+
 // Builds a portable backup payload from the current state.
 export function buildBackup(state) {
   return {
@@ -49,8 +56,19 @@ export async function readBackupFile(file) {
   if (!parsed || typeof parsed !== "object") {
     return { ok: false, error: "El archivo no tiene la estructura esperada." };
   }
-  if (parsed.version !== BACKUP_VERSION) {
-    return { ok: false, error: `Versión de respaldo no soportada (esperada ${BACKUP_VERSION}, encontrada ${parsed.version ?? "desconocida"}).` };
+  if (typeof parsed.version !== "number") {
+    return { ok: false, error: "El archivo no tiene una versión válida." };
+  }
+  if (parsed.version > BACKUP_VERSION) {
+    return { ok: false, error: `El respaldo es de una versión más nueva (${parsed.version}) que esta app (${BACKUP_VERSION}). Actualizá la app.` };
+  }
+  // Run migrations forward until we reach the current version.
+  while (parsed.version < BACKUP_VERSION) {
+    const migrate = MIGRATIONS[parsed.version];
+    if (!migrate) {
+      return { ok: false, error: `No hay migración disponible desde v${parsed.version} a v${BACKUP_VERSION}.` };
+    }
+    parsed = migrate(parsed);
   }
   // Ensure each key is an array (settings is an object).
   for (const k of BACKUP_KEYS.filter((k) => k !== "settings")) {

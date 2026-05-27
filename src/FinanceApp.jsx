@@ -207,7 +207,9 @@ function AuthedApp({ sessionUserId, userEmail }) {
   useStorageSync(STORAGE_KEYS.assets, state.assets, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
-  const [quotaWarning, setQuotaWarning] = useState(null);
+  // Set of keys whose write failed due to localStorage quota. Accumulates
+  // across events so we don't lose visibility when several slices fail.
+  const [quotaKeys, setQuotaKeys] = useState(() => new Set());
 
   useEffect(() => {
     const handler = (e) => {
@@ -221,7 +223,15 @@ function AuthedApp({ sessionUserId, userEmail }) {
   }, []);
 
   useEffect(() => {
-    const onQuota = (e) => setQuotaWarning(e?.detail?.key || "datos");
+    const onQuota = (e) => {
+      const key = e?.detail?.key || "datos";
+      setQuotaKeys((prev) => {
+        if (prev.has(key)) return prev;
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+    };
     window.addEventListener("finance:storage-quota-exceeded", onQuota);
     return () => window.removeEventListener("finance:storage-quota-exceeded", onQuota);
   }, []);
@@ -272,18 +282,19 @@ function AuthedApp({ sessionUserId, userEmail }) {
             </ErrorBoundary>
           )}
         </div>
-        {quotaWarning && (
+        {quotaKeys.size > 0 && (
           <div className="fixed inset-x-0 top-3 z-40 mx-auto flex max-w-md justify-center px-3">
             <div className="flex items-start gap-3 rounded-2xl border border-rose-900/50 bg-rose-950/90 px-4 py-3 text-xs text-rose-100 shadow-2xl backdrop-blur">
               <span className="mt-0.5 inline-flex h-2 w-2 shrink-0 rounded-full bg-rose-400" />
               <div className="flex-1">
                 <div className="font-medium">Sin espacio para guardar localmente</div>
                 <div className="mt-0.5 text-rose-200/80">
-                  Tus datos no se están sincronizando ({quotaWarning}). Exportá un backup desde Perfil y borrá historial viejo.
+                  Estas slices no se están sincronizando: <span className="font-mono">{Array.from(quotaKeys).join(", ")}</span>.
+                  Exportá un backup desde Perfil y borrá historial viejo.
                 </div>
               </div>
               <button
-                onClick={() => setQuotaWarning(null)}
+                onClick={() => setQuotaKeys(new Set())}
                 className="-mr-1 -mt-1 rounded-md p-1 text-rose-300 hover:bg-rose-900/40"
                 aria-label="Cerrar aviso"
               >

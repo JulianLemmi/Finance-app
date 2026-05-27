@@ -9,22 +9,29 @@ export default function TransactionSheet({ open, onClose }) {
   const { dispatch } = useApp();
   const [type, setType] = useState("expense");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState("comida");
+  // Per-type category memory: keeps last expense and last income separately,
+  // so toggling expense → income → expense restores the chosen category.
+  const [categoryByType, setCategoryByType] = useState({
+    expense: "comida",
+    income: Object.keys(INCOME_CATEGORIES)[0],
+  });
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(todayISO());
 
   useEffect(() => {
     if (open) {
-      setType("expense"); setAmount(""); setCategory("comida");
+      setType("expense"); setAmount("");
+      setCategoryByType({
+        expense: "comida",
+        income: Object.keys(INCOME_CATEGORIES)[0],
+      });
       setDescription(""); setDate(todayISO());
     }
   }, [open]);
 
   const cats = type === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
-
-  useEffect(() => {
-    setCategory(Object.keys(cats)[0]);
-  }, [type]); // eslint-disable-line
+  const category = categoryByType[type];
+  const setCategory = (k) => setCategoryByType((c) => ({ ...c, [type]: k }));
 
   const canSubmit = Number(amount) > 0;
   const onSubmit = () => {

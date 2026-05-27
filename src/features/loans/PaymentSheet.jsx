@@ -22,6 +22,9 @@ export default function PaymentSheet({ open, onClose, loan }) {
   const amountError = amount && parsedAmount > remaining + 0.001
     ? `Supera el saldo restante (${state.settings.currency}${Math.round(remaining).toLocaleString("es-AR")})`
     : null;
+  const remainingAfter = parsedAmount > 0 && !amountError
+    ? Math.max(0, remaining - parsedAmount)
+    : null;
 
   const onSubmit = () => {
     const value = parsedAmount;
@@ -62,6 +65,16 @@ export default function PaymentSheet({ open, onClose, loan }) {
           Icon={Banknote}
           error={amountError}
         />
+        {remainingAfter !== null && (
+          <div className="flex items-center justify-between rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2 text-xs">
+            <span className="text-zinc-500">
+              {remainingAfter === 0 ? "Cierra el préstamo" : "Queda después"}
+            </span>
+            <span className={`font-medium tabular-nums ${remainingAfter === 0 ? "text-emerald-400" : "text-zinc-200"}`}>
+              {formatMoney(remainingAfter, false, state.settings.currency)}
+            </span>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-2">
           {[0.25, 0.5, 1].map((f) => (
             <button

@@ -115,8 +115,15 @@ export function reducer(state, action) {
         ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
       };
     }
-    case "ADD_CLIENT":
-      return { ...state, clients: [action.payload, ...state.clients] };
+    case "ADD_CLIENT": {
+      const client = {
+        id: uid("client"),
+        createdAt: Date.now(),
+        riskLevel: "low",
+        ...action.payload,
+      };
+      return { ...state, clients: [client, ...state.clients] };
+    }
     case "UPDATE_CLIENT":
       return {
         ...state,
@@ -127,7 +134,26 @@ export function reducer(state, action) {
     case "DELETE_CLIENT":
       return { ...state, clients: state.clients.filter((c) => c.id !== action.payload) };
     case "ADD_TX": {
-      const tx = action.payload;
+      const incoming = action.payload || {};
+      // Reject anything that's not income/expense, and require positive amount.
+      if (incoming.type !== "income" && incoming.type !== "expense") {
+        console.warn("[ADD_TX] invalid type — rejected", incoming.type);
+        return state;
+      }
+      const amount = Number(incoming.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        console.warn("[ADD_TX] invalid amount — rejected", incoming.amount);
+        return state;
+      }
+      const tx = {
+        id: uid("tx"),
+        createdAt: Date.now(),
+        date: todayISO(),
+        category: "otros",
+        description: "",
+        ...incoming,
+        amount,
+      };
       const key = tx.type === "income" ? "income" : "expenses";
       return { ...state, [key]: [tx, ...state[key]] };
     }
