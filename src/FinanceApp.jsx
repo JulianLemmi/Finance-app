@@ -328,11 +328,19 @@ export default function FinanceApp() {
   useEffect(() => {
     if (!supabase) { setAuthReady(true); return; }
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session ?? null);
-      setAuthReady(true);
-    });
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setSession(data.session ?? null);
+        setAuthReady(true);
+      })
+      .catch(() => {
+        // Network error on startup — don't leave the app stuck on the loading screen.
+        // Treat it as "no session" so the user can try to log in.
+        if (!mounted) return;
+        setSession(null);
+        setAuthReady(true);
+      });
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
       if (!mounted) return;
       setSession(sess);

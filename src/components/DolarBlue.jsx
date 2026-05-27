@@ -1,56 +1,109 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { RefreshCw } from "lucide-react";
 
 const API_URL = "https://api.bluelytics.com.ar/v2/latest";
 const REFRESH_MS = 5 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 8_000;
+const MAX_RETRIES = 3;
+// Delay before re-fetching when the app comes back to foreground,
+// giving the network time to stabilize after backgrounding.
+const VISIBILITY_DELAY_MS = 1_000;
 
 function fmt(n) {
   if (n == null) return "—";
   return `$${Number(n).toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
 }
 
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 export default function DolarBlue() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  // stale = true means we have data but the last refresh failed
+  const [stale, setStale] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(null);
+  const retryTimerRef = useRef(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      const res = await fetch(API_URL);
-      if (!res.ok) throw new Error("error");
-      const json = await res.json();
-      setData(json);
-      setUpdatedAt(new Date());
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
+  const clearRetry = useCallback(() => {
+    if (retryTimerRef.current != null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
     }
   }, []);
 
+  const load = useCallback(async (attempt = 0) => {
+    clearRetry();
+    // Only show the spinner on the first attempt (not on silent retries)
+    if (attempt === 0) setLoading(true);
+    try {
+      const res = await fetchWithTimeout(API_URL, FETCH_TIMEOUT_MS);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setData(json);
+      setStale(false);
+      setUpdatedAt(new Date());
+      setLoading(false);
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        // Exponential back-off: 1 s → 2 s → 4 s
+        const delay = Math.pow(2, attempt) * 1_000;
+        retryTimerRef.current = setTimeout(() => load(attempt + 1), delay);
+        // Keep the spinner during retries so the user knows we're still trying
+        return;
+      }
+      // Exhausted all retries: mark as stale if we already have data,
+      // or show the empty error state if we've never loaded anything.
+      setStale(true);
+      setLoading(false);
+    }
+  }, [clearRetry]);
+
   useEffect(() => {
     load();
-    let t = null;
-    const start = () => {
-      if (t == null) t = setInterval(load, REFRESH_MS);
+    let intervalId = null;
+    let visibilityTimer = null;
+
+    const startInterval = () => {
+      if (intervalId == null) intervalId = setInterval(() => load(), REFRESH_MS);
     };
-    const stop = () => {
-      if (t != null) { clearInterval(t); t = null; }
+    const stopInterval = () => {
+      if (intervalId != null) { clearInterval(intervalId); intervalId = null; }
     };
+
     const onVisibility = () => {
-      if (document.hidden) stop();
-      else { load(); start(); }
+      clearTimeout(visibilityTimer);
+      if (document.hidden) {
+        stopInterval();
+        clearRetry();
+      } else {
+        // Wait briefly for the network to be stable before fetching
+        visibilityTimer = setTimeout(() => {
+          load();
+          startInterval();
+        }, VISIBILITY_DELAY_MS);
+      }
     };
-    start();
+
+    startInterval();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      stop();
+      stopInterval();
+      clearRetry();
+      clearTimeout(visibilityTimer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [load]);
+  }, [load, clearRetry]);
 
   const blue = data?.blue;
   const oficial = data?.oficial;
@@ -69,9 +122,15 @@ export default function DolarBlue() {
               Brecha {spread}%
             </span>
           )}
+          {/* Only show "Sin conexión" when we have stale data to keep showing */}
+          {stale && data && (
+            <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-[10px] text-zinc-500">
+              Sin conexión
+            </span>
+          )}
         </div>
         <button
-          onClick={load}
+          onClick={() => load()}
           disabled={loading}
           className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-400"
         >
@@ -79,9 +138,11 @@ export default function DolarBlue() {
         </button>
       </div>
 
-      {error ? (
+      {/* No data + all retries failed */}
+      {stale && !data ? (
         <p className="text-xs text-zinc-500">No se pudo cargar la cotización.</p>
       ) : loading && !data ? (
+        /* First load: skeleton */
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <div className="h-3 w-10 animate-pulse rounded bg-zinc-800" />
@@ -93,7 +154,8 @@ export default function DolarBlue() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        /* Data available — dim slightly when stale so the user notices */
+        <div className={`grid grid-cols-2 gap-3 transition-opacity duration-300 ${stale ? "opacity-50" : "opacity-100"}`}>
           <div>
             <div className="text-[10px] font-medium uppercase tracking-wider text-amber-500/70">Blue</div>
             <div className="mt-1 text-xl font-semibold tabular-nums text-amber-400">
