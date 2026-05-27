@@ -22,6 +22,7 @@ export default function ProfileScreen() {
   const [name, setName] = useState(state.settings.userName || "");
   const [capital, setCapital] = useState(String(state.settings.cashOnHand || ""));
   const [mpBalance, setMpBalance] = useState(String(state.settings.mpBalance || ""));
+  const [monthlyTarget, setMonthlyTarget] = useState(String(state.settings.monthlyTarget || ""));
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [defaultRate, setDefaultRate] = useState(String(state.settings.defaultRate ?? 8));
   const [defaultDays, setDefaultDays] = useState(String(state.settings.defaultDays ?? 30));
@@ -84,6 +85,7 @@ export default function ProfileScreen() {
     setName(state.settings.userName || "");
     setCapital(String(state.settings.cashOnHand || ""));
     setMpBalance(String(state.settings.mpBalance || ""));
+    setMonthlyTarget(String(state.settings.monthlyTarget || ""));
     setCurrency(state.settings.currency || "$");
     setDefaultRate(String(state.settings.defaultRate ?? 8));
     setDefaultDays(String(state.settings.defaultDays ?? 30));
@@ -105,6 +107,8 @@ export default function ProfileScreen() {
     dispatch({ type: "UPDATE_SETTINGS", payload: { cashOnHand: Number(capital) || 0 } });
   const saveMpBalance = () =>
     dispatch({ type: "UPDATE_SETTINGS", payload: { mpBalance: Number(mpBalance) || 0 } });
+  const saveMonthlyTarget = () =>
+    dispatch({ type: "UPDATE_SETTINGS", payload: { monthlyTarget: Number(monthlyTarget) || 0 } });
   const saveTelegramChatId = () => {
     const id = telegramChatId.trim();
     dispatch({ type: "UPDATE_SETTINGS", payload: { telegramChatId: id } });
@@ -291,6 +295,10 @@ export default function ProfileScreen() {
           value={mpBalance} onChange={(e) => setMpBalance(e.target.value)} onBlur={saveMpBalance}
           Icon={Wallet}
           hint="Tu saldo actual en la cuenta de Mercado Pago. Se muestra en el inicio." />
+        <Input label="Objetivo mensual de cobranza" type="number" inputMode="decimal" placeholder="0"
+          value={monthlyTarget} onChange={(e) => setMonthlyTarget(e.target.value)} onBlur={saveMonthlyTarget}
+          Icon={TrendingUp}
+          hint="Meta de cobros mensuales. Aparece como barra de progreso en el inicio." />
         <Select label="Moneda" value={currency} onChange={saveCurrency} Icon={Hash}
           options={[
             { value: "$", label: "$ (Peso)" },

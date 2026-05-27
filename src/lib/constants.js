@@ -12,6 +12,22 @@ export const STORAGE_KEYS = {
   history: "finance:history",
   settings: "finance:settings",
   assets: "finance:assets",
+  cars: "finance:cars",
+};
+
+export const CAR_STATUSES = {
+  available:   { label: "Disponible",  color: "#10b981" },
+  negotiating: { label: "Negociación", color: "#f59e0b" },
+  sold:        { label: "Vendido",     color: "#3b82f6" },
+  delivered:   { label: "Entregado",   color: "#8b5cf6" },
+};
+
+export const CAR_FUEL_TYPES = {
+  nafta:     { label: "Nafta" },
+  diesel:    { label: "Diesel" },
+  gnc:       { label: "GNC" },
+  hibrido:   { label: "Híbrido" },
+  electrico: { label: "Eléctrico" },
 };
 
 export const LOAN_STATUSES = {
@@ -111,4 +127,6 @@ export const TONES = {
   danger: "bg-rose-500/10 text-rose-400 border-rose-500/20",
   warning: "bg-amber-500/10 text-amber-400 border-amber-500/20",
   bronze: "bg-amber-900/20 text-amber-500 border-amber-800/40",
+  info: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  purple: "bg-purple-500/10 text-purple-400 border-purple-500/20",
 };

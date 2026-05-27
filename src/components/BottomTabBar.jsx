@@ -1,13 +1,14 @@
 import { useRef } from "react";
-import { Home as HomeIcon, Wallet, Users, TrendingUp, User as UserIcon } from "lucide-react";
+import { Home as HomeIcon, Wallet, Users, TrendingUp, User as UserIcon, Car } from "lucide-react";
 import { useApp } from "../store/index.js";
 
 const TABS = [
-  { id: "home", label: "Inicio", Icon: HomeIcon },
-  { id: "loans", label: "Préstamos", Icon: Wallet },
-  { id: "clients", label: "Clientes", Icon: Users },
-  { id: "finance", label: "Finanzas", Icon: TrendingUp },
-  { id: "profile", label: "Perfil", Icon: UserIcon },
+  { id: "home",    label: "Inicio",    Icon: HomeIcon   },
+  { id: "loans",   label: "Préstamos", Icon: Wallet     },
+  { id: "clients", label: "Clientes",  Icon: Users      },
+  { id: "cars",    label: "Autos",     Icon: Car        },
+  { id: "finance", label: "Finanzas",  Icon: TrendingUp },
+  { id: "profile", label: "Perfil",    Icon: UserIcon   },
 ];
 
 export default function BottomTabBar() {

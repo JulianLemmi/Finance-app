@@ -21,6 +21,7 @@ const LoansScreen = lazy(() => import("./screens/LoansScreen.jsx"));
 const ClientsScreen = lazy(() => import("./screens/ClientsScreen.jsx"));
 const FinanceScreen = lazy(() => import("./screens/FinanceScreen.jsx"));
 const ProfileScreen = lazy(() => import("./screens/ProfileScreen.jsx"));
+const CarsScreen = lazy(() => import("./screens/CarsScreen.jsx"));
 
 /* ── Loading skeletons ── */
 
@@ -190,6 +191,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
           income: Array.isArray(data[STORAGE_KEYS.income]) ? data[STORAGE_KEYS.income] : [],
           history: Array.isArray(data[STORAGE_KEYS.history]) ? data[STORAGE_KEYS.history] : [],
           assets: Array.isArray(data[STORAGE_KEYS.assets]) ? data[STORAGE_KEYS.assets] : [],
+          cars: Array.isArray(data[STORAGE_KEYS.cars]) ? data[STORAGE_KEYS.cars] : [],
           settings: data[STORAGE_KEYS.settings] && typeof data[STORAGE_KEYS.settings] === "object"
             ? data[STORAGE_KEYS.settings] : {},
         },
@@ -205,6 +207,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
   useStorageSync(STORAGE_KEYS.history, state.history, state.loaded);
   useStorageSync(STORAGE_KEYS.settings, state.settings, state.loaded);
   useStorageSync(STORAGE_KEYS.assets, state.assets, state.loaded);
+  useStorageSync(STORAGE_KEYS.cars, state.cars, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
   // Set of keys whose write failed due to localStorage quota. Accumulates
@@ -275,6 +278,7 @@ function AuthedApp({ sessionUserId, userEmail }) {
                   {activeTab === "home" && <HomeScreen />}
                   {activeTab === "loans" && <LoansScreen />}
                   {activeTab === "clients" && <ClientsScreen />}
+                  {activeTab === "cars" && <CarsScreen />}
                   {activeTab === "finance" && <FinanceScreen />}
                   {activeTab === "profile" && <ProfileScreen />}
                 </div>

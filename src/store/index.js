@@ -15,9 +15,11 @@ export const initialState = {
   income: [],
   history: [],
   assets: [],
+  cars: [],
   settings: {
     currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark",
     defaultRate: 8, defaultDays: 30, mpBalance: 0, telegramChatId: "",
+    monthlyTarget: 0,
   },
   ui: { activeTab: "home", modal: null },
 };
@@ -34,6 +36,7 @@ export function reducer(state, action) {
         income: action.payload.income ?? state.income,
         history: action.payload.history ?? state.history,
         assets: action.payload.assets ?? state.assets,
+        cars: Array.isArray(action.payload.cars) ? action.payload.cars : state.cars,
         settings: { ...state.settings, ...(action.payload.settings || {}) },
       };
     case "SET_TAB":
@@ -49,6 +52,7 @@ export function reducer(state, action) {
       const loan = {
         id: uid("loan"),
         payments: [],
+        contacts: [],
         createdAt: Date.now(),
         status: "active",
         ...action.payload,
@@ -77,15 +81,33 @@ export function reducer(state, action) {
             console.warn("[UPDATE_LOAN] dueDate < startDate — update rejected", merged.id);
             return l;
           }
-          // Always re-evaluate status. resolveStatus already preserves
-          // "paid" and "refinanced" (terminal states), so the refinance
-          // flow that explicitly sets status="refinanced" keeps working.
           merged.status = resolveStatus(merged);
           return merged;
         }),
       };
     case "DELETE_LOAN":
       return { ...state, loans: state.loans.filter((l) => l.id !== action.payload) };
+    case "ADD_CONTACT": {
+      // Appends a contact log entry to a loan's contacts array
+      const { loanId, contact } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          return { ...l, contacts: [...(l.contacts || []), contact] };
+        }),
+      };
+    }
+    case "DELETE_CONTACT": {
+      const { loanId, contactId } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          return { ...l, contacts: (l.contacts || []).filter((c) => c.id !== contactId) };
+        }),
+      };
+    }
     case "ADD_PAYMENT": {
       const { loanId, payment } = action.payload;
       const exists = state.loans.find((l) => l.id === loanId);
@@ -135,7 +157,6 @@ export function reducer(state, action) {
       return { ...state, clients: state.clients.filter((c) => c.id !== action.payload) };
     case "ADD_TX": {
       const incoming = action.payload || {};
-      // Reject anything that's not income/expense, and require positive amount.
       if (incoming.type !== "income" && incoming.type !== "expense") {
         console.warn("[ADD_TX] invalid type — rejected", incoming.type);
         return state;
@@ -173,6 +194,18 @@ export function reducer(state, action) {
       };
     case "DELETE_ASSET":
       return { ...state, assets: state.assets.filter((a) => a.id !== action.payload) };
+    // ── Cars ──
+    case "ADD_CAR":
+      return { ...state, cars: [action.payload, ...state.cars] };
+    case "UPDATE_CAR":
+      return {
+        ...state,
+        cars: state.cars.map((c) =>
+          c.id === action.payload.id ? { ...c, ...action.payload } : c
+        ),
+      };
+    case "DELETE_CAR":
+      return { ...state, cars: state.cars.filter((c) => c.id !== action.payload) };
     default:
       return state;
   }
@@ -210,7 +243,7 @@ export function useDerived(state) {
     refinancedLoans: loansResolved.filter((l) => l._status === "refinanced"),
   }), [loansResolved]);
 
-  // Stage 3: financial aggregates — reruns when loans/income/expenses/settings/assets change
+  // Stage 3: financial aggregates
   const financials = useMemo(() => {
     const { activeLoans, overdueLoans, paidLoans } = loanGroups;
     const deployed = [...activeLoans, ...overdueLoans];
@@ -229,20 +262,31 @@ export function useDerived(state) {
     const totalCapital = workingCapital + totalAssets;
 
     const thisMonth = monthKey(todayISO());
+
     const monthlyInterestsCollected = loansResolved.reduce((a, l) => {
       const monthPayments = (l.payments || []).filter((p) => monthKey(p.date) === thisMonth);
       const margin = l._return > 0 ? l._profit / l._return : 0;
       return a + monthPayments.reduce((s, p) => s + Number(p.amount), 0) * margin;
     }, 0);
 
+    // Total cobrado este mes (capital + intereses) — para el objetivo mensual
+    const collectedThisMonth = loansResolved.reduce((a, l) =>
+      a + (l.payments || [])
+        .filter((p) => monthKey(p.date) === thisMonth)
+        .reduce((s, p) => s + Number(p.amount), 0),
+    0);
+
     const upcomingDue = deployed
       .filter((l) => l._daysUntilDue !== null)
       .sort((a, b) => a._daysUntilDue - b._daysUntilDue)
       .slice(0, UI_LIMITS.UPCOMING_DUE_MAX);
 
-    // Includes both active loans due within 30d (by their dueDate) and
-    // overdue loans whose NEXT renewal falls within 30d (compound cycle).
+    // Loans due today or tomorrow — for the daily agenda
     const todayStr = todayISO();
+    const dueTodayTomorrow = deployed
+      .filter((l) => l._daysUntilDue !== null && l._daysUntilDue >= 0 && l._daysUntilDue <= 1)
+      .sort((a, b) => a._daysUntilDue - b._daysUntilDue);
+
     const horizon = addDays(todayStr, 30);
     const overdueRenewalsInWindow = overdueLoans
       .filter((l) => {
@@ -284,7 +328,6 @@ export function useDerived(state) {
     const terms = activeLoans
       .map((l) => Math.max(1, daysBetween(l.startDate, l.dueDate) || BUSINESS_RULES.DEFAULT_LOAN_DAYS));
 
-    // avgRate falls back to 0 (not 7) when no active loans; UI should treat 0 as "no data"
     const avgRate = rates.length ? rates.reduce((a, r) => a + r, 0) / rates.length : 0;
     const medianRate = median(rates);
     const avgDays = terms.length ? terms.reduce((a, t) => a + t, 0) / terms.length : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
@@ -338,7 +381,8 @@ export function useDerived(state) {
     return {
       capitalInvested, expectedProfitTotal, totalExpectedProfit, accumulatedProfit,
       totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
-      workingCapital, totalCapital, monthlyInterestsCollected, upcomingDue,
+      workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
+      upcomingDue, dueTodayTomorrow,
       expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
       avgRate, avgDays, medianRate, medianDays,
       projections, projectionSeries, paidOnTimeCount,
@@ -346,7 +390,7 @@ export function useDerived(state) {
     };
   }, [loanGroups, loansResolved, state.income, state.expenses, state.settings, state.assets]);
 
-  // Stage 4: monthly chart data — reruns when loans, income or expenses change
+  // Stage 4: monthly chart data
   const chartData = useMemo(() => {
     const now = new Date();
     const months = [];
@@ -384,13 +428,12 @@ export function useDerived(state) {
         })
         .reduce((acc, l) => acc + Number(l.amount), 0);
       m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
-      // ROI % = monthly profit / capital deployed that month
       m.roi = investedAtMonth > 0 ? (m.profit / investedAtMonth) * 100 : 0;
     });
     return { months };
   }, [loansResolved, state.income, state.expenses, state.settings]);
 
-  // Stage 5: client stats — reruns only when clients or loans change
+  // Stage 5: client stats
   const clientStats = useMemo(() =>
     state.clients.map((c) => {
       const cLoans = loansResolved.filter((l) => l.clientId === c.id);

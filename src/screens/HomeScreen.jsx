@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp,
   Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
+  Banknote, Sun,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
 import { UI_LIMITS, CHART_COLORS } from "../lib/constants.js";
+import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
@@ -60,6 +62,7 @@ export default function HomeScreen() {
 
   const [showUpcoming, setShowUpcoming] = useState(true);
   const [showHistory, setShowHistory] = useState(true);
+  const [quickPayLoan, setQuickPayLoan] = useState(null);
   const hasAnyData = state.loans.length > 0 || state.clients.length > 0
     || state.expenses.length > 0 || state.income.length > 0;
 
@@ -72,6 +75,7 @@ export default function HomeScreen() {
   const monthDelta = monthIncome - monthExpense;
 
   return (
+    <>
     <div className="space-y-6 pb-2">
       <div className="flex items-center justify-between pt-1">
         <LiveClock />
@@ -207,6 +211,94 @@ export default function HomeScreen() {
           value={<Money value={derived.expectedProfitTotal + derived.capitalInvested} hide={hide} currency={cur} />}
           hint={`Próximos: ${derived.upcomingDue.length}`} />
       </div>
+
+      {/* ── Objetivo mensual de cobranza ── */}
+      {Number(state.settings.monthlyTarget) > 0 && (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-[11px] uppercase tracking-wider text-zinc-500">Objetivo del mes</span>
+            </div>
+            <div className="text-xs tabular-nums text-zinc-400">
+              <Money value={derived.collectedThisMonth} hide={hide} currency={cur} />
+              {" / "}
+              <Money value={state.settings.monthlyTarget} hide={hide} currency={cur} />
+            </div>
+          </div>
+          {(() => {
+            const pct = Math.min(1, derived.collectedThisMonth / state.settings.monthlyTarget);
+            const reached = pct >= 1;
+            return (
+              <>
+                <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${reached ? "bg-emerald-500" : "bg-amber-500"}`}
+                    style={{ width: `${(pct * 100).toFixed(1)}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                  <span className={reached ? "text-emerald-400" : "text-zinc-500"}>
+                    {reached ? "✓ Objetivo alcanzado" : `${(pct * 100).toFixed(0)}% completado`}
+                  </span>
+                  {!reached && (
+                    <span className="tabular-nums text-zinc-500">
+                      Faltan <Money value={state.settings.monthlyTarget - derived.collectedThisMonth} hide={hide} currency={cur} />
+                    </span>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </Card>
+      )}
+
+      {/* ── Agenda del día: vencimientos hoy y mañana ── */}
+      {derived.dueTodayTomorrow.length > 0 && (
+        <div>
+          <SectionTitle>
+            <span className="flex items-center gap-1.5">
+              <Sun className="h-3.5 w-3.5 text-amber-400" />
+              Cobros de hoy y mañana
+            </span>
+          </SectionTitle>
+          <Card className="divide-y divide-zinc-800/70">
+            {derived.dueTodayTomorrow.map((l) => (
+              <div key={l.id} className="flex items-center justify-between px-4 py-3 gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-zinc-100">{l.clientName}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      l._daysUntilDue === 0
+                        ? "bg-rose-500/15 text-rose-400"
+                        : "bg-amber-500/15 text-amber-400"
+                    }`}>
+                      {l._daysUntilDue === 0 ? "Hoy" : "Mañana"}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                    {formatShortDate(l.dueDate)} · {Number(l.interestRate).toFixed(1)}%
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                      <Money value={l._remaining} hide={hide} currency={cur} />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setQuickPayLoan(l)}
+                    className="flex items-center gap-1 rounded-xl border border-amber-700/50 bg-amber-900/20 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-900/40"
+                  >
+                    <Banknote className="h-3 w-3" />
+                    Cobrar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
 
       <Card className="p-4">
         <div className="flex items-center justify-between gap-3">
@@ -403,5 +495,15 @@ export default function HomeScreen() {
         </div>
       )}
     </div>
+
+    {/* Quick-pay sheet — opened from the daily agenda */}
+    {quickPayLoan && (
+      <PaymentSheet
+        open={!!quickPayLoan}
+        onClose={() => setQuickPayLoan(null)}
+        loan={quickPayLoan}
+      />
+    )}
+  </>
   );
 }
