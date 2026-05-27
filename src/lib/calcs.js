@@ -1,5 +1,5 @@
 import { PAYMENT_TYPES, CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, addDays, todayDate } from "./utils.js";
+import { daysBetween, parseISO, addDays, todayDate, getLoanCycleDays } from "./utils.js";
 
 export function expectedProfit(loan) {
   return (Number(loan.amount) * Number(loan.interestRate)) / 100;
@@ -14,7 +14,7 @@ function getOverdueMeta(loan) {
   if (!loan.dueDate) return null;
   const daysOverdue = daysBetween(loan.dueDate, todayDate());
   if (daysOverdue <= 0) return null;
-  const termDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || BUSINESS_RULES.DEFAULT_LOAN_DAYS);
+  const termDays = Math.max(1, getLoanCycleDays(loan));
   const overduePeriods = termDays > 0 ? Math.floor(daysOverdue / termDays) : 0;
   return { daysOverdue, termDays, overduePeriods, rate: Number(loan.interestRate) / 100 };
 }

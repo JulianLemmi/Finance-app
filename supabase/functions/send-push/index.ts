@@ -86,6 +86,7 @@ serve(async (req) => {
 
   const payload = JSON.stringify({ title, body: text, url, tag });
   const expired: string[] = [];
+  const errors: Array<{ endpoint: string; status?: number; message: string }> = [];
   let sent = 0;
 
   await Promise.all((subs || []).map(async (s) => {
@@ -96,9 +97,16 @@ serve(async (req) => {
       );
       sent++;
     } catch (err: unknown) {
-      const statusCode = (err as { statusCode?: number })?.statusCode;
-      if (statusCode === 404 || statusCode === 410) expired.push(s.endpoint);
-      else console.warn("push send error", err);
+      const e = err as { statusCode?: number; message?: string; body?: string };
+      const statusCode = e?.statusCode;
+      if (statusCode === 404 || statusCode === 410) {
+        expired.push(s.endpoint);
+      } else {
+        const ep = s.endpoint.slice(0, 60) + (s.endpoint.length > 60 ? "..." : "");
+        const msg = e?.message || e?.body || String(err);
+        console.warn(`push send error [${statusCode ?? "?"}] ${ep}: ${msg}`);
+        if (errors.length < 5) errors.push({ endpoint: ep, status: statusCode, message: msg.slice(0, 200) });
+      }
     }
   }));
 
@@ -106,7 +114,12 @@ serve(async (req) => {
     await sb.from("push_subscriptions").delete().eq("user_id", userId).in("endpoint", expired);
   }
 
-  return new Response(JSON.stringify({ sent, removed: expired.length }), {
+  return new Response(JSON.stringify({
+    sent,
+    removed: expired.length,
+    failed: errors.length,
+    ...(errors.length ? { errors } : {}),
+  }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

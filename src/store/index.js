@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays } from "../lib/utils.js";
+import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, daysUntilDue,
@@ -44,19 +44,28 @@ export function reducer(state, action) {
       return { ...state, ui: { ...state.ui, modal: null } };
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.payload } };
-    case "ADD_LOAN":
+    case "ADD_LOAN": {
+      // Normalize: ensure all required fields exist even if caller forgot.
+      const loan = {
+        id: uid("loan"),
+        payments: [],
+        createdAt: Date.now(),
+        status: "active",
+        ...action.payload,
+      };
       return {
         ...state,
-        loans: [action.payload, ...state.loans],
+        loans: [loan, ...state.loans],
         history: [
           {
-            id: uid("h"), kind: "loan_created", ref: action.payload.id,
-            label: `Préstamo creado a ${action.payload.clientName}`,
-            amount: action.payload.amount, date: todayISO(),
+            id: uid("h"), kind: "loan_created", ref: loan.id,
+            label: `Préstamo creado a ${loan.clientName}`,
+            amount: loan.amount, date: todayISO(),
           },
           ...state.history,
         ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
       };
+    }
     case "UPDATE_LOAN":
       return {
         ...state,
@@ -67,6 +76,11 @@ export function reducer(state, action) {
           if (merged.startDate && merged.dueDate && merged.dueDate < merged.startDate) {
             console.warn("[UPDATE_LOAN] dueDate < startDate — update rejected", merged.id);
             return l;
+          }
+          // Re-evaluate status after merge, unless caller explicitly set one
+          // (refinance flow needs to force status="refinanced").
+          if (action.payload.status === undefined) {
+            merged.status = resolveStatus(merged);
           }
           return merged;
         }),
@@ -201,9 +215,20 @@ export function useDerived(state) {
       .sort((a, b) => a._daysUntilDue - b._daysUntilDue)
       .slice(0, UI_LIMITS.UPCOMING_DUE_MAX);
 
+    // Includes both active loans due within 30d (by their dueDate) and
+    // overdue loans whose NEXT renewal falls within 30d (compound cycle).
+    const todayStr = todayISO();
+    const horizon = addDays(todayStr, 30);
+    const overdueRenewalsInWindow = overdueLoans
+      .filter((l) => {
+        const next = getNextRenewalDate(l);
+        return next && next <= horizon;
+      })
+      .reduce((a, l) => a + l._remaining, 0);
     const expectedInflow30d = activeLoans
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30)
-      .reduce((a, l) => a + l._remaining, 0);
+      .reduce((a, l) => a + l._remaining, 0)
+      + overdueRenewalsInWindow;
 
     const expectedMonthlyProfit = activeLoans
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30 && l._daysUntilDue >= 0)
@@ -261,7 +286,6 @@ export function useDerived(state) {
       };
     });
 
-    const todayStr = todayISO();
     const paidOnTimeCount = paidLoans.filter((l) => {
       const sorted = [...(l.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
       return sorted.length > 0 && sorted[0].date <= l.dueDate;

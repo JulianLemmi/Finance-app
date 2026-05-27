@@ -19,12 +19,12 @@ function urlBase64ToUint8Array(base64String) {
   return out;
 }
 
-function bufferToBase64(buffer) {
+function bufferToBase64Url(buffer) {
   if (!buffer) return null;
   const bytes = new Uint8Array(buffer);
   let bin = "";
   for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export async function getSubscriptionState() {
@@ -67,8 +67,8 @@ export async function subscribePush() {
         {
           user_id: userId,
           endpoint: sub.endpoint,
-          p256dh: json.keys?.p256dh ?? bufferToBase64(sub.getKey?.("p256dh")),
-          auth: json.keys?.auth ?? bufferToBase64(sub.getKey?.("auth")),
+          p256dh: json.keys?.p256dh ?? bufferToBase64Url(sub.getKey?.("p256dh")),
+          auth: json.keys?.auth ?? bufferToBase64Url(sub.getKey?.("auth")),
           user_agent: navigator.userAgent.slice(0, 200),
         },
         { onConflict: "user_id,endpoint" },
