@@ -77,11 +77,10 @@ export function reducer(state, action) {
             console.warn("[UPDATE_LOAN] dueDate < startDate — update rejected", merged.id);
             return l;
           }
-          // Re-evaluate status after merge, unless caller explicitly set one
-          // (refinance flow needs to force status="refinanced").
-          if (action.payload.status === undefined) {
-            merged.status = resolveStatus(merged);
-          }
+          // Always re-evaluate status. resolveStatus already preserves
+          // "paid" and "refinanced" (terminal states), so the refinance
+          // flow that explicitly sets status="refinanced" keeps working.
+          merged.status = resolveStatus(merged);
           return merged;
         }),
       };

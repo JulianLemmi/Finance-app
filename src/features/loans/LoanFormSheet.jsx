@@ -41,14 +41,27 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
     return addDays(startDate, days);
   };
 
+  // When noDueDate is on, dueDate must stay empty regardless of other field changes.
   const onStartChange = (v) =>
-    setForm((f) => ({ ...f, startDate: v, dueDate: recalcDueDate(v, f.paymentType, f.customDays) }));
+    setForm((f) => ({
+      ...f,
+      startDate: v,
+      dueDate: f.noDueDate ? "" : recalcDueDate(v, f.paymentType, f.customDays),
+    }));
 
   const onPaymentTypeChange = (v) =>
-    setForm((f) => ({ ...f, paymentType: v, dueDate: recalcDueDate(f.startDate, v, f.customDays) }));
+    setForm((f) => ({
+      ...f,
+      paymentType: v,
+      dueDate: f.noDueDate ? "" : recalcDueDate(f.startDate, v, f.customDays),
+    }));
 
   const onCustomDaysChange = (v) =>
-    setForm((f) => ({ ...f, customDays: v, dueDate: recalcDueDate(f.startDate, "custom", v) }));
+    setForm((f) => ({
+      ...f,
+      customDays: v,
+      dueDate: f.noDueDate ? "" : recalcDueDate(f.startDate, "custom", v),
+    }));
 
   const errors = validateLoan(form);
   const canSubmit = Object.keys(errors).length === 0;

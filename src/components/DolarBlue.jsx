@@ -33,8 +33,23 @@ export default function DolarBlue() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, REFRESH_MS);
-    return () => clearInterval(t);
+    let t = null;
+    const start = () => {
+      if (t == null) t = setInterval(load, REFRESH_MS);
+    };
+    const stop = () => {
+      if (t != null) { clearInterval(t); t = null; }
+    };
+    const onVisibility = () => {
+      if (document.hidden) stop();
+      else { load(); start(); }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   const blue = data?.blue;

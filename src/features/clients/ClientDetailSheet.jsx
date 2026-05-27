@@ -21,11 +21,13 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
   if (!client) return null;
 
   const paid = client._loans.filter((l) => l._status === "paid");
+  const openLoans = client._loans.filter((l) => l._status === "active" || l._status === "overdue");
   const onTime = paid.filter((l) => {
     const last = (l.payments || []).slice(-1)[0];
     return last && last.date <= l.dueDate;
   }).length;
   const punctuality = paid.length ? Math.round((onTime / paid.length) * 100) : null;
+  const loansSorted = [...client._loans].sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
 
   return (
     <>
@@ -104,7 +106,7 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
             <SectionTitle>Préstamos</SectionTitle>
             {client._loans.length ? (
               <div className="space-y-2">
-                {client._loans.sort((a, b) => (a.startDate < b.startDate ? 1 : -1)).map((l) => (
+                {loansSorted.map((l) => (
                   <button key={l.id} onClick={() => onOpenLoan(l.id)}
                     className="flex w-full items-center justify-between rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3 text-left transition-colors hover:bg-zinc-900">
                     <div className="min-w-0">
@@ -146,13 +148,21 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
 
           <div className="pt-1">
             {confirmDelete ? (
-              <div className="flex items-center justify-between rounded-2xl border border-rose-900/40 bg-rose-950/20 px-4 py-3">
+              <div className="rounded-2xl border border-rose-900/40 bg-rose-950/20 px-4 py-3">
                 <div className="text-sm text-rose-200">¿Eliminar este cliente?</div>
-                <div className="flex gap-2">
+                {openLoans.length > 0 && (
+                  <div className="mt-2 rounded-xl border border-rose-700/40 bg-rose-900/30 px-3 py-2 text-xs text-rose-200">
+                    Este cliente tiene <span className="font-semibold">{openLoans.length}</span>{" "}
+                    préstamo{openLoans.length === 1 ? "" : "s"} {openLoans.length === 1 ? "abierto" : "abiertos"}.
+                    Si lo borrás, los préstamos quedan huérfanos (el nombre se mantiene en cada uno pero no
+                    vas a poder volver a abrir su ficha). Conviene cerrar/refinanciar primero.
+                  </div>
+                )}
+                <div className="mt-3 flex items-center justify-end gap-2">
                   <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Cancelar</Button>
                   <Button variant="danger" size="sm" Icon={Trash2}
                     onClick={() => { dispatch({ type: "DELETE_CLIENT", payload: client.id }); onClose(); }}>
-                    Eliminar
+                    Eliminar igual
                   </Button>
                 </div>
               </div>
