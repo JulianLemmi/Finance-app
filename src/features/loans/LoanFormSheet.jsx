@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   User as UserIcon, Tag, Banknote, TrendingUp, Calendar, Clock, Hash,
   CalendarClock, Shield, FileText, HelpCircle,
@@ -25,11 +25,15 @@ function emptyLoan(defaults = {}) {
 
 export default function LoanFormSheet({ open, onClose, editingLoan }) {
   const { state, dispatch } = useApp();
+  // Leemos settings vía ref para no resetear el form si los defaults cambian con el sheet abierto.
+  const settingsRef = useRef(state.settings);
+  useEffect(() => { settingsRef.current = state.settings; }, [state.settings]);
+
   const [form, setForm] = useState(() => emptyLoan(state.settings));
 
   useEffect(() => {
-    if (open) setForm(editingLoan ? { ...emptyLoan(state.settings), ...editingLoan } : emptyLoan(state.settings));
-  }, [open, editingLoan, state.settings.defaultRate, state.settings.defaultDays]);
+    if (open) setForm(editingLoan ? { ...emptyLoan(settingsRef.current), ...editingLoan } : emptyLoan(settingsRef.current));
+  }, [open, editingLoan]);
 
   const updateField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 

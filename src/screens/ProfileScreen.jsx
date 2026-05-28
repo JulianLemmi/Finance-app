@@ -81,15 +81,22 @@ export default function ProfileScreen() {
   const [exportFeedback, setExportFeedback] = useState("");
   const fileInputRef = useRef(null);
 
+  // Refrescamos cada input local solo si el campo correspondiente cambió en settings
+  // (ej. tras un import o reset). Evita pisar lo que el usuario está escribiendo
+  // cuando settings se actualiza por otro motivo.
+  const prevSettingsRef = useRef(state.settings);
   useEffect(() => {
-    setName(state.settings.userName || "");
-    setCapital(String(state.settings.cashOnHand || ""));
-    setMpBalance(String(state.settings.mpBalance || ""));
-    setMonthlyTarget(String(state.settings.monthlyTarget || ""));
-    setCurrency(state.settings.currency || "$");
-    setDefaultRate(String(state.settings.defaultRate ?? 8));
-    setDefaultDays(String(state.settings.defaultDays ?? 30));
-    setTelegramChatId(state.settings.telegramChatId || "");
+    const prev = prevSettingsRef.current;
+    const curr = state.settings;
+    if (prev.userName !== curr.userName) setName(curr.userName || "");
+    if (prev.cashOnHand !== curr.cashOnHand) setCapital(String(curr.cashOnHand || ""));
+    if (prev.mpBalance !== curr.mpBalance) setMpBalance(String(curr.mpBalance || ""));
+    if (prev.monthlyTarget !== curr.monthlyTarget) setMonthlyTarget(String(curr.monthlyTarget || ""));
+    if (prev.currency !== curr.currency) setCurrency(curr.currency || "$");
+    if (prev.defaultRate !== curr.defaultRate) setDefaultRate(String(curr.defaultRate ?? 8));
+    if (prev.defaultDays !== curr.defaultDays) setDefaultDays(String(curr.defaultDays ?? 30));
+    if (prev.telegramChatId !== curr.telegramChatId) setTelegramChatId(curr.telegramChatId || "");
+    prevSettingsRef.current = curr;
   }, [state.settings]);
 
   // Tick down the cooldown counter when confirm dialog opens
@@ -134,12 +141,16 @@ export default function ProfileScreen() {
     const r = Number(defaultRate);
     if (Number.isFinite(r) && r >= 0 && r <= 100) {
       dispatch({ type: "UPDATE_SETTINGS", payload: { defaultRate: r } });
+    } else {
+      setDefaultRate(String(state.settings.defaultRate ?? 8));
     }
   };
   const saveDefaultDays = () => {
     const d = Number(defaultDays);
-    if (Number.isFinite(d) && d > 0) {
+    if (Number.isInteger(d) && d > 0) {
       dispatch({ type: "UPDATE_SETTINGS", payload: { defaultDays: d } });
+    } else {
+      setDefaultDays(String(state.settings.defaultDays ?? 30));
     }
   };
 
@@ -247,6 +258,9 @@ export default function ProfileScreen() {
 
   const onConfirmImport = () => {
     if (!importPreview?.ok) return;
+    // Red de seguridad: descargamos el estado actual antes de reemplazarlo
+    // para que un import por error sea recuperable.
+    try { downloadBackup(state); } catch (e) { console.warn("pre-import backup failed", e); }
     dispatch({ type: "HYDRATE", payload: importPreview.data });
     setImportPreview(null);
   };
@@ -685,6 +699,9 @@ export default function ProfileScreen() {
                   </div>
                   <div className="mt-1 text-[11px] text-amber-300/60">
                     Exportado el {importPreview.summary.exportedAt?.slice(0, 10) || "—"}
+                  </div>
+                  <div className="mt-2 text-[11px] text-amber-300/80">
+                    Antes de reemplazar, se descarga un respaldo automático de los datos actuales.
                   </div>
                   <div className="mt-3 flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setImportPreview(null)}>

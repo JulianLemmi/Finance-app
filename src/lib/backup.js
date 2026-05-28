@@ -70,13 +70,20 @@ export async function readBackupFile(file) {
     }
     parsed = migrate(parsed);
   }
-  // Ensure each key is an array (settings is an object).
+  // Ensure each key is an array and each element is a plain object.
   for (const k of BACKUP_KEYS.filter((k) => k !== "settings")) {
     if (!Array.isArray(parsed[k])) {
       return { ok: false, error: `Campo "${k}" inválido en el respaldo.` };
     }
+    for (let i = 0; i < parsed[k].length; i++) {
+      const item = parsed[k][i];
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return { ok: false, error: `Elemento ${i + 1} de "${k}" inválido.` };
+      }
+    }
   }
-  if (parsed.settings && typeof parsed.settings !== "object") {
+  if (parsed.settings !== undefined && parsed.settings !== null
+      && (typeof parsed.settings !== "object" || Array.isArray(parsed.settings))) {
     return { ok: false, error: "Campo \"settings\" inválido." };
   }
   return {
