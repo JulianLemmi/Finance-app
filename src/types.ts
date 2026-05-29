@@ -28,6 +28,8 @@ export interface Photo {
   url?: string;
   data?: string;
   name?: string;
+  path?: string;
+  createdAt?: number;
 }
 
 export interface Payment {
