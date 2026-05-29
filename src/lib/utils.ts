@@ -1,15 +1,17 @@
-export const uid = (prefix = "id") =>
+import type { Loan } from "../types";
+
+export const uid = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-export const todayDate = () => {
+export const todayDate = (): Date => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
 };
 
-export const todayISO = () => new Date().toISOString().slice(0, 10);
+export const todayISO = (): string => new Date().toISOString().slice(0, 10);
 
-export const addDays = (isoDate, days) => {
+export const addDays = (isoDate: string, days: number): string => {
   if (!isoDate || isoDate.length < 10) return isoDate || "";
   const d = new Date(isoDate + "T00:00:00");
   if (isNaN(d.getTime())) return isoDate;
@@ -17,22 +19,22 @@ export const addDays = (isoDate, days) => {
   return d.toISOString().slice(0, 10);
 };
 
-export const parseISO = (iso) => {
+export const parseISO = (iso: string | null | undefined): Date | null => {
   if (!iso) return null;
   const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
   return isNaN(d.getTime()) ? null : d;
 };
 
-export const daysBetween = (a, b) => {
+export const daysBetween = (a: string | Date, b: string | Date): number => {
   const da = typeof a === "string" ? parseISO(a) : a;
   const db = typeof b === "string" ? parseISO(b) : b;
   if (!da || !db) return 0;
   return Math.round((db.getTime() - da.getTime()) / 86400000);
 };
 
-export const monthKey = (iso) => (iso || "").slice(0, 7);
+export const monthKey = (iso: string): string => (iso || "").slice(0, 7);
 
-export const formatMoney = (value, hidden = false, currency = "$") => {
+export const formatMoney = (value: number | string, hidden = false, currency = "$"): string => {
   if (hidden) return "••••••";
   const n = Number(value || 0);
   const sign = n < 0 ? "-" : "";
@@ -44,39 +46,37 @@ export const formatMoney = (value, hidden = false, currency = "$") => {
   return `${sign}${currency}${formatted}`;
 };
 
-export const formatDate = (iso) => {
+export const formatDate = (iso: string): string => {
   const d = parseISO(iso);
   if (!d) return "—";
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 };
 
-export const formatShortDate = (iso) => {
+export const formatShortDate = (iso: string): string => {
   const d = parseISO(iso);
   if (!d) return "—";
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 };
 
-// Returns the cycle length in days for a loan, based on its paymentType.
-// Prefers explicit paymentType/customDays over the start→due span, which
-// can be wrong after manual extensions.
-export function getLoanCycleDays(loan) {
+type LoanCycleInput = Pick<Loan, "paymentType" | "customDays" | "startDate" | "dueDate">;
+
+export function getLoanCycleDays(loan: LoanCycleInput): number {
   if (loan?.paymentType === "15") return 15;
   if (loan?.paymentType === "30") return 30;
   const custom = Number(loan?.customDays);
   if (Number.isFinite(custom) && custom > 0) return custom;
-  const span = daysBetween(loan?.startDate, loan?.dueDate);
+  const span = daysBetween(loan?.startDate ?? "", loan?.dueDate ?? "");
   return Math.max(1, span || 30);
 }
 
-// Returns the next renewal/mora date for a loan (works for both active and overdue)
-export function getNextRenewalDate(loan) {
+export function getNextRenewalDate(loan: LoanCycleInput): string {
   const term = getLoanCycleDays(loan);
-  const overdueDays = Math.max(0, daysBetween(loan.dueDate, todayISO()));
+  const overdueDays = Math.max(0, daysBetween(loan.dueDate ?? "", todayISO()));
   const periods = overdueDays > 0 ? Math.floor(overdueDays / term) : 0;
-  return addDays(loan.dueDate, (periods + 1) * term);
+  return addDays(loan.dueDate ?? "", (periods + 1) * term);
 }
 
-export const getMonthLabel = (iso) => {
+export const getMonthLabel = (iso: string): string => {
   const d = parseISO(iso + "-01");
   if (!d) return iso;
   return d.toLocaleDateString("es-AR", { month: "short" });

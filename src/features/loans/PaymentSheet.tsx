@@ -1,11 +1,20 @@
+// Sheet para registrar un pago sobre un préstamo. Valida que el monto no supere
+// el saldo restante, ofrece atajos de 25/50/100%, y despacha ADD_PAYMENT.
 import { useState, useEffect } from "react";
 import { Banknote, Calendar } from "lucide-react";
 import { uid, todayISO, formatMoney } from "../../lib/utils.js";
 import { remainingDebt } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Textarea } from "../../components/ui.jsx";
+import type { ResolvedLoan } from "../../types";
 
-export default function PaymentSheet({ open, onClose, loan }) {
+interface PaymentSheetProps {
+  open: boolean;
+  onClose: () => void;
+  loan: ResolvedLoan | null;
+}
+
+export default function PaymentSheet({ open, onClose, loan }: PaymentSheetProps) {
   const { state, dispatch } = useApp();
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayISO());
@@ -19,21 +28,20 @@ export default function PaymentSheet({ open, onClose, loan }) {
 
   const remaining = remainingDebt(loan);
   const parsedAmount = Number(amount);
-  const amountError = amount && parsedAmount > remaining + 0.001
-    ? `Supera el saldo restante (${state.settings.currency}${Math.round(remaining).toLocaleString("es-AR")})`
-    : null;
-  const remainingAfter = parsedAmount > 0 && !amountError
-    ? Math.max(0, remaining - parsedAmount)
-    : null;
+  const amountError =
+    amount && parsedAmount > remaining + 0.001
+      ? `Supera el saldo restante (${state.settings.currency}${Math.round(remaining).toLocaleString("es-AR")})`
+      : null;
+  const remainingAfter =
+    parsedAmount > 0 && !amountError ? Math.max(0, remaining - parsedAmount) : null;
 
   const onSubmit = () => {
-    const value = parsedAmount;
-    if (!(value > 0)) return;
+    if (!(parsedAmount > 0)) return;
     dispatch({
       type: "ADD_PAYMENT",
       payload: {
         loanId: loan.id,
-        payment: { id: uid("pay"), amount: value, date, note, createdAt: Date.now() },
+        payment: { id: uid("pay"), amount: parsedAmount, date, note, createdAt: Date.now() },
       },
     });
     onClose();

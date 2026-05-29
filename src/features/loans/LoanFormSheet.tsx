@@ -1,4 +1,11 @@
+<<<<<<< HEAD:src/features/loans/LoanFormSheet.jsx
 import { useState, useEffect, useRef } from "react";
+=======
+// Formulario de creación y edición de préstamos. Maneja el estado local del
+// formulario, recalcula el vencimiento automáticamente según el tipo de plazo,
+// crea el cliente si no existe, y despacha ADD_LOAN o UPDATE_LOAN al cerrar.
+import { useState, useEffect, useRef } from "react";
+>>>>>>> 27e88aa (feat: migración TypeScript — store, lib y features/loans):src/features/loans/LoanFormSheet.tsx
 import {
   User as UserIcon, Tag, Banknote, TrendingUp, Calendar, Clock, Hash,
   CalendarClock, Shield, FileText, HelpCircle,
@@ -8,12 +15,40 @@ import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
 import { validateLoan } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
+import type { Loan, Payment, PaymentType, GuarantyType, LoanStatus, Settings } from "../../types";
 
-function emptyLoan(defaults = {}) {
+interface LoanFormState {
+  id: string;
+  clientId: string;
+  clientName: string;
+  alias: string;
+  amount: string | number;
+  interestRate: string | number;
+  startDate: string;
+  paymentType: PaymentType;
+  customDays: string | number;
+  dueDate: string;
+  guarantyType: GuarantyType;
+  guarantyDetail: string;
+  status: LoanStatus;
+  notes: string;
+  payments: Payment[];
+  compoundInterest: boolean;
+  noDueDate: boolean;
+  createdAt?: number;
+}
+
+interface LoanFormSheetProps {
+  open: boolean;
+  onClose: () => void;
+  editingLoan?: Loan | null;
+}
+
+function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
   const start = todayISO();
   const rate = defaults.defaultRate ?? 8;
   const days = defaults.defaultDays ?? 30;
-  const paymentType = days === 15 || days === 30 ? String(days) : "custom";
+  const paymentType: PaymentType = days === 15 ? "15" : days === 30 ? "30" : "custom";
   return {
     id: "", clientId: "", clientName: "", alias: "", amount: "",
     interestRate: String(rate), startDate: start, paymentType,
@@ -23,8 +58,9 @@ function emptyLoan(defaults = {}) {
   };
 }
 
-export default function LoanFormSheet({ open, onClose, editingLoan }) {
+export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSheetProps) {
   const { state, dispatch } = useApp();
+<<<<<<< HEAD:src/features/loans/LoanFormSheet.jsx
   // Leemos settings vía ref para no resetear el form si los defaults cambian con el sheet abierto.
   const settingsRef = useRef(state.settings);
   useEffect(() => { settingsRef.current = state.settings; }, [state.settings]);
@@ -34,33 +70,51 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
   useEffect(() => {
     if (open) setForm(editingLoan ? { ...emptyLoan(settingsRef.current), ...editingLoan } : emptyLoan(settingsRef.current));
   }, [open, editingLoan]);
+=======
+  // Ref para no resetear el form si los defaults cambian mientras el sheet está abierto.
+  const settingsRef = useRef(state.settings);
+  useEffect(() => { settingsRef.current = state.settings; }, [state.settings]);
 
-  const updateField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [form, setForm] = useState<LoanFormState>(() => emptyLoan(state.settings));
 
-  const recalcDueDate = (startDate, paymentType, customDays) => {
+  useEffect(() => {
+    if (open) {
+      setForm(
+        editingLoan
+          ? { ...emptyLoan(settingsRef.current), ...editingLoan }
+          : emptyLoan(settingsRef.current)
+      );
+    }
+  }, [open, editingLoan]);
+>>>>>>> 27e88aa (feat: migración TypeScript — store, lib y features/loans):src/features/loans/LoanFormSheet.tsx
+
+  const updateField = (k: keyof LoanFormState, v: unknown) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const recalcDueDate = (startDate: string, paymentType: PaymentType, customDays: string | number): string => {
     if (!startDate || startDate.length < 10) return "";
-    const days = paymentType === "custom"
-      ? Number(customDays) || 30
-      : PAYMENT_TYPES[paymentType].days;
+    const days =
+      paymentType === "custom"
+        ? Number(customDays) || 30
+        : Number(PAYMENT_TYPES[paymentType].days) || 30;
     return addDays(startDate, days);
   };
 
-  // When noDueDate is on, dueDate must stay empty regardless of other field changes.
-  const onStartChange = (v) =>
+  const onStartChange = (v: string) =>
     setForm((f) => ({
       ...f,
       startDate: v,
       dueDate: f.noDueDate ? "" : recalcDueDate(v, f.paymentType, f.customDays),
     }));
 
-  const onPaymentTypeChange = (v) =>
+  const onPaymentTypeChange = (v: string) =>
     setForm((f) => ({
       ...f,
-      paymentType: v,
-      dueDate: f.noDueDate ? "" : recalcDueDate(f.startDate, v, f.customDays),
+      paymentType: v as PaymentType,
+      dueDate: f.noDueDate ? "" : recalcDueDate(f.startDate, v as PaymentType, f.customDays),
     }));
 
-  const onCustomDaysChange = (v) =>
+  const onCustomDaysChange = (v: string) =>
     setForm((f) => ({
       ...f,
       customDays: v,
@@ -76,14 +130,14 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
     let clientId = form.clientId;
     if (!clientId) {
       const existing = state.clients.find(
-        (c) => c.name.trim().toLowerCase() === form.clientName.trim().toLowerCase()
+        (c) => c.name.trim().toLowerCase() === String(form.clientName).trim().toLowerCase()
       );
       if (existing) {
         clientId = existing.id;
       } else {
         const newClient = {
-          id: uid("client"), name: form.clientName.trim(), phone: "",
-          observations: "", riskLevel: "low", createdAt: Date.now(),
+          id: uid("client"), name: String(form.clientName).trim(), phone: "",
+          observations: "", riskLevel: "low" as const, createdAt: Date.now(),
         };
         dispatch({ type: "ADD_CLIENT", payload: newClient });
         clientId = newClient.id;
@@ -92,7 +146,8 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
     const payload = {
       ...form, id: form.id || uid("loan"), clientId,
       amount: Number(form.amount), interestRate: Number(form.interestRate),
-      customDays: Number(form.customDays) || null, createdAt: form.createdAt || Date.now(),
+      customDays: Number(form.customDays) || undefined,
+      createdAt: form.createdAt || Date.now(),
     };
     if (editingLoan) dispatch({ type: "UPDATE_LOAN", payload });
     else dispatch({ type: "ADD_LOAN", payload });
@@ -230,7 +285,7 @@ export default function LoanFormSheet({ open, onClose, editingLoan }) {
               </div>
             </div>
           </div>
-          <div className="mt-2 text-xs text-zinc-500">Vence el {formatDate(form.dueDate)}</div>
+          <div className="mt-2 text-xs text-zinc-500">Vence el {formatDate(String(form.dueDate))}</div>
         </div>
       </div>
     </Sheet>

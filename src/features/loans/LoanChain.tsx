@@ -1,9 +1,19 @@
+// Muestra la cadena de refinanciaciones de un préstamo (original → refinanciaciones).
+// Si la cadena tiene un solo elemento no renderiza nada. Cada item abre el
+// detalle del préstamo correspondiente al hacer click.
 import { Layers, ChevronRight } from "lucide-react";
 import { formatShortDate } from "../../lib/utils.js";
 import { SectionTitle, Money, StatusBadge } from "../../components/ui.jsx";
 import { useApp } from "../../store/index.js";
+import type { ResolvedLoan } from "../../types";
 
-export default function LoanChain({ chain, currentLoanId, onOpenLoan }) {
+interface LoanChainProps {
+  chain: ResolvedLoan[];
+  currentLoanId: string;
+  onOpenLoan: (id: string) => void;
+}
+
+export default function LoanChain({ chain, currentLoanId, onOpenLoan }: LoanChainProps) {
   const { state } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
@@ -25,7 +35,7 @@ export default function LoanChain({ chain, currentLoanId, onOpenLoan }) {
             <button
               key={l.id}
               disabled={isCurrent}
-              onClick={() => !isCurrent && onOpenLoan?.(l.id)}
+              onClick={() => !isCurrent && onOpenLoan(l.id)}
               className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
                 isCurrent
                   ? "border-amber-700/50 bg-amber-950/20"
@@ -41,9 +51,7 @@ export default function LoanChain({ chain, currentLoanId, onOpenLoan }) {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span
-                    className={`text-xs font-medium ${isCurrent ? "text-amber-200" : "text-zinc-300"}`}
-                  >
+                  <span className={`text-xs font-medium ${isCurrent ? "text-amber-200" : "text-zinc-300"}`}>
                     {idx === 0 ? "Original" : `Refinanciación #${idx}`}
                   </span>
                   {isCurrent && (

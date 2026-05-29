@@ -1,3 +1,6 @@
+// Vista principal de un préstamo individual. Muestra resumen financiero, estado,
+// timeline, historial de pagos y contactos. Contiene los flujos de extender,
+// refinanciar y eliminar el préstamo, cada uno con su propio sheet interno.
 import { useState, useMemo } from "react";
 import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
@@ -17,8 +20,21 @@ import LoanFormSheet from "./LoanFormSheet.jsx";
 import LoanTimeline from "./LoanTimeline.jsx";
 import PaymentHistory from "./PaymentHistory.jsx";
 import PhotoGallery from "./PhotoGallery.jsx";
+import type { ResolvedLoan } from "../../types";
 
-export default function LoanDetailSheet({ open, onClose, loanId }) {
+interface LoanDetailSheetProps {
+  open: boolean;
+  onClose: () => void;
+  loanId: string;
+}
+
+interface RefinanceFormState {
+  amount: string;
+  rate: string;
+  days: string;
+}
+
+export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailSheetProps) {
   const { state, dispatch, derived, userId } = useApp();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -26,7 +42,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   const [extendOpen, setExtendOpen] = useState(false);
   const [extendDays, setExtendDays] = useState("15");
   const [refinanceOpen, setRefinanceOpen] = useState(false);
-  const [refinanceForm, setRefinanceForm] = useState({ amount: "", rate: "", days: "30" });
+  const [refinanceForm, setRefinanceForm] = useState<RefinanceFormState>({ amount: "", rate: "", days: "30" });
 
   const [contactNote, setContactNote] = useState("");
   const [contactDate, setContactDate] = useState(() => todayISO());
@@ -43,15 +59,15 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
-  const daysOverdue = loan._status === "overdue"
-    ? Math.max(0, daysBetween(loan.dueDate, todayISO()))
-    : 0;
+  const daysOverdue =
+    loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, todayISO())) : 0;
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
   const monthsOverdue = Math.floor(daysOverdue / 30);
   const extraDaysOverdue = daysOverdue % 30;
-  const overdueLabel = monthsOverdue > 0
-    ? `${monthsOverdue} ${monthsOverdue === 1 ? "mes" : "meses"}${extraDaysOverdue > 0 ? ` ${extraDaysOverdue}d` : ""}`
-    : `${daysOverdue}d`;
+  const overdueLabel =
+    monthsOverdue > 0
+      ? `${monthsOverdue} ${monthsOverdue === 1 ? "mes" : "meses"}${extraDaysOverdue > 0 ? ` ${extraDaysOverdue}d` : ""}`
+      : `${daysOverdue}d`;
 
   const openRefinance = () => {
     setRefinanceForm({
@@ -106,26 +122,39 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
     onClose();
   };
 
-  const loanChain = useMemo(() => {
+  const loanChain = useMemo<ResolvedLoan[]>(() => {
     const all = derived.loansResolved;
-    let root = loan;
+    let root: ResolvedLoan = loan;
     while (root.refinancedFromId) {
       const parent = all.find((l) => l.id === root.refinancedFromId);
       if (!parent) break;
       root = parent;
     }
-    const chain = [root];
-    let cur = root;
+    const chain: ResolvedLoan[] = [root];
+    let node = root;
     while (true) {
-      const next = all.find((l) => l.refinancedFromId === cur.id);
+      const next = all.find((l) => l.refinancedFromId === node.id);
       if (!next) break;
       chain.push(next);
-      cur = next;
+      node = next;
     }
     return chain;
   }, [loan, derived.loansResolved]);
 
-  const G = GUARANTY_TYPES[loan.guarantyType] || GUARANTY_TYPES.other;
+  const G = GUARANTY_TYPES[loan.guarantyType as keyof typeof GUARANTY_TYPES] || GUARANTY_TYPES.other;
+
+  const addContact = () => {
+    if (!contactNote.trim()) return;
+    dispatch({
+      type: "ADD_CONTACT",
+      payload: {
+        loanId: loan.id,
+        contact: { id: uid("ct"), date: contactDate, note: contactNote.trim(), createdAt: Date.now() },
+      },
+    });
+    setContactNote("");
+    setShowContactForm(false);
+  };
 
   return (
     <>
@@ -223,11 +252,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
             ))}
           </div>
 
-          <LoanTimeline
-            loan={loan}
-            currentCompoundPeriods={currentCompoundPeriods}
-            loanTermDays={loanTermDays}
-          />
+          <LoanTimeline loan={loan} currentCompoundPeriods={currentCompoundPeriods} loanTermDays={loanTermDays} />
 
           <LoanChain
             chain={loanChain}
@@ -268,16 +293,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                     placeholder="¿Qué pasó? (llamó, prometió pagar, sin respuesta...)"
                     value={contactNote}
                     onChange={(e) => setContactNote(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && contactNote.trim()) {
-                        dispatch({ type: "ADD_CONTACT", payload: {
-                          loanId: loan.id,
-                          contact: { id: uid("ct"), date: contactDate, note: contactNote.trim(), createdAt: Date.now() },
-                        }});
-                        setContactNote("");
-                        setShowContactForm(false);
-                      }
-                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") addContact(); }}
                     className="flex-1 rounded-xl border border-zinc-700/40 bg-zinc-800/40 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-amber-700/60 focus:ring-1 focus:ring-amber-700/40"
                   />
                   <input
@@ -290,15 +306,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
                 <div className="flex justify-end">
                   <button
                     disabled={!contactNote.trim()}
-                    onClick={() => {
-                      if (!contactNote.trim()) return;
-                      dispatch({ type: "ADD_CONTACT", payload: {
-                        loanId: loan.id,
-                        contact: { id: uid("ct"), date: contactDate, note: contactNote.trim(), createdAt: Date.now() },
-                      }});
-                      setContactNote("");
-                      setShowContactForm(false);
-                    }}
+                    onClick={addContact}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-amber-900/40 px-3 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-900/60 disabled:opacity-40"
                   >
                     <Plus className="h-3 w-3" />
@@ -312,7 +320,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }) {
               <Card className="p-4 text-sm text-zinc-600">Sin registros de contacto aún.</Card>
             ) : (
               <Card className="divide-y divide-zinc-800/60">
-                {[...(loan.contacts || [])].sort((a, b) => b.createdAt - a.createdAt).map((c) => (
+                {[...(loan.contacts || [])].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).map((c) => (
                   <div key={c.id} className="group flex items-start justify-between gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-zinc-200">{c.note}</p>

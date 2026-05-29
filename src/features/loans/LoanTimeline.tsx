@@ -1,3 +1,6 @@
+// Línea de tiempo cronológica del préstamo: muestra el inicio, vencimiento,
+// cargos por mora y pagos ordenados por fecha. Permite reubicar pagos entre
+// períodos de mora usando los controles ▲▼ (reordena timelinePos).
 import { useMemo } from "react";
 import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown,
@@ -6,30 +9,49 @@ import { addDays, formatDate } from "../../lib/utils.js";
 import { expectedReturn, resolvePaymentPos } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
+import type { ResolvedLoan } from "../../types";
 
-export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDays }) {
+interface LoanTimelineProps {
+  loan: ResolvedLoan;
+  currentCompoundPeriods: number;
+  loanTermDays: number;
+}
+
+// ── Local event union ─────────────────────────────────────────────────────────
+type StartEvent  = { type: "start"; date: string };
+type DueEvent    = { type: "due"; date: string };
+type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean };
+type PaymentEvent = {
+  type: "payment"; id: string; date: string; amount: number; note?: string;
+  timelinePos: number; interestInPayment: number; totalInterestAccrued: number;
+};
+type TimelineEvent = StartEvent | DueEvent | MoraEvent | PaymentEvent;
+
+export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDays }: LoanTimelineProps) {
   const { state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
-  const overdueTimelinePeriods = useMemo(() => {
+  const overdueTimelinePeriods = useMemo<MoraEvent[]>(() => {
     if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
 
     const rate = Number(loan.interestRate) / 100;
     const payments = loan.payments || [];
-    const getPos = (p) => resolvePaymentPos(p, currentCompoundPeriods, loanTermDays, loan.dueDate);
+    const getPos = (p: typeof payments[number]) =>
+      resolvePaymentPos(p, currentCompoundPeriods, loanTermDays, loan.dueDate);
 
     let balance = expectedReturn(loan);
     payments.filter((p) => getPos(p) === 0).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount));
     });
 
-    const result = [];
+    const result: MoraEvent[] = [];
     for (let i = 1; i <= currentCompoundPeriods; i++) {
       const prevBalance = Math.max(0, balance);
       const added = prevBalance * rate;
       const afterMora = prevBalance + added;
       result.push({
+        type: "mora",
         period: i,
         date: addDays(loan.dueDate, i * loanTermDays),
         total: afterMora,
@@ -44,13 +66,13 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
     return result;
   }, [loan, loanTermDays, currentCompoundPeriods]);
 
-  const allTimelineEvents = useMemo(() => {
+  const allTimelineEvents = useMemo<TimelineEvent[]>(() => {
     const totalInterestAccrued = Math.max(0, loan._compoundReturn - Number(loan.amount));
-    const events = [];
+    const events: TimelineEvent[] = [];
 
     events.push({ type: "start", date: loan.startDate });
     if (loan.dueDate) events.push({ type: "due", date: loan.dueDate });
-    overdueTimelinePeriods.forEach((p) => events.push({ type: "mora", ...p }));
+    overdueTimelinePeriods.forEach((p) => events.push(p));
 
     let cumulativePaid = 0;
     [...(loan.payments || [])].sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((p) => {
@@ -60,44 +82,46 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
       const interestAfter = Math.min(cumulativePaid, totalInterestAccrued);
       events.push({
         type: "payment",
-        id: p.id,
+        id: p.id ?? "",
         date: p.date,
         amount: Number(p.amount),
         note: p.note,
-        timelinePos: p.timelinePos || 0,
+        timelinePos: p.timelinePos ?? 0,
         interestInPayment: interestAfter - interestBefore,
         totalInterestAccrued,
       });
     });
 
-    const dateMs = (dateStr) => new Date(dateStr + "T00:00:00").getTime();
+    const dateMs = (dateStr: string) => new Date(dateStr + "T00:00:00").getTime();
     events.sort((a, b) => {
-      const getSortKey = (ev) => {
+      const getSortKey = (ev: TimelineEvent): number => {
         if (ev.type === "payment" && ev.timelinePos > 0) {
           return dateMs(addDays(loan.dueDate, ev.timelinePos * loanTermDays)) + 500;
         }
-        const tieBreak = { start: 0, due: 10, mora: 20, payment: 30 }[ev.type] ?? 40;
-        return dateMs(ev.date) + tieBreak;
+        const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, payment: 30 };
+        return dateMs(ev.date) + (tieBreak[ev.type] ?? 40);
       };
       return getSortKey(a) - getSortKey(b);
     });
     return events;
   }, [loan, overdueTimelinePeriods, loanTermDays]);
 
-  const nextOverdueDate = loan._status === "overdue" && loan.dueDate
-    ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
-    : null;
+  const nextOverdueDate =
+    loan._status === "overdue" && loan.dueDate
+      ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
+      : null;
   const nextOverdueAdded = nextOverdueDate
     ? loan._remaining * (Number(loan.interestRate) / 100)
     : 0;
 
-  const movePayment = (paymentId, direction) => {
+  const movePayment = (paymentId: string, direction: "up" | "down") => {
     const payment = (loan.payments || []).find((p) => p.id === paymentId);
     if (!payment) return;
-    const currentPos = payment.timelinePos || 0;
-    const newPos = direction === "down"
-      ? Math.min(currentPos + 1, currentCompoundPeriods)
-      : Math.max(currentPos - 1, 0);
+    const currentPos = payment.timelinePos ?? 0;
+    const newPos =
+      direction === "down"
+        ? Math.min(currentPos + 1, currentCompoundPeriods)
+        : Math.max(currentPos - 1, 0);
     const updated = (loan.payments || []).map((p) =>
       p.id === paymentId ? { ...p, timelinePos: newPos } : p
     );

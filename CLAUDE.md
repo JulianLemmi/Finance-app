@@ -8,13 +8,14 @@ App mobile-first en español para gestión personal de préstamos, clientes, gas
 - Supabase (`@supabase/supabase-js`) — auth + key-value storage + storage bucket de fotos
 - Recharts (gráficos), lucide-react (iconos)
 - ESLint 10 (flat config)
-- Sin TypeScript, sin tests
+- **TypeScript (strict)** — migración incremental activa; `.ts`/`.tsx` conviven con `.jsx` todavía no migrados
 
 ## Scripts
 - `npm run dev` — Vite dev server
 - `npm run build` — build de producción a `dist/`
-- `npm run lint` — ESLint sobre `**/*.{js,jsx}`
+- `npm run lint` — ESLint sobre `**/*.{js,jsx,ts,tsx}`
 - `npm run preview` — preview del build
+- `npx tsc --noEmit` — chequeo de tipos sin emitir
 
 ## Setup
 Copiar `.env.example` a `.env` y completar:
@@ -27,11 +28,13 @@ Si faltan o tienen los placeholders, la app muestra `SetupScreen` (ver `FinanceA
 ## Arquitectura
 
 ### Estado global
-`useReducer` + `Context` (sin Redux/Zustand). Definido en `src/store/index.js`:
+`useReducer` + `Context` (sin Redux/Zustand). Definido en `src/store/index.ts`:
 - `initialState` con `loans`, `clients`, `expenses`, `income`, `history`, `assets`, `settings`, `ui`
-- `reducer` con acciones tipo `HYDRATE`, `SET_TAB`, `ADD_LOAN`, `UPDATE_SETTINGS`, etc.
-- `AppContext` expuesto desde el mismo archivo
-- `useDerived` para cálculos derivados memoizados
+- `reducer(state: AppState, action: AppAction): AppState` — union discriminada tipada
+- `AppContext` / `useApp()` — expone `{ state, dispatch, derived, userEmail, signOut, userId, setSearchOpen }`
+- `useDerived(state): Derived` — cálculos derivados memoizados en 5 etapas
+
+Todos los tipos de dominio viven en `src/types.ts`: `Loan`, `Client`, `Transaction`, `Asset`, `Car`, `Settings`, `AppState`, `AppAction`, `Derived`, etc.
 
 ### Persistencia
 Tres backends en cascada (`src/lib/storage.js`):
@@ -48,30 +51,32 @@ No usa react-router. Navegación por estado `ui.activeTab` en el reducer, render
 ### Estructura de carpetas
 ```
 src/
+├── types.ts             # todos los tipos de dominio
 ├── FinanceApp.jsx       # root component (auth gate + tab routing)
 ├── main.jsx             # entry point
 ├── components/          # componentes globales (BottomTabBar, ModalRoot, etc.)
-│   └── ui/              # primitives (button, card, sheet, chart, badge, form)
+│   ├── ui/              # primitives (button, card, sheet, chart, badge, form)
+│   └── ui.d.ts          # declaraciones de tipos para los .jsx sin migrar
 ├── screens/             # una por tab principal
 ├── features/            # lógica por dominio
 │   ├── assets/
 │   ├── clients/
 │   └── loans/
 ├── sheets/              # bottom sheets (TransactionSheet)
-├── lib/                 # storage, calcs, hooks, constants, utils, backup
-└── store/               # reducer + context
+├── lib/                 # storage, calcs.ts, hooks, constants, utils.ts, backup
+└── store/               # index.ts (reducer + context + useDerived)
 ```
 
 ### Cálculos de negocio
-Todo lo relacionado con préstamos vive en `src/lib/calcs.js`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`. Reglas duras en `BUSINESS_RULES` (constants.js).
+Todo lo relacionado con préstamos vive en `src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`. Reglas duras en `BUSINESS_RULES` (constants.js).
 
 ## Convenciones
 - UI en español (textos visibles al usuario).
 - Identificadores y comentarios pueden estar en inglés o español indistintamente.
-- Imports relativos con extensión `.js`/`.jsx` explícita (ESM puro).
+- Imports relativos con extensión `.js`/`.jsx`/`.ts`/`.tsx` explícita (ESM puro). Los `.ts`/`.tsx` pueden importar archivos `.js` con su extensión original.
 - Modales globales vía `ui.modal` en el state + `ModalRoot`.
-- Sheets (bottom sheets) son componentes separados en `features/*/...Sheet.jsx` o `sheets/`.
-- IDs generados con `uid()` de `lib/utils.js` (no UUID nativo).
+- Sheets (bottom sheets) son componentes separados en `features/*/...Sheet.tsx` o `sheets/`.
+- IDs generados con `uid()` de `lib/utils.ts` (no UUID nativo).
 - Defaults de configuración: `defaultRate: 8`, `defaultDays: 30`, currency `$`.
 
 ## Cosas a tener en cuenta al editar
@@ -80,3 +85,4 @@ Todo lo relacionado con préstamos vive en `src/lib/calcs.js`: `resolveStatus`, 
 - **Tailwind 4 sin config**: las clases se generan on-the-fly. No hay safelist ni purge manual.
 - **Lazy loading de screens es intencional** para mantener el bundle inicial chico (Recharts pesa). No convertir a imports directos.
 - **`useDerived`** memoiza pesado — usar para todo cálculo derivado del state global en vez de recalcular en componentes.
+- **Campos `_*` son computed-only**: nunca persistir ni despachar campos prefijados con `_` (viven solo en `ResolvedLoan`/`ResolvedClient`).

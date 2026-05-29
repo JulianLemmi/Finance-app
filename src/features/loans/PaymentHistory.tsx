@@ -1,15 +1,29 @@
+// Lista de pagos registrados en un préstamo con acciones de editar y eliminar.
+// Incluye el atajo "Marcar como pagado" que registra el saldo restante de una vez.
 import { useState } from "react";
 import { ArrowDown, Edit2, Trash2, Receipt } from "lucide-react";
 import { uid, todayISO, formatDate } from "../../lib/utils.js";
 import { useApp } from "../../store/index.js";
 import { Card, Button, Input, SectionTitle, EmptyState, Money } from "../../components/ui.jsx";
+import type { ResolvedLoan } from "../../types";
 
-export default function PaymentHistory({ loan }) {
+interface PaymentHistoryProps {
+  loan: ResolvedLoan;
+}
+
+interface EditingPayment {
+  id: string;
+  amount: string;
+  date: string;
+  note: string;
+}
+
+export default function PaymentHistory({ loan }: PaymentHistoryProps) {
   const { state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
-  const [editingPayment, setEditingPayment] = useState(null);
-  const [deletingPaymentId, setDeletingPaymentId] = useState(null);
+  const [editingPayment, setEditingPayment] = useState<EditingPayment | null>(null);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
 
   const onMarkPaid = () => {
     const r = loan._remaining;
@@ -24,7 +38,7 @@ export default function PaymentHistory({ loan }) {
     }
   };
 
-  const onDeletePayment = (paymentId) => {
+  const onDeletePayment = (paymentId: string) => {
     dispatch({
       type: "UPDATE_LOAN",
       payload: { id: loan.id, payments: (loan.payments || []).filter((p) => p.id !== paymentId) },
@@ -63,15 +77,15 @@ export default function PaymentHistory({ loan }) {
                 <div className="space-y-3 px-4 py-4">
                   <div className="grid grid-cols-2 gap-2">
                     <Input label="Monto" type="number" inputMode="decimal"
-                      value={editingPayment.amount}
-                      onChange={(e) => setEditingPayment((v) => ({ ...v, amount: e.target.value }))} />
+                      value={editingPayment!.amount}
+                      onChange={(e) => setEditingPayment((v) => v ? { ...v, amount: e.target.value } : v)} />
                     <Input label="Fecha" type="date"
-                      value={editingPayment.date}
-                      onChange={(e) => setEditingPayment((v) => ({ ...v, date: e.target.value }))} />
+                      value={editingPayment!.date}
+                      onChange={(e) => setEditingPayment((v) => v ? { ...v, date: e.target.value } : v)} />
                   </div>
                   <Input label="Nota" placeholder="Opcional"
-                    value={editingPayment.note}
-                    onChange={(e) => setEditingPayment((v) => ({ ...v, note: e.target.value }))} />
+                    value={editingPayment!.note}
+                    onChange={(e) => setEditingPayment((v) => v ? { ...v, note: e.target.value } : v)} />
                   <div className="flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setEditingPayment(null)}>Cancelar</Button>
                     <Button variant="bronze" size="sm" onClick={onSaveEdit}>Guardar</Button>
@@ -82,7 +96,7 @@ export default function PaymentHistory({ loan }) {
                   <div className="text-sm text-rose-200">¿Eliminar este pago?</div>
                   <div className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setDeletingPaymentId(null)}>Cancelar</Button>
-                    <Button variant="danger" size="sm" Icon={Trash2} onClick={() => onDeletePayment(p.id)}>Eliminar</Button>
+                    <Button variant="danger" size="sm" Icon={Trash2} onClick={() => onDeletePayment(p.id!)}>Eliminar</Button>
                   </div>
                 </div>
               ) : (
@@ -102,13 +116,13 @@ export default function PaymentHistory({ loan }) {
                   </div>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setEditingPayment({ id: p.id, amount: String(p.amount), date: p.date, note: p.note || "" })}
+                      onClick={() => setEditingPayment({ id: p.id!, amount: String(p.amount), date: p.date, note: p.note || "" })}
                       className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
                     >
                       <Edit2 className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => setDeletingPaymentId(p.id)}
+                      onClick={() => setDeletingPaymentId(p.id!)}
                       className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

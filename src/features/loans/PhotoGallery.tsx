@@ -1,20 +1,29 @@
+// Galería de fotos adjuntas a un préstamo (comprobantes, garantías, documentos).
+// Sube imágenes al bucket de Supabase, las muestra en grilla 3 col y abre
+// un lightbox al hacer click. Despacha UPDATE_LOAN para persistir los cambios.
 import { useState, useRef } from "react";
 import { Camera, X } from "lucide-react";
 import { uploadPhoto, deletePhoto } from "../../lib/storage.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, EmptyState } from "../../components/ui.jsx";
+import type { ResolvedLoan, Photo } from "../../types";
 
-export default function PhotoGallery({ loan, userId }) {
+interface PhotoGalleryProps {
+  loan: ResolvedLoan;
+  userId: string;
+}
+
+export default function PhotoGallery({ loan, userId }: PhotoGalleryProps) {
   const { dispatch } = useApp();
-  const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<Photo | null>(null);
   const [uploading, setUploading] = useState(false);
-  const photoInputRef = useRef(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
-  const addPhotos = async (files) => {
+  const addPhotos = async (files: FileList | null) => {
     if (!files?.length) return;
     setUploading(true);
     try {
-      const newPhotos = await Promise.all(
+      const newPhotos: Photo[] = await Promise.all(
         Array.from(files).map((file) => uploadPhoto(userId, loan.id, file))
       );
       dispatch({
@@ -26,7 +35,7 @@ export default function PhotoGallery({ loan, userId }) {
     }
   };
 
-  const removePhoto = async (photo) => {
+  const removePhoto = async (photo: Photo) => {
     await deletePhoto(photo);
     dispatch({
       type: "UPDATE_LOAN",
