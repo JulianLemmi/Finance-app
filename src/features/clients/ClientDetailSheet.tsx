@@ -1,3 +1,6 @@
+// Vista de perfil de un cliente: estadísticas, lista de préstamos y puntualidad
+// histórica. Permite editar los datos del cliente, abrir un préstamo individual,
+// crear un nuevo préstamo pre-cargado con el cliente, o eliminar el cliente.
 import { useState, useMemo } from "react";
 import { Edit2, Plus, Wallet, Trash2, AlertTriangle } from "lucide-react";
 import { formatDate } from "../../lib/utils.js";
@@ -7,13 +10,21 @@ import {
   EmptyState, Money, ProgressBar, StatusBadge,
 } from "../../components/ui.jsx";
 import ClientFormSheet from "./ClientFormSheet.jsx";
+import type { ResolvedClient } from "../../types";
 
-export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan }) {
+interface ClientDetailSheetProps {
+  open: boolean;
+  onClose: () => void;
+  clientId: string;
+  onOpenLoan: (id: string) => void;
+}
+
+export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan }: ClientDetailSheetProps) {
   const { state, dispatch, derived } = useApp();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const client = useMemo(
+  const client = useMemo<ResolvedClient | undefined>(
     () => derived.clientStats.find((c) => c.id === clientId),
     [derived.clientStats, clientId]
   );
@@ -34,7 +45,7 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
       <Sheet
         open={open} onClose={onClose}
         title={client.name}
-        subtitle={client.phone ? client.phone : "Perfil del cliente"}
+        subtitle={client.phone || "Perfil del cliente"}
         size="lg"
         footer={
           <div className="flex items-center justify-between gap-2">
@@ -104,7 +115,7 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
 
           <div>
             <SectionTitle>Préstamos</SectionTitle>
-            {client._loans.length ? (
+            {loansSorted.length ? (
               <div className="space-y-2">
                 {loansSorted.map((l) => (
                   <button key={l.id} onClick={() => onOpenLoan(l.id)}
@@ -153,9 +164,9 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
                 {openLoans.length > 0 && (
                   <div className="mt-2 rounded-xl border border-rose-700/40 bg-rose-900/30 px-3 py-2 text-xs text-rose-200">
                     Este cliente tiene <span className="font-semibold">{openLoans.length}</span>{" "}
-                    préstamo{openLoans.length === 1 ? "" : "s"} {openLoans.length === 1 ? "abierto" : "abiertos"}.
-                    Si lo borrás, los préstamos quedan huérfanos (el nombre se mantiene en cada uno pero no
-                    vas a poder volver a abrir su ficha). Conviene cerrar/refinanciar primero.
+                    préstamo{openLoans.length === 1 ? "" : "s"}{" "}
+                    {openLoans.length === 1 ? "abierto" : "abiertos"}.
+                    Si lo borrás, los préstamos quedan huérfanos. Conviene cerrar/refinanciar primero.
                   </div>
                 )}
                 <div className="mt-3 flex items-center justify-end gap-2">
@@ -176,6 +187,7 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
           </div>
         </div>
       </Sheet>
+
       <ClientFormSheet open={editOpen} onClose={() => setEditOpen(false)}
         editingClient={editOpen ? client : null} />
     </>

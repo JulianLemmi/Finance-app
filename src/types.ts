@@ -114,8 +114,15 @@ export interface Transaction {
   createdAt: number;
 }
 
+export interface PrepCost {
+  id: string;
+  description: string;
+  amount: number;
+}
+
 export interface Asset {
   id: string;
+  name?: string;
   category: AssetCategory;
   description: string;
   value: number;
@@ -128,9 +135,15 @@ export interface Car {
   model: string;
   year: number;
   fuelType: CarFuelType;
-  licensePlate?: string;
+  km?: number;
+  color?: string;
+  plate?: string;
+  vin?: string;
   purchasePrice?: number;
+  prepCosts?: PrepCost[];
   salePrice?: number;
+  buyerName?: string;
+  saleDate?: string;
   notes?: string;
   createdAt: number;
 }
@@ -219,9 +232,11 @@ export type AppAction =
       payload: {
         type: TxType;
         amount: number | string;
+        id?: string;
         category?: string;
         description?: string;
         date?: ISODate;
+        createdAt?: number;
       };
     }
   | { type: "DELETE_TX"; payload: { id: string; type: TxType } }

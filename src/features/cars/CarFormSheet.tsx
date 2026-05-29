@@ -1,25 +1,51 @@
+// Formulario completo para crear y editar vehículos en el inventario de autos.
+// Gestiona identificación, precios, costos de preparación (lista dinámica),
+// estado de venta y datos del comprador. Despacha ADD_CAR, UPDATE_CAR o DELETE_CAR.
 import { useState, useEffect } from "react";
 import {
   Car, Hash, Gauge, Palette, Calendar, DollarSign,
   FileText, Plus, Trash2, Tag,
 } from "lucide-react";
-import { uid, todayISO } from "../../lib/utils.js";
+import { uid } from "../../lib/utils.js";
 import { CAR_STATUSES, CAR_FUEL_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
+import type { CarStatus, CarFuelType, PrepCost } from "../../types";
 
-function emptyForm() {
-  return {
-    brand: "", model: "", year: String(new Date().getFullYear()),
-    km: "", color: "", plate: "", vin: "", fuelType: "nafta",
-    purchasePrice: "", prepCosts: [], salePrice: "",
-    status: "available", buyerName: "", saleDate: "", notes: "",
-  };
+interface CarFormSheetProps {
+  open: boolean;
+  onClose: () => void;
+  editingCar?: import("../../types").Car | null;
 }
 
-export default function CarFormSheet({ open, onClose, editingCar }) {
+interface CarFormState {
+  brand: string;
+  model: string;
+  year: string;
+  km: string;
+  color: string;
+  plate: string;
+  vin: string;
+  fuelType: CarFuelType;
+  purchasePrice: string;
+  prepCosts: PrepCost[];
+  salePrice: string;
+  status: CarStatus;
+  buyerName: string;
+  saleDate: string;
+  notes: string;
+}
+
+const emptyForm = (): CarFormState => ({
+  brand: "", model: "", year: String(new Date().getFullYear()),
+  km: "", color: "", plate: "", vin: "", fuelType: "nafta",
+  purchasePrice: "", prepCosts: [], salePrice: "",
+  status: "available", buyerName: "", saleDate: "", notes: "",
+});
+
+export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheetProps) {
   const { dispatch } = useApp();
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<CarFormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newCostDesc, setNewCostDesc] = useState("");
   const [newCostAmount, setNewCostAmount] = useState("");
@@ -29,48 +55,57 @@ export default function CarFormSheet({ open, onClose, editingCar }) {
       setConfirmDelete(false);
       setNewCostDesc("");
       setNewCostAmount("");
-      if (editingCar) {
-        setForm({
-          brand: editingCar.brand || "",
-          model: editingCar.model || "",
-          year: String(editingCar.year || new Date().getFullYear()),
-          km: String(editingCar.km || ""),
-          color: editingCar.color || "",
-          plate: editingCar.plate || "",
-          vin: editingCar.vin || "",
-          fuelType: editingCar.fuelType || "nafta",
-          purchasePrice: String(editingCar.purchasePrice || ""),
-          prepCosts: editingCar.prepCosts || [],
-          salePrice: String(editingCar.salePrice || ""),
-          status: editingCar.status || "available",
-          buyerName: editingCar.buyerName || "",
-          saleDate: editingCar.saleDate || "",
-          notes: editingCar.notes || "",
-        });
-      } else {
-        setForm(emptyForm());
-      }
+      setForm(
+        editingCar
+          ? {
+              brand: editingCar.brand ?? "",
+              model: editingCar.model ?? "",
+              year: String(editingCar.year ?? new Date().getFullYear()),
+              km: String(editingCar.km ?? ""),
+              color: editingCar.color ?? "",
+              plate: editingCar.plate ?? "",
+              vin: editingCar.vin ?? "",
+              fuelType: editingCar.fuelType ?? "nafta",
+              purchasePrice: String(editingCar.purchasePrice ?? ""),
+              prepCosts: editingCar.prepCosts ?? [],
+              salePrice: String(editingCar.salePrice ?? ""),
+              status: editingCar.status ?? "available",
+              buyerName: editingCar.buyerName ?? "",
+              saleDate: editingCar.saleDate ?? "",
+              notes: editingCar.notes ?? "",
+            }
+          : emptyForm()
+      );
     }
   }, [open, editingCar]);
 
-  const f = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
+  const setField = (k: keyof CarFormState, v: CarFormState[keyof CarFormState]) =>
+    setForm((prev) => ({ ...prev, [k]: v }));
 
-  const totalCost = Number(form.purchasePrice || 0)
-    + form.prepCosts.reduce((s, c) => s + Number(c.amount || 0), 0);
+  const totalCost =
+    Number(form.purchasePrice || 0) +
+    form.prepCosts.reduce((s, c) => s + Number(c.amount || 0), 0);
   const margin = Number(form.salePrice || 0) - totalCost;
   const marginPct = totalCost > 0 ? (margin / totalCost) * 100 : 0;
 
   const addCost = () => {
     const amount = Number(newCostAmount);
     if (!newCostDesc.trim() || !(amount > 0)) return;
-    f("prepCosts", [...form.prepCosts, { id: uid("cost"), description: newCostDesc.trim(), amount }]);
+    setField("prepCosts", [
+      ...form.prepCosts,
+      { id: uid("cost"), description: newCostDesc.trim(), amount },
+    ]);
     setNewCostDesc("");
     setNewCostAmount("");
   };
-  const removeCost = (id) => f("prepCosts", form.prepCosts.filter((c) => c.id !== id));
 
-  const canSubmit = form.brand.trim().length > 0 && form.model.trim().length > 0
-    && Number(form.purchasePrice) > 0;
+  const removeCost = (id: string) =>
+    setField("prepCosts", form.prepCosts.filter((c) => c.id !== id));
+
+  const canSubmit =
+    form.brand.trim().length > 0 &&
+    form.model.trim().length > 0 &&
+    Number(form.purchasePrice) > 0;
 
   const onSubmit = () => {
     if (!canSubmit) return;
@@ -90,10 +125,13 @@ export default function CarFormSheet({ open, onClose, editingCar }) {
   };
 
   const onDelete = () => {
+    if (!editingCar) return;
     dispatch({ type: "DELETE_CAR", payload: editingCar.id });
     onClose();
   };
 
+  type CarStatusKey = keyof typeof CAR_STATUSES;
+  type CarFuelKey = keyof typeof CAR_FUEL_TYPES;
   const cur = "$";
 
   return (
@@ -132,33 +170,36 @@ export default function CarFormSheet({ open, onClose, editingCar }) {
         {/* Identificación */}
         <div className="grid grid-cols-2 gap-3">
           <Input label="Marca *" placeholder="Ford, Chevrolet..." value={form.brand}
-            onChange={(e) => f("brand", e.target.value)} Icon={Car} />
+            onChange={(e) => setField("brand", e.target.value)} Icon={Car} />
           <Input label="Modelo *" placeholder="Focus, Onix..." value={form.model}
-            onChange={(e) => f("model", e.target.value)} Icon={Tag} />
+            onChange={(e) => setField("model", e.target.value)} Icon={Tag} />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <Input label="Año" type="number" inputMode="numeric" placeholder="2020"
-            value={form.year} onChange={(e) => f("year", e.target.value)} Icon={Calendar} />
+            value={form.year} onChange={(e) => setField("year", e.target.value)} Icon={Calendar} />
           <Input label="Km" type="number" inputMode="numeric" placeholder="50000"
-            value={form.km} onChange={(e) => f("km", e.target.value)} Icon={Gauge} />
-          <Select label="Combustible" value={form.fuelType} onChange={(v) => f("fuelType", v)}
-            options={Object.entries(CAR_FUEL_TYPES).map(([k, v]) => ({ value: k, label: v.label }))} />
+            value={form.km} onChange={(e) => setField("km", e.target.value)} Icon={Gauge} />
+          <Select label="Combustible" value={form.fuelType}
+            onChange={(v) => setField("fuelType", v as CarFuelType)}
+            options={(Object.keys(CAR_FUEL_TYPES) as CarFuelKey[]).map((k) => ({
+              value: k, label: CAR_FUEL_TYPES[k].label as string,
+            }))} />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <Input label="Color" placeholder="Blanco" value={form.color}
-            onChange={(e) => f("color", e.target.value)} Icon={Palette} />
+            onChange={(e) => setField("color", e.target.value)} Icon={Palette} />
           <Input label="Patente" placeholder="AB123CD" value={form.plate}
-            onChange={(e) => f("plate", e.target.value.toUpperCase())} Icon={Hash} />
+            onChange={(e) => setField("plate", e.target.value.toUpperCase())} Icon={Hash} />
           <Input label="VIN / Chasis" placeholder="Opcional" value={form.vin}
-            onChange={(e) => f("vin", e.target.value)} Icon={Hash} />
+            onChange={(e) => setField("vin", e.target.value)} Icon={Hash} />
         </div>
 
         {/* Precios */}
         <div className="grid grid-cols-2 gap-3">
           <Input label="Precio compra *" type="number" inputMode="decimal" placeholder="0"
-            value={form.purchasePrice} onChange={(e) => f("purchasePrice", e.target.value)} Icon={DollarSign} />
+            value={form.purchasePrice} onChange={(e) => setField("purchasePrice", e.target.value)} Icon={DollarSign} />
           <Input label="Precio venta objetivo" type="number" inputMode="decimal" placeholder="0"
-            value={form.salePrice} onChange={(e) => f("salePrice", e.target.value)} Icon={DollarSign} />
+            value={form.salePrice} onChange={(e) => setField("salePrice", e.target.value)} Icon={DollarSign} />
         </div>
 
         {/* Costos de preparación */}
@@ -234,36 +275,38 @@ export default function CarFormSheet({ open, onClose, editingCar }) {
         <div>
           <div className="mb-2 text-xs font-medium text-zinc-400">Estado</div>
           <div className="grid grid-cols-4 gap-2">
-            {Object.entries(CAR_STATUSES).map(([key, s]) => {
+            {(Object.keys(CAR_STATUSES) as CarStatusKey[]).map((key) => {
+              const s = CAR_STATUSES[key];
               const active = form.status === key;
               return (
-                <button key={key} type="button" onClick={() => f("status", key)}
+                <button key={key} type="button" onClick={() => setField("status", key as CarStatus)}
                   className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
-                    active ? "border-amber-700/60 bg-amber-900/30 text-amber-200"
+                    active
+                      ? "border-amber-700/60 bg-amber-900/30 text-amber-200"
                       : "border-zinc-800/70 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-900"
                   }`}>
-                  <span className="h-2 w-2 rounded-full" style={{ background: active ? s.color : "#52525b" }} />
-                  <span className="text-[10px] leading-tight">{s.label}</span>
+                  <span className="h-2 w-2 rounded-full" style={{ background: active ? s.color as string : "#52525b" }} />
+                  <span className="text-[10px] leading-tight">{s.label as string}</span>
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Comprador (solo en negociación/vendido/entregado) */}
+        {/* Comprador */}
         {(form.status === "negotiating" || form.status === "sold" || form.status === "delivered") && (
           <div className="grid grid-cols-2 gap-3">
             <Input label="Comprador" placeholder="Nombre" value={form.buyerName}
-              onChange={(e) => f("buyerName", e.target.value)} Icon={FileText} />
+              onChange={(e) => setField("buyerName", e.target.value)} Icon={FileText} />
             {(form.status === "sold" || form.status === "delivered") && (
               <Input label="Fecha de venta" type="date" value={form.saleDate}
-                onChange={(e) => f("saleDate", e.target.value)} Icon={Calendar} />
+                onChange={(e) => setField("saleDate", e.target.value)} Icon={Calendar} />
             )}
           </div>
         )}
 
         <Textarea label="Notas" rows={3} placeholder="Estado del auto, historial, observaciones..."
-          value={form.notes} onChange={(e) => f("notes", e.target.value)} />
+          value={form.notes} onChange={(e) => setField("notes", e.target.value)} />
       </div>
     </Sheet>
   );

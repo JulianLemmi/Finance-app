@@ -1,17 +1,29 @@
+// Sheet para registrar un ingreso o gasto. Alterna entre tipo expense/income,
+// recuerda la última categoría usada por tipo, y despacha ADD_TX al confirmar.
 import { useState, useEffect } from "react";
 import { Banknote, Calendar, FileText, Tag, MinusCircle, PlusCircle } from "lucide-react";
 import { uid, todayISO } from "../lib/utils.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "../lib/constants.js";
 import { useApp } from "../store/index.js";
 import { Sheet, Button, Input } from "../components/ui.jsx";
+import type { TxType } from "../types";
 
-export default function TransactionSheet({ open, onClose }) {
+interface TransactionSheetProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+interface CategoryByType {
+  expense: string;
+  income: string;
+}
+
+export default function TransactionSheet({ open, onClose }: TransactionSheetProps) {
   const { dispatch } = useApp();
-  const [type, setType] = useState("expense");
+  const [type, setType] = useState<TxType>("expense");
   const [amount, setAmount] = useState("");
-  // Per-type category memory: keeps last expense and last income separately,
-  // so toggling expense → income → expense restores the chosen category.
-  const [categoryByType, setCategoryByType] = useState({
+  // Mantiene la última categoría elegida por tipo para no resetear al alternar.
+  const [categoryByType, setCategoryByType] = useState<CategoryByType>({
     expense: "comida",
     income: Object.keys(INCOME_CATEGORIES)[0],
   });
@@ -20,28 +32,34 @@ export default function TransactionSheet({ open, onClose }) {
 
   useEffect(() => {
     if (open) {
-      setType("expense"); setAmount("");
-      setCategoryByType({
-        expense: "comida",
-        income: Object.keys(INCOME_CATEGORIES)[0],
-      });
-      setDescription(""); setDate(todayISO());
+      setType("expense");
+      setAmount("");
+      setCategoryByType({ expense: "comida", income: Object.keys(INCOME_CATEGORIES)[0] });
+      setDescription("");
+      setDate(todayISO());
     }
   }, [open]);
 
   const cats = type === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
   const category = categoryByType[type];
-  const setCategory = (k) => setCategoryByType((c) => ({ ...c, [type]: k }));
+  const setCategory = (k: string) =>
+    setCategoryByType((c) => ({ ...c, [type]: k }));
 
   const canSubmit = Number(amount) > 0;
+
   const onSubmit = () => {
     if (!canSubmit) return;
     dispatch({
       type: "ADD_TX",
-      payload: { id: uid("tx"), type, amount: Number(amount), category, description, date, createdAt: Date.now() },
+      payload: {
+        id: uid("tx"), type, amount: Number(amount),
+        category, description, date, createdAt: Date.now(),
+      },
     });
     onClose();
   };
+
+  type CatKey = keyof typeof EXPENSE_CATEGORIES & keyof typeof INCOME_CATEGORIES;
 
   return (
     <Sheet
@@ -57,10 +75,10 @@ export default function TransactionSheet({ open, onClose }) {
     >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
-          {[
-            { v: "expense", l: "Gasto", Icon: MinusCircle },
-            { v: "income", l: "Ingreso", Icon: PlusCircle },
-          ].map((o) => {
+          {([
+            { v: "expense" as TxType, l: "Gasto", Icon: MinusCircle },
+            { v: "income" as TxType, l: "Ingreso", Icon: PlusCircle },
+          ] as const).map((o) => {
             const active = type === o.v;
             return (
               <button key={o.v} onClick={() => setType(o.v)}
@@ -85,9 +103,10 @@ export default function TransactionSheet({ open, onClose }) {
             Categoría
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {Object.entries(cats).map(([k, v]) => {
+            {(Object.keys(cats) as CatKey[]).map((k) => {
+              const v = cats[k];
               const active = category === k;
-              const Icon = v.Icon || Tag;
+              const Icon = (v as { Icon?: React.ComponentType<{ className?: string }> }).Icon ?? Tag;
               return (
                 <button key={k} onClick={() => setCategory(k)}
                   className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-[11px] transition-all ${
@@ -97,7 +116,7 @@ export default function TransactionSheet({ open, onClose }) {
                   }`}
                 >
                   <Icon className="h-4 w-4" />
-                  {v.label}
+                  {(v as { label: string }).label}
                 </button>
               );
             })}
