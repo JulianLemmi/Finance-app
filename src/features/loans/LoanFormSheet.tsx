@@ -1,11 +1,7 @@
-<<<<<<< HEAD:src/features/loans/LoanFormSheet.jsx
-import { useState, useEffect, useRef } from "react";
-=======
 // Formulario de creación y edición de préstamos. Maneja el estado local del
 // formulario, recalcula el vencimiento automáticamente según el tipo de plazo,
 // crea el cliente si no existe, y despacha ADD_LOAN o UPDATE_LOAN al cerrar.
 import { useState, useEffect, useRef } from "react";
->>>>>>> 27e88aa (feat: migración TypeScript — store, lib y features/loans):src/features/loans/LoanFormSheet.tsx
 import {
   User as UserIcon, Tag, Banknote, TrendingUp, Calendar, Clock, Hash,
   CalendarClock, Shield, FileText, HelpCircle,
@@ -60,17 +56,6 @@ function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
 
 export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSheetProps) {
   const { state, dispatch } = useApp();
-<<<<<<< HEAD:src/features/loans/LoanFormSheet.jsx
-  // Leemos settings vía ref para no resetear el form si los defaults cambian con el sheet abierto.
-  const settingsRef = useRef(state.settings);
-  useEffect(() => { settingsRef.current = state.settings; }, [state.settings]);
-
-  const [form, setForm] = useState(() => emptyLoan(state.settings));
-
-  useEffect(() => {
-    if (open) setForm(editingLoan ? { ...emptyLoan(settingsRef.current), ...editingLoan } : emptyLoan(settingsRef.current));
-  }, [open, editingLoan]);
-=======
   // Ref para no resetear el form si los defaults cambian mientras el sheet está abierto.
   const settingsRef = useRef(state.settings);
   useEffect(() => { settingsRef.current = state.settings; }, [state.settings]);
@@ -86,7 +71,6 @@ export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSh
       );
     }
   }, [open, editingLoan]);
->>>>>>> 27e88aa (feat: migración TypeScript — store, lib y features/loans):src/features/loans/LoanFormSheet.tsx
 
   const updateField = (k: keyof LoanFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }));
