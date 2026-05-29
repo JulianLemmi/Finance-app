@@ -17,6 +17,7 @@ import ModalRoot from "./components/ModalRoot.jsx";
 import WelcomeSplash from "./components/WelcomeSplash.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import LockScreen from "./components/LockScreen.jsx";
+import NetworkStatus from "./components/NetworkStatus.jsx";
 
 declare global {
   interface Navigator {
@@ -271,6 +272,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
             </ErrorBoundary>
           )}
         </div>
+        <NetworkStatus />
         {quotaKeys.size > 0 && (
           <div className="fixed inset-x-0 top-3 z-40 mx-auto flex max-w-md justify-center px-3">
             <div className="flex items-start gap-3 rounded-2xl border border-rose-900/50 bg-rose-950/90 px-4 py-3 text-xs text-rose-100 shadow-2xl backdrop-blur">

@@ -8,81 +8,120 @@ App mobile-first en español para gestión personal de préstamos, clientes, gas
 - Supabase (`@supabase/supabase-js`) — auth + key-value storage + storage bucket de fotos
 - Recharts (gráficos), lucide-react (iconos)
 - ESLint 10 (flat config)
-- **TypeScript (strict)** — migración incremental activa; `.ts`/`.tsx` conviven con `.jsx` todavía no migrados
+- **TypeScript strict** — migración completa; toda la codebase es `.ts`/`.tsx` excepto `constants.js`
 
 ## Scripts
-- `npm run dev` — Vite dev server
-- `npm run build` — build de producción a `dist/`
-- `npm run lint` — ESLint sobre `**/*.{js,jsx,ts,tsx}`
-- `npm run preview` — preview del build
-- `npx tsc --noEmit` — chequeo de tipos sin emitir
+```bash
+npm run dev        # Vite dev server — http://localhost:5173
+npm run build      # build de producción a dist/
+npm run lint       # ESLint
+npm run preview    # preview del build
+npx tsc --noEmit   # chequeo de tipos sin emitir (pasa limpio)
+```
+
+Edge functions (Deno, requiere Supabase CLI):
+```bash
+supabase functions deploy <nombre> --no-verify-jwt
+supabase secrets set KEY=value
+```
 
 ## Setup
 Copiar `.env.example` a `.env` y completar:
 ```
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbG...
+VITE_VAPID_PUBLIC_KEY=BPx...   # opcional, para push notifications
 ```
-Si faltan o tienen los placeholders, la app muestra `SetupScreen` (ver `FinanceApp.jsx`). El check vive en `src/lib/storage.js:SUPABASE_READY`.
+Sin `.env` la app muestra `SetupScreen`. El check vive en `src/lib/storage.ts:SUPABASE_READY`.
 
 ## Arquitectura
 
 ### Estado global
 `useReducer` + `Context` (sin Redux/Zustand). Definido en `src/store/index.ts`:
-- `initialState` con `loans`, `clients`, `expenses`, `income`, `history`, `assets`, `settings`, `ui`
-- `reducer(state: AppState, action: AppAction): AppState` — union discriminada tipada
-- `AppContext` / `useApp()` — expone `{ state, dispatch, derived, userEmail, signOut, userId, setSearchOpen }`
-- `useDerived(state): Derived` — cálculos derivados memoizados en 5 etapas
+- `initialState: AppState`
+- `reducer(state: AppState, action: AppAction): AppState` — union discriminada completamente tipada
+- `AppContext` / `useApp(): AppContextValue` — expone `{ state, dispatch, derived, userEmail, signOut, userId, setSearchOpen }`
+- `useDerived(state): Derived` — 5 etapas de memoización: loans resolved → grupos → financials → chart → client stats
 
-Todos los tipos de dominio viven en `src/types.ts`: `Loan`, `Client`, `Transaction`, `Asset`, `Car`, `Settings`, `AppState`, `AppAction`, `Derived`, etc.
+**Todos los tipos** viven en `src/types.ts`: `Loan`, `Client`, `Transaction`, `Asset`, `Car`, `PrepCost`, `Photo`, `Settings`, `AppState`, `AppAction`, `Derived`, `AppContextValue`, etc.
 
 ### Persistencia
-Tres backends en cascada (`src/lib/storage.js`):
-1. **Supabase** si `SUPABASE_READY`: tabla `user_data` con columnas `user_id`, `key`, `value`. Fotos en bucket `loan-photos`.
-2. **`window.storage`** si existe (probable wrapper de Electron/PWA).
-3. **localStorage** como fallback final.
+Tres backends en cascada (`src/lib/storage.ts`):
+1. **Supabase** si `SUPABASE_READY`: tabla `user_data(user_id, key, value)`. Fotos en bucket `loan-photos`.
+2. **`window.storage`** si existe (wrapper PWA/Electron).
+3. **`localStorage`** como fallback final — dispara `finance:storage-quota-exceeded` si se llena.
 
-Las claves de storage están centralizadas en `src/lib/constants.js:STORAGE_KEYS`. Sync automático vía `useStorageSync` (`src/lib/hooks.js`).
+Claves centralizadas en `src/lib/constants.js:STORAGE_KEYS`. Sync debounced vía `useStorageSync` (`src/lib/hooks.ts`).
 
 ### Routing
-No usa react-router. Navegación por estado `ui.activeTab` en el reducer, renderizado por `BottomTabBar` + screen activa. Pantallas lazy-loaded para code-splitting:
-- `HomeScreen`, `LoansScreen`, `ClientsScreen`, `FinanceScreen`, `ProfileScreen`
+No usa react-router. Navegación por `ui.activeTab` en el reducer, renderizado por `BottomTabBar`. Pantallas lazy-loaded para code-splitting (Recharts pesa):
+- `HomeScreen`, `LoansScreen`, `ClientsScreen`, `CarsScreen`, `FinanceScreen`, `ProfileScreen`
 
 ### Estructura de carpetas
 ```
 src/
-├── types.ts             # todos los tipos de dominio
-├── FinanceApp.jsx       # root component (auth gate + tab routing)
-├── main.jsx             # entry point
-├── components/          # componentes globales (BottomTabBar, ModalRoot, etc.)
-│   ├── ui/              # primitives (button, card, sheet, chart, badge, form)
-│   └── ui.d.ts          # declaraciones de tipos para los .jsx sin migrar
-├── screens/             # una por tab principal
-├── features/            # lógica por dominio
-│   ├── assets/
-│   ├── clients/
-│   └── loans/
-├── sheets/              # bottom sheets (TransactionSheet)
-├── lib/                 # storage, calcs.ts, hooks, constants, utils.ts, backup
-└── store/               # index.ts (reducer + context + useDerived)
+├── types.ts                  # todos los tipos de dominio
+├── FinanceApp.tsx             # root: auth gate (SetupScreen → LoginScreen → AuthedApp)
+├── main.tsx                  # entry point
+├── components/
+│   ├── ui/                   # primitivos tipados: badge, button, card, chart, delta, form, sheet
+│   ├── ui.tsx                # barrel re-export de ui/
+│   ├── BottomTabBar.tsx
+│   ├── DolarBlue.tsx         # widget cotización dólar (bluelytics API)
+│   ├── DollarRain.tsx        # animación canvas de fondo (solo tema oscuro)
+│   ├── ErrorBoundary.tsx     # class component, captura errores por tab
+│   ├── GlobalSearch.tsx      # overlay Cmd+K, busca loans/clientes/movimientos
+│   ├── GlobalStyles.tsx      # CSS global + tema claro via .theme-light
+│   ├── LockScreen.tsx        # PIN/biométrico (WebAuthn)
+│   ├── ModalRoot.tsx         # monta el sheet activo según state.ui.modal
+│   ├── NetworkStatus.tsx     # pill offline/online con estado transitorio
+│   ├── PortfolioAnalytics.tsx # cobrabilidad, heatmap 30 días, cash flow
+│   └── WelcomeSplash.tsx     # splash 2.8 s al iniciar
+├── screens/                  # una por tab, lazy-loaded
+├── features/
+│   ├── assets/AssetSheet.tsx
+│   ├── cars/CarFormSheet.tsx
+│   ├── clients/ClientFormSheet.tsx + ClientDetailSheet.tsx
+│   └── loans/                # LoanFormSheet, LoanDetailSheet, PaymentSheet,
+│                             # LoanTimeline, PaymentHistory, LoanChain, PhotoGallery
+├── sheets/TransactionSheet.tsx
+├── lib/
+│   ├── calcs.ts              # cálculos financieros (resolveStatus, remainingDebt, etc.)
+│   ├── utils.ts              # uid, fechas ISO, formatMoney, daysBetween
+│   ├── storage.ts            # tiered storage (Supabase / window.storage / localStorage)
+│   ├── hooks.ts              # useStorageSync
+│   ├── backup.ts             # downloadBackup, readBackupFile (con migraciones)
+│   ├── lock.ts               # PIN PBKDF2-SHA256 v2 + WebAuthn biométrico
+│   ├── push.ts               # Web Push VAPID, subscribe/unsubscribe/test
+│   ├── telegram.ts           # sendTelegramNotification via edge function
+│   └── constants.js          # STORAGE_KEYS, LOAN_STATUSES, EXPENSE_CATEGORIES, etc.
+└── store/index.ts            # reducer + AppContext + useDerived
 ```
 
 ### Cálculos de negocio
-Todo lo relacionado con préstamos vive en `src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`. Reglas duras en `BUSINESS_RULES` (constants.js).
+`src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`, `validateLoan`, `compoundPeriods`, `calcProjection`. Reglas duras en `BUSINESS_RULES` (constants.js).
+
+### Edge functions (`supabase/functions/` — Deno)
+- `telegram-bot` — webhook + comandos `/resumen /vencimientos /gasto /ingreso /chatid`
+- `mp-balance` — proxy CORS para Mercado Pago
+- `send-push` — notificaciones web push via VAPID
+- `daily-digest` — cron (pg_cron) que llama `send-push` con vencimientos del día
 
 ## Convenciones
-- UI en español (textos visibles al usuario).
-- Identificadores y comentarios pueden estar en inglés o español indistintamente.
-- Imports relativos con extensión `.js`/`.jsx`/`.ts`/`.tsx` explícita (ESM puro). Los `.ts`/`.tsx` pueden importar archivos `.js` con su extensión original.
-- Modales globales vía `ui.modal` en el state + `ModalRoot`.
-- Sheets (bottom sheets) son componentes separados en `features/*/...Sheet.tsx` o `sheets/`.
-- IDs generados con `uid()` de `lib/utils.ts` (no UUID nativo).
-- Defaults de configuración: `defaultRate: 8`, `defaultDays: 30`, currency `$`.
+- UI en español (textos visibles al usuario). Código en inglés o español, indistinto.
+- Imports con extensión explícita (ESM puro): `.js`, `.jsx`, `.ts`, `.tsx`. Los `.ts`/`.tsx` importan `.js` con su extensión original; Vite resuelve correctamente.
+- Modales globales: despachar `OPEN_MODAL` con `{ type, payload }` → `ModalRoot` lo monta.
+- Sheets: componentes en `features/*/...Sheet.tsx` o `sheets/`. Se montan vía `ModalRoot` o estado local.
+- IDs: `uid(prefix)` de `lib/utils.ts` (no UUID nativo).
+- Formularios: el estado de form usa `string` para inputs numéricos; la conversión a `number` ocurre en `onSubmit`.
+- Defaults: `defaultRate: 8`, `defaultDays: 30`, currency `$`.
 
 ## Cosas a tener en cuenta al editar
-- **No romper el contrato de `storage`**: los tres backends esperan la misma API (`getAll(keys)`, etc.). Cambios deben actualizar las tres ramas.
-- **No agregar `react-router`**: la app navega por reducer, mantener ese patrón.
-- **Tailwind 4 sin config**: las clases se generan on-the-fly. No hay safelist ni purge manual.
-- **Lazy loading de screens es intencional** para mantener el bundle inicial chico (Recharts pesa). No convertir a imports directos.
-- **`useDerived`** memoiza pesado — usar para todo cálculo derivado del state global en vez de recalcular en componentes.
-- **Campos `_*` son computed-only**: nunca persistir ni despachar campos prefijados con `_` (viven solo en `ResolvedLoan`/`ResolvedClient`).
+- **`storage.ts` tiene 3 backends**: cambios en la API (`getAll`, `set`) deben funcionar en los 3.
+- **No agregar `react-router`**: la app navega por reducer.
+- **Tailwind 4 sin config**: clases on-the-fly. Sin safelist ni purge manual.
+- **Lazy loading de screens es intencional**: Recharts pesa ~200 KB. No convertir a imports directos.
+- **`useDerived` memoiza pesado**: usar para todo cálculo derivado, nunca recalcular en componentes.
+- **Campos `_*` son computed-only**: solo existen en `ResolvedLoan`/`ResolvedClient`. Nunca persistir ni despachar.
+- **`constants.js` queda como JS**: tiene icons de Lucide como valores; TypeScript infiere sus tipos correctamente con `allowJs: true`.
+- **`npx tsc --noEmit` debe pasar siempre**: correrlo antes de commitear cambios de tipos.
