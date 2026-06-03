@@ -21,7 +21,7 @@ function LoanCard({ loan, onOpen }: LoanCardProps) {
   const upcoming = loan._status === "active" && dueIn !== null && dueIn <= 3;
   const ongoing = loan._status === "active" || loan._status === "overdue";
   const nextRenewalDate = ongoing ? getNextRenewalDate(loan) : null;
-  const nextChargeAmount = ongoing ? loan._remaining * (Number(loan.interestRate) / 100) : 0;
+  const nextChargeAmount = ongoing ? loan._nextProfit : 0;
 
   const dueText = (() => {
     if (loan._status === "paid") return "Cerrado";

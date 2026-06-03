@@ -3,7 +3,7 @@ import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.
 import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
-  expectedProfit, expectedReturn, compoundReturn, daysUntilDue,
+  expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
   loanIntegrityErrors,
 } from "../lib/calcs.js";
 import type {
@@ -238,6 +238,7 @@ export function useDerived(state: AppState): Derived {
         _profit: expectedProfit(l),
         _return: expectedReturn(l),
         _compoundReturn: compoundReturn(l),
+        _nextProfit: nextPeriodInterest(l),
         _progress: loanProgress(l),
         _daysUntilDue: daysUntilDue(l),
         _invalid: integrityErrors.length > 0,
@@ -261,6 +262,8 @@ export function useDerived(state: AppState): Derived {
 
     const capitalInvested = deployed.reduce((a, l) => a + Number(l.amount), 0);
     const expectedProfitTotal = deployed.reduce((a, l) => a + Math.max(0, l._remaining - Number(l.amount)), 0);
+    // Ganancia que se cobraría en el próximo período de cada préstamo (lo que muestra cada card).
+    const nextProfitTotal = deployed.reduce((a, l) => a + l._nextProfit, 0);
     const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);
     const accumulatedProfit = paidLoans.reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
     const totalIncome = state.income.reduce((a, t) => a + Number(t.amount), 0);
@@ -396,7 +399,7 @@ export function useDerived(state: AppState): Derived {
     });
 
     return {
-      capitalInvested, expectedProfitTotal, totalExpectedProfit, accumulatedProfit,
+      capitalInvested, expectedProfitTotal, nextProfitTotal, totalExpectedProfit, accumulatedProfit,
       totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
       workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
       upcomingDue, dueTodayTomorrow,

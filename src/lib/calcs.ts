@@ -100,6 +100,12 @@ export function remainingDebt(loan: Loan): number {
   return Math.max(0, balance);
 }
 
+// Interés que se sumará al saldo en el próximo período de mora si no se paga.
+// Capitaliza sobre la deuda actual (post-pagos), igual que remainingDebt: balance *= (1 + rate).
+export function nextPeriodInterest(loan: Loan): number {
+  return remainingDebt(loan) * (Number(loan.interestRate) / 100);
+}
+
 export function loanProgress(loan: Loan): number {
   const total = expectedReturn(loan);
   if (!total || total <= 0 || !Number.isFinite(total)) return 0;
