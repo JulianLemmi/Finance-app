@@ -100,10 +100,17 @@ export function remainingDebt(loan: Loan): number {
   return Math.max(0, balance);
 }
 
-// Interés que se sumará al saldo en el próximo período de mora si no se paga.
-// Capitaliza sobre la deuda actual (post-pagos), igual que remainingDebt: balance *= (1 + rate).
+// Próxima ganancia del préstamo:
+// - Activo (todavía no vence): la ganancia contratada que se cobra al vencimiento (capital × tasa).
+// - Vencido: el contratado ya está devengado; lo que sigue es la capitalización del próximo
+//   período sobre la deuda actual (deuda × tasa), igual que remainingDebt (balance *= 1 + rate).
+// - Pagado / refinanciado: no hay próxima ganancia.
 export function nextPeriodInterest(loan: Loan): number {
-  return remainingDebt(loan) * (Number(loan.interestRate) / 100);
+  const status = resolveStatus(loan);
+  const rate = Number(loan.interestRate) / 100;
+  if (status === "overdue") return remainingDebt(loan) * rate;
+  if (status === "active") return expectedProfit(loan);
+  return 0;
 }
 
 export function loanProgress(loan: Loan): number {
