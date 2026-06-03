@@ -7,7 +7,7 @@ import { initialState, reducer, AppContext, useDerived } from "./store/index.js"
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
 import { useStorageSync } from "./lib/hooks.js";
-import { getLockConfig } from "./lib/lock.js";
+import { shouldLock, markUnlocked } from "./lib/lock.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import GlobalStyles from "./components/GlobalStyles.jsx";
@@ -160,16 +160,19 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
   const derived = useDerived(state);
   const isStandalone = window.matchMedia("(display-mode: standalone)").matches
     || window.navigator.standalone === true;
-  const [locked, setLocked] = useState(() => isStandalone && getLockConfig().enabled);
+  const [locked, setLocked] = useState(() => isStandalone && shouldLock());
 
   useEffect(() => {
     if (!isStandalone) return;
     const onVisibility = () => {
-      if (!document.hidden && getLockConfig().enabled) setLocked(true);
+      // Al volver al foreground, re-bloquear solo si pasó la ventana de gracia (5 min).
+      if (!document.hidden && shouldLock()) setLocked(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [isStandalone]);
+
+  const handleUnlock = useCallback(() => { markUnlocked(); setLocked(false); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,7 +244,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
 
   return (
     <AppContext.Provider value={ctx}>
-      {locked && <LockScreen onUnlock={() => setLocked(false)} />}
+      {locked && <LockScreen onUnlock={handleUnlock} />}
       <WelcomeSplash userName={state.settings.userName?.trim()} />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <GlobalStyles />
