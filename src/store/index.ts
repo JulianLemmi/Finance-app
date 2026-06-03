@@ -260,7 +260,7 @@ export function useDerived(state: AppState): Derived {
     const deployed = [...activeLoans, ...overdueLoans];
 
     const capitalInvested = deployed.reduce((a, l) => a + Number(l.amount), 0);
-    const expectedProfitTotal = deployed.reduce((a, l) => a + l._profit, 0);
+    const expectedProfitTotal = deployed.reduce((a, l) => a + Math.max(0, l._remaining - Number(l.amount)), 0);
     const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);
     const accumulatedProfit = paidLoans.reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
     const totalIncome = state.income.reduce((a, t) => a + Number(t.amount), 0);
