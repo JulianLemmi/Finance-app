@@ -262,7 +262,8 @@ export function calcProjection({
 }): CalcProjectionResult {
   const deployedLoans = [...activeLoans, ...overdueLoans];
   const deployedCapital = deployedLoans.reduce((a, l) => a + Number(l.amount), 0);
-  const base = Math.max(0, deployedCapital || workingCapital);
+  const deployedBase = deployedLoans.reduce((a, l) => a + (l._remaining ?? Number(l.amount)), 0);
+  const base = Math.max(0, deployedBase || workingCapital);
 
   const weightedRate =
     deployedCapital > 0
