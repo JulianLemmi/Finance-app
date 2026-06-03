@@ -274,18 +274,15 @@ export function calcProjection({
   avgRate?: number;
 }): CalcProjectionResult {
   const deployedLoans = [...activeLoans, ...overdueLoans];
-  const deployedCapital = deployedLoans.reduce((a, l) => a + Number(l.amount), 0);
   const deployedBase = deployedLoans.reduce((a, l) => a + (l._remaining ?? Number(l.amount)), 0);
   const base = Math.max(0, deployedBase || workingCapital);
 
-  const weightedRate =
-    deployedCapital > 0
-      ? deployedLoans.reduce((a, l) => a + Number(l.amount) * Number(l.interestRate), 0) /
-        deployedCapital /
-        100
+  // Tasa promedio simple de TODOS los préstamos desplegados (activos + atrasados),
+  // no ponderada por capital. Es la que se muestra en el label "X% × N ciclos".
+  const rate =
+    deployedLoans.length > 0
+      ? deployedLoans.reduce((a, l) => a + Number(l.interestRate), 0) / deployedLoans.length / 100
       : avgRate / 100;
-
-  const rate = weightedRate;
   const days = 30;
   const cyclesPerYear = 365 / days;
   const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
