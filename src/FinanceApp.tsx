@@ -18,6 +18,7 @@ import WelcomeSplash from "./components/WelcomeSplash.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import LockScreen from "./components/LockScreen.jsx";
 import NetworkStatus from "./components/NetworkStatus.jsx";
+import FirstRunSheet from "./components/FirstRunSheet.jsx";
 
 declare global {
   interface Navigator {
@@ -121,6 +122,7 @@ function LoginScreen() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-white">Acceder al panel</h1>
           <p className="mt-1.5 text-sm text-zinc-400">Te enviamos un link al email para iniciar sesión sin contraseña.</p>
+          <p className="mt-1 text-xs text-zinc-500">¿Primera vez? Con ese mismo link te creamos la cuenta al instante.</p>
         </div>
         <form onSubmit={onSubmit} className="mt-8 space-y-3">
           <Input label="Email" type="email" placeholder="tu@email.com" value={email}
@@ -246,6 +248,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
     <AppContext.Provider value={ctx}>
       {locked && <LockScreen onUnlock={handleUnlock} />}
       <WelcomeSplash userName={state.settings.userName?.trim()} />
+      <FirstRunSheet />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <GlobalStyles />
       <div className={`relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']${isLight ? " theme-light" : ""}`}>
