@@ -7,6 +7,13 @@
  *   VAPID_SUBJECT       — "mailto:tu@email.com" o URL https
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY — automáticas en Edge Functions
  *
+ * Deploy / Auth:
+ *   supabase functions deploy send-push --no-verify-jwt
+ *   IMPORTANTE: va con --no-verify-jwt. La auth la hace el código (SERVICE_ROLE
+ *   server-to-server, o JWT de usuario verificado con auth.getUser). Si se deja
+ *   verify_jwt activo, el gateway rechaza el SERVICE_ROLE (formato no-JWT en
+ *   proyectos nuevos) con 401 y daily-digest no puede invocarla.
+ *
  * Body POST:
  *   { userId: string, title: string, body: string, url?: string, tag?: string }
  *

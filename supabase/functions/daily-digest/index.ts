@@ -1,9 +1,11 @@
 /**
- * daily-digest — corre 1×/día y envía push con los vencimientos del día.
+ * daily-digest — corre 1×/día (9 AM ART vía cron) y envía push con los
+ * próximos vencimientos de cada usuario.
  *
  * Para cada usuario que tenga datos en user_data:
  *   1. Lee sus préstamos
- *   2. Detecta los que vencen hoy (originales + renovaciones de atrasados)
+ *   2. Lista los vencimientos dentro de los próximos WINDOW_DAYS días
+ *      (activos en su fecha + renovaciones de atrasados), con nombre y fecha
  *   3. Si hay al menos uno, dispara send-push con el resumen
  *
  * Variables de entorno requeridas:
@@ -12,6 +14,7 @@
  *   SUPABASE_SERVICE_ROLE_KEY      — automática
  * Opcionales:
  *   DIGEST_TZ_OFFSET               — offset horario en horas (default -3 = Argentina)
+ *   DIGEST_WINDOW_DAYS             — días hacia adelante a incluir (default 7)
  *
  * Deploy:
  *   supabase secrets set CRON_SECRET=$(openssl rand -hex 32)
@@ -25,8 +28,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   Loan,
   getNextRenewalDate,
-  remainingDebt,
-  expectedProfit,
+  resolveStatus,
+  daysBetween,
+  addDays,
   todayISOInTz,
 } from "../_shared/loanMath.ts";
 
@@ -34,55 +38,51 @@ const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TZ_OFFSET = Number(Deno.env.get("DIGEST_TZ_OFFSET") ?? "-3");
+// Ventana de días hacia adelante a incluir en el digest (default 7).
+const WINDOW_DAYS = Number(Deno.env.get("DIGEST_WINDOW_DAYS") ?? "7");
 
-type Settings = { currency?: string; userName?: string };
-
-function money(n: number, currency: string): string {
-  return `${currency}${Math.round(n).toLocaleString("es-AR")}`;
+function fmtDate(iso: string): string {
+  const p = iso.split("-");
+  return p.length === 3 ? `${p[2]}/${p[1]}` : iso;
 }
 
-function buildDigest(loans: Loan[], settings: Settings, today: string) {
-  const cur = settings.currency || "$";
-  const items: { name: string; gain: number; renewal: boolean }[] = [];
+type DigestItem = { name: string; date: string; days: number; renewal: boolean };
+
+// Lista los próximos vencimientos dentro de [hoy, hoy+WINDOW_DAYS]:
+// activos en su fecha de vencimiento + renovaciones de atrasados, ordenados por
+// fecha, cada uno con el nombre del cliente. El estado se recalcula (no se confía
+// en el status guardado, que puede estar desactualizado).
+function buildDigest(loans: Loan[], today: string) {
+  const horizon = addDays(today, WINDOW_DAYS);
+  const items: DigestItem[] = [];
 
   for (const l of loans) {
-    if (l.status !== "active" && l.status !== "overdue") continue;
-    if (!l.dueDate) continue;
+    const status = resolveStatus(l, today);
+    if (status !== "active" && status !== "overdue") continue;
+    if (!l.dueDate) continue; // préstamos sin vencimiento no aplican
 
-    if (l.status === "active" && l.dueDate === today) {
-      // Active loan reaching its original due date today.
-      items.push({
-        name: l.clientName ?? "Sin nombre",
-        gain: expectedProfit(l),
-        renewal: false,
-      });
-      continue;
-    }
-    if (l.status === "overdue") {
-      const next = getNextRenewalDate(l, today);
-      if (next === today) {
-        // Overdue loan compounding today — gain is interest on current debt.
-        const debt = remainingDebt(l, today);
-        const gain = debt * (Number(l.interestRate ?? 0) / 100);
-        items.push({
-          name: l.clientName ?? "Sin nombre",
-          gain,
-          renewal: true,
-        });
-      }
-    }
+    const nextDue = status === "overdue" ? getNextRenewalDate(l, today) : l.dueDate;
+    if (!nextDue || nextDue < today || nextDue > horizon) continue;
+
+    items.push({
+      name: l.clientName ?? "Sin nombre",
+      date: nextDue,
+      days: daysBetween(today, nextDue),
+      renewal: status === "overdue",
+    });
   }
 
   if (items.length === 0) return null;
+  items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-  const totalGain = items.reduce((a, x) => a + x.gain, 0);
-  const top = items.slice(0, 4).map((i) => `• ${i.name}${i.renewal ? " ↻" : ""}: ${money(i.gain, cur)}`);
-  const more = items.length > 4 ? `\n+${items.length - 4} más` : "";
-  const title = items.length === 1
-    ? `Hoy vence ${items[0].name}`
-    : `Hoy: ${items.length} vencimientos — ${money(totalGain, cur)}`;
-  const body = `${top.join("\n")}${more}`;
-  return { title, body, count: items.length, total: totalGain };
+  const lineOf = (i: DigestItem) => {
+    const when = i.days === 0 ? "hoy" : i.days === 1 ? "mañana" : fmtDate(i.date);
+    return `• ${i.name} — ${when}${i.renewal ? " ↻" : ""}`;
+  };
+  const top = items.slice(0, 10).map(lineOf);
+  const more = items.length > 10 ? `\n+${items.length - 10} más` : "";
+  const title = items.length === 1 ? "1 vencimiento próximo" : `${items.length} vencimientos próximos`;
+  return { title, body: `${top.join("\n")}${more}`, count: items.length };
 }
 
 async function sendPush(userId: string, title: string, body: string) {
@@ -94,12 +94,9 @@ async function sendPush(userId: string, title: string, body: string) {
     },
     body: JSON.stringify({ userId, title, body, url: "/", tag: "daily-digest" }),
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    console.warn(`send-push fail for ${userId}: ${res.status} ${txt}`);
-    return false;
-  }
-  return true;
+  const txt = await res.text().catch(() => "");
+  if (!res.ok) console.warn(`send-push fail for ${userId}: ${res.status} ${txt}`);
+  return { ok: res.ok, status: res.status, text: txt.slice(0, 250) };
 }
 
 const corsHeaders = {
@@ -139,19 +136,11 @@ serve(async (req) => {
     const loans = (Array.isArray(row.value) ? row.value : []) as Loan[];
     if (loans.length === 0) continue;
 
-    const { data: sRow } = await sb
-      .from("user_data")
-      .select("value")
-      .eq("user_id", row.user_id)
-      .eq("key", "finance:settings")
-      .maybeSingle();
-    const settings = (sRow?.value || {}) as Settings;
-
-    const digest = buildDigest(loans, settings, today);
+    const digest = buildDigest(loans, today);
     if (!digest) continue;
 
-    const ok = await sendPush(row.user_id, digest.title, digest.body);
-    if (ok) sent++;
+    const pushRes = await sendPush(row.user_id, digest.title, digest.body);
+    if (pushRes.ok) sent++;
   }
 
   return new Response(JSON.stringify({ processed, sent, today }), {
