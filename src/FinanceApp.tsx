@@ -6,6 +6,7 @@ import type { Session } from "@supabase/supabase-js";
 import { initialState, reducer, AppContext, useDerived } from "./store/index.js";
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
+import { stripComputed } from "./lib/utils.js";
 import { useStorageSync } from "./lib/hooks.js";
 import { shouldLock, markUnlocked } from "./lib/lock.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
@@ -227,11 +228,15 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
     (async () => {
       const data = await storage.getAll(Object.values(STORAGE_KEYS));
       if (cancelled) return;
+      const rawLoans = (Array.isArray(data[STORAGE_KEYS.loans]) ? data[STORAGE_KEYS.loans] : []) as Record<string, unknown>[];
+      const rawClients = (Array.isArray(data[STORAGE_KEYS.clients]) ? data[STORAGE_KEYS.clients] : []) as Record<string, unknown>[];
+      const cleanLoans = rawLoans.map(stripComputed);
+      const cleanClients = rawClients.map(stripComputed);
       dispatch({
         type: "HYDRATE",
         payload: {
-          loans:    Array.isArray(data[STORAGE_KEYS.loans])    ? data[STORAGE_KEYS.loans] as never    : [],
-          clients:  Array.isArray(data[STORAGE_KEYS.clients])  ? data[STORAGE_KEYS.clients] as never  : [],
+          loans:    cleanLoans as never,
+          clients:  cleanClients as never,
           expenses: Array.isArray(data[STORAGE_KEYS.expenses]) ? data[STORAGE_KEYS.expenses] as never : [],
           income:   Array.isArray(data[STORAGE_KEYS.income])   ? data[STORAGE_KEYS.income] as never   : [],
           history:  Array.isArray(data[STORAGE_KEYS.history])  ? data[STORAGE_KEYS.history] as never  : [],
@@ -241,6 +246,10 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
             ? data[STORAGE_KEYS.settings] as never : undefined,
         },
       });
+      // Limpieza one-shot de campos _* legacy ya guardados. useStorageSync saltea el
+      // primer sync post-hydrate, así que re-persistimos manualmente sólo si cambió algo.
+      if (cleanLoans.some((l, i) => l !== rawLoans[i])) storage.set(STORAGE_KEYS.loans, cleanLoans);
+      if (cleanClients.some((c, i) => c !== rawClients[i])) storage.set(STORAGE_KEYS.clients, cleanClients);
     })();
     return () => { cancelled = true; };
   }, [sessionUserId]);

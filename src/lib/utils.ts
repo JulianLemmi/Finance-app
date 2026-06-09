@@ -3,6 +3,18 @@ import type { Loan } from "../types";
 export const uid = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
+// Quita los campos computados (prefijo "_") de loans/clients antes de despachar o
+// persistir. Ver CLAUDE.md: los _* sólo existen en ResolvedLoan/ResolvedClient y
+// nunca deben guardarse. Devuelve la misma referencia si no hay nada que quitar.
+export function stripComputed<T extends object>(obj: T): T {
+  const src = obj as Record<string, unknown>;
+  const keys = Object.keys(src);
+  if (!keys.some((k) => k.startsWith("_"))) return obj;
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (!k.startsWith("_")) out[k] = src[k];
+  return out as T;
+}
+
 export const todayDate = (): Date => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);

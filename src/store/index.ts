@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate } from "../lib/utils.js";
+import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, stripComputed } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -34,8 +34,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         loaded: true,
-        loans: action.payload.loans ?? state.loans,
-        clients: action.payload.clients ?? state.clients,
+        // Limpia cualquier campo _* legacy que se hubiera persistido (ver stripComputed).
+        loans: action.payload.loans ? action.payload.loans.map(stripComputed) : state.loans,
+        clients: action.payload.clients ? action.payload.clients.map(stripComputed) : state.clients,
         expenses: action.payload.expenses ?? state.expenses,
         income: action.payload.income ?? state.income,
         history: action.payload.history ?? state.history,
@@ -52,14 +53,14 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.payload } };
     case "ADD_LOAN": {
-      const loan: Loan = {
+      const loan: Loan = stripComputed({
         id: uid("loan"),
         payments: [],
         contacts: [],
         createdAt: Date.now(),
         status: "active",
         ...action.payload,
-      };
+      });
       return {
         ...state,
         loans: [loan, ...state.loans],
@@ -84,7 +85,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
             return l;
           }
           merged.status = resolveStatus(merged);
-          return merged;
+          return stripComputed(merged);
         }),
       };
     case "DELETE_LOAN":
@@ -139,19 +140,19 @@ export function reducer(state: AppState, action: AppAction): AppState {
       };
     }
     case "ADD_CLIENT": {
-      const client = {
+      const client = stripComputed({
         id: uid("client"),
         createdAt: Date.now(),
         riskLevel: "low" as const,
         ...action.payload,
-      };
+      });
       return { ...state, clients: [client, ...state.clients] };
     }
     case "UPDATE_CLIENT":
       return {
         ...state,
         clients: state.clients.map((c) =>
-          c.id === action.payload.id ? { ...c, ...action.payload } : c
+          c.id === action.payload.id ? stripComputed({ ...c, ...action.payload }) : c
         ),
       };
     case "DELETE_CLIENT":
@@ -260,8 +261,21 @@ export function useDerived(state: AppState): Derived {
     const { activeLoans, overdueLoans, paidLoans } = loanGroups;
     const deployed = [...activeLoans, ...overdueLoans];
 
-    const capitalInvested = deployed.reduce((a, l) => a + Number(l.amount), 0);
-    const expectedProfitTotal = deployed.reduce((a, l) => a + Math.max(0, l._remaining - Number(l.amount)), 0);
+    // Capital invertido: en los atrasados/vencidos la deuda ya capitalizó el interés
+    // devengado (_remaining), así que ese monto entero cuenta como capital realizado.
+    // En los activos es el principal prestado, pero acotado a la deuda que aún queda
+    // (min): si ya se cobró más que el interés y se comió principal, el capital baja.
+    // Resultado: capitalInvested + expectedProfitTotal = deuda real en todos los casos.
+    const capitalInvested = deployed.reduce(
+      (a, l) => a + (l._status === "overdue" ? l._remaining : Math.min(l._remaining, Number(l.amount))),
+      0
+    );
+    // Ganancia esperada (aún no realizada): sólo de los activos. En los vencidos el
+    // interés ya se capitalizó dentro de capitalInvested, así que no se vuelve a sumar.
+    const expectedProfitTotal = deployed.reduce(
+      (a, l) => a + (l._status === "overdue" ? 0 : Math.max(0, l._remaining - Number(l.amount))),
+      0
+    );
     // Ganancia que se cobraría en el próximo período de cada préstamo (lo que muestra cada card).
     const nextProfitTotal = deployed.reduce((a, l) => a + l._nextProfit, 0);
     const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);

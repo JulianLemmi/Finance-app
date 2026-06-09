@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-globals */
 // SW addon: maneja el evento push y los clicks en la notificación.
 // Se carga vía workbox.importScripts desde vite.config.js, así que vive
 // en el mismo SW que genera vite-plugin-pwa.
@@ -33,7 +32,7 @@ self.addEventListener("notificationclick", (event) => {
     const existing = clientsList.find((c) => c.url.includes(self.location.origin));
     if (existing) {
       existing.focus();
-      try { existing.navigate(targetUrl); } catch {}
+      try { existing.navigate(targetUrl); } catch { /* navigate puede no estar soportado */ }
       return;
     }
     await self.clients.openWindow(targetUrl);

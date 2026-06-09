@@ -24,6 +24,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// Secret que Telegram reenvía en cada update (setWebhook secret_token). Si está
+// configurado, exigimos que coincida → evita que falsifiquen updates al webhook.
+const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
 
 const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
@@ -254,6 +257,18 @@ serve(async (req) => {
 
   // ── Notify action from the app ───────────────────────────────────────────
   if (body.action === "notify") {
+    // Requiere JWT de usuario válido (o SERVICE_ROLE). El cliente lo adjunta via
+    // functions.invoke; sin token válido cualquiera podría spamear vía el bot.
+    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+    if (token !== SERVICE_KEY) {
+      const { data: { user }, error: authErr } = await sb().auth.getUser(token);
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
     const { chatId, message } = body as { chatId: string; message: string };
     if (!chatId || !message) {
       return new Response(JSON.stringify({ error: "Missing chatId or message" }), {
@@ -268,6 +283,14 @@ serve(async (req) => {
   }
 
   // ── Telegram webhook update ──────────────────────────────────────────────
+  // Si hay secret configurado, exigimos el header que Telegram envía en cada
+  // update (registrado con setWebhook secret_token). Sin esto, cualquiera podría
+  // POSTear updates falsos (registrar gastos/ingresos o leer /resumen ajeno).
+  if (WEBHOOK_SECRET) {
+    const got = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
+    if (got !== WEBHOOK_SECRET) return new Response("Unauthorized", { status: 401 });
+  }
+
   const msg = (body as { message?: Record<string, unknown> }).message;
   if (!msg) return new Response("OK");
 

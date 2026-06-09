@@ -58,7 +58,29 @@ serve(async (req) => {
     return new Response("Bad request", { status: 400, headers: corsHeaders });
   }
 
-  const userId = String(body.userId ?? "").trim();
+  const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  // Aceptamos dos llamadores legítimos:
+  //  (a) SERVICE_ROLE  → server-to-server (ej. daily-digest): confía en body.userId.
+  //  (b) JWT de usuario → el cliente lo adjunta via functions.invoke; ignoramos
+  //      body.userId y usamos el id del token, para que nadie pueda mandar push a
+  //      otra cuenta. Sin token válido → 401.
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  let userId: string;
+  if (token && token === SERVICE_KEY) {
+    userId = String(body.userId ?? "").trim();
+  } else {
+    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
+    if (authErr || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    userId = user.id;
+  }
+
   const title = String(body.title ?? "Finance App");
   const text = String(body.body ?? "");
   const url = body.url ? String(body.url) : "/";
@@ -71,7 +93,6 @@ serve(async (req) => {
     });
   }
 
-  const sb = createClient(SUPABASE_URL, SERVICE_KEY);
   const { data: subs, error } = await sb
     .from("push_subscriptions")
     .select("endpoint, p256dh, auth")
