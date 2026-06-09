@@ -52,6 +52,31 @@ function makePNG(size, drawFn) {
   ]);
 }
 
+// PNG RGBA (color type 6) — para íconos con transparencia (ej. el badge).
+function makePNGAlpha(size, drawFn) {
+  const raw = Buffer.allocUnsafe((1 + size * 4) * size);
+  for (let y = 0; y < size; y++) {
+    const base = y * (1 + size * 4);
+    raw[base] = 0;
+    for (let x = 0; x < size; x++) {
+      const [r, g, b, a] = drawFn(x, y, size);
+      raw[base + 1 + x * 4] = r;
+      raw[base + 2 + x * 4] = g;
+      raw[base + 3 + x * 4] = b;
+      raw[base + 4 + x * 4] = a;
+    }
+  }
+  const ihdr = Buffer.allocUnsafe(13);
+  ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0; // 8-bit, RGBA
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 function insideRoundRect(x, y, size, r) {
   const x1 = r, x2 = size - r, y1 = r, y2 = size - r;
   if (x < 0 || x >= size || y < 0 || y >= size) return false;
@@ -114,9 +139,35 @@ function drawIcon(x, y, size) {
   return BG;
 }
 
+// Badge monocromático para notificaciones (Android usa solo el alfa → tinte blanco).
+// Dibuja el símbolo "$" en blanco opaco sobre fondo transparente.
+function drawBadge(x, y, size) {
+  const TRANSPARENT = [0, 0, 0, 0];
+  const WHITE = [255, 255, 255, 255];
+  const s = size / 512;
+  const cx = size / 2, cy = size / 2;
+
+  // Barra vertical
+  const barW = 34 * s, barH = 256 * s;
+  const barX = cx - barW / 2, barY = cy - barH / 2;
+  if (x >= barX && x < barX + barW && y >= barY && y < barY + barH) return WHITE;
+
+  const strokeW = 32 * s, R = 108 * s;
+  // Arco superior
+  const topCY = cy - 52 * s;
+  if (Math.abs(Math.hypot(x - cx, y - topCY) - R) < strokeW / 2 && y < topCY + 8 * s) return WHITE;
+  // Arco inferior
+  const botCY = cy + 52 * s;
+  if (Math.abs(Math.hypot(x - cx, y - botCY) - R) < strokeW / 2 && y > botCY - 8 * s) return WHITE;
+
+  return TRANSPARENT;
+}
+
 try { mkdirSync("./public", { recursive: true }); } catch {}
 
 writeFileSync("./public/pwa-icon-192.png", makePNG(192, drawIcon));
 writeFileSync("./public/pwa-icon-512.png", makePNG(512, drawIcon));
+writeFileSync("./public/pwa-badge-96.png", makePNGAlpha(96, drawBadge));
 console.log("✓ public/pwa-icon-192.png");
 console.log("✓ public/pwa-icon-512.png");
+console.log("✓ public/pwa-badge-96.png");

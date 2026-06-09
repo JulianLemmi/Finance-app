@@ -12,7 +12,7 @@ self.addEventListener("push", (event) => {
   const options = {
     body: payload.body || "",
     icon: payload.icon || "/pwa-icon-192.png",
-    badge: payload.badge || "/pwa-icon-192.png",
+    badge: payload.badge || "/pwa-badge-96.png",
     data: {
       url: payload.url || "/",
       ...(payload.data || {}),
