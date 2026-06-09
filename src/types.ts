@@ -79,6 +79,7 @@ export interface LoanComputed {
   _profit: number;
   _return: number;
   _compoundReturn: number;
+  _nextProfit: number;
   _progress: number;
   _daysUntilDue: number | null;
   _invalid: boolean;
@@ -296,6 +297,7 @@ export interface Derived {
   refinancedLoans: ResolvedLoan[];
   capitalInvested: number;
   expectedProfitTotal: number;
+  nextProfitTotal: number;
   totalExpectedProfit: number;
   accumulatedProfit: number;
   totalIncome: number;

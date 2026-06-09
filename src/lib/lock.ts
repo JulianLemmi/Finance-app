@@ -1,6 +1,30 @@
 const LOCK_KEY = "finance:lock";
 const WEBAUTHN_USER_KEY = "finance:webauthn-user-id";
+const LAST_UNLOCK_KEY = "finance:lock-last-unlock";
 const PBKDF2_ITERATIONS = 100_000;
+
+// Ventana de gracia: tras desbloquear, no se vuelve a pedir PIN/huella hasta que
+// pasen 5 minutos desde la última vez que se ingresó.
+export const LOCK_GRACE_MS = 5 * 60 * 1000;
+
+export function getLastUnlock(): number {
+  try {
+    const raw = localStorage.getItem(LAST_UNLOCK_KEY);
+    const n = raw ? Number(raw) : 0;
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function markUnlocked(): void {
+  try { localStorage.setItem(LAST_UNLOCK_KEY, String(Date.now())); } catch {}
+}
+
+// ¿Debe bloquearse ahora? (lock habilitado y venció la gracia desde el último desbloqueo)
+export function shouldLock(): boolean {
+  return getLockConfig().enabled && Date.now() - getLastUnlock() > LOCK_GRACE_MS;
+}
 
 export interface LockConfig {
   enabled: boolean;

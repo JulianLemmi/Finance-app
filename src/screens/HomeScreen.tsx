@@ -186,7 +186,7 @@ export default function HomeScreen() {
             value={<Money value={derived.monthlyInterestsCollected} hide={hide} currency={cur} />}
             hint="Intereses cobrados este mes" />
           <StatCard label="Ganancia por cobrar" Icon={Briefcase} tone="success"
-            value={<Money value={derived.expectedProfitTotal} hide={hide} currency={cur} />}
+            value={<Money value={derived.nextProfitTotal} hide={hide} currency={cur} />}
             hint={`${derived.activeLoans.length + derived.overdueLoans.length} activo${derived.activeLoans.length + derived.overdueLoans.length === 1 ? "" : "s"}`} />
           <StatCard label="Préstamos activos" Icon={Activity}
             value={derived.activeLoans.length + derived.overdueLoans.length}

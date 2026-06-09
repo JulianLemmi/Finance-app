@@ -173,7 +173,7 @@ function VencimientosHeatmap() {
       const next = getNextRenewalDate(l);
       const i = idx.get(next);
       if (i !== undefined) {
-        const periodicGain = Number(l._remaining) * (Number(l.interestRate) / 100);
+        const periodicGain = l._nextProfit;
         entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(periodicGain) ? periodicGain : 0, isRenewal: true });
       }
     }

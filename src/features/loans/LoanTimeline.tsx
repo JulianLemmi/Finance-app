@@ -110,9 +110,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
     loan._status === "overdue" && loan.dueDate
       ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
       : null;
-  const nextOverdueAdded = nextOverdueDate
-    ? loan._remaining * (Number(loan.interestRate) / 100)
-    : 0;
+  const nextOverdueAdded = nextOverdueDate ? loan._nextProfit : 0;
 
   const movePayment = (paymentId: string, direction: "up" | "down") => {
     const payment = (loan.payments || []).find((p) => p.id === paymentId);

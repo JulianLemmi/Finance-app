@@ -100,6 +100,19 @@ export function remainingDebt(loan: Loan): number {
   return Math.max(0, balance);
 }
 
+// Próxima ganancia del préstamo:
+// - Activo (todavía no vence): la ganancia contratada que se cobra al vencimiento (capital × tasa).
+// - Vencido: el contratado ya está devengado; lo que sigue es la capitalización del próximo
+//   período sobre la deuda actual (deuda × tasa), igual que remainingDebt (balance *= 1 + rate).
+// - Pagado / refinanciado: no hay próxima ganancia.
+export function nextPeriodInterest(loan: Loan): number {
+  const status = resolveStatus(loan);
+  const rate = Number(loan.interestRate) / 100;
+  if (status === "overdue") return remainingDebt(loan) * rate;
+  if (status === "active") return expectedProfit(loan);
+  return 0;
+}
+
 export function loanProgress(loan: Loan): number {
   const total = expectedReturn(loan);
   if (!total || total <= 0 || !Number.isFinite(total)) return 0;
@@ -261,17 +274,15 @@ export function calcProjection({
   avgRate?: number;
 }): CalcProjectionResult {
   const deployedLoans = [...activeLoans, ...overdueLoans];
-  const deployedCapital = deployedLoans.reduce((a, l) => a + Number(l.amount), 0);
-  const base = Math.max(0, deployedCapital || workingCapital);
+  const deployedBase = deployedLoans.reduce((a, l) => a + (l._remaining ?? Number(l.amount)), 0);
+  const base = Math.max(0, deployedBase || workingCapital);
 
-  const weightedRate =
-    deployedCapital > 0
-      ? deployedLoans.reduce((a, l) => a + Number(l.amount) * Number(l.interestRate), 0) /
-        deployedCapital /
-        100
+  // Tasa promedio simple de TODOS los préstamos desplegados (activos + atrasados),
+  // no ponderada por capital. Es la que se muestra en el label "X% × N ciclos".
+  const rate =
+    deployedLoans.length > 0
+      ? deployedLoans.reduce((a, l) => a + Number(l.interestRate), 0) / deployedLoans.length / 100
       : avgRate / 100;
-
-  const rate = weightedRate;
   const days = 30;
   const cyclesPerYear = 365 / days;
   const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
