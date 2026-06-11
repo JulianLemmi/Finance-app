@@ -35,8 +35,8 @@ function LoanCard({ loan, onOpen }: LoanCardProps) {
 
   return (
     <button onClick={() => onOpen(loan.id)}
-      className={`group relative w-full overflow-hidden rounded-2xl border bg-zinc-900/50 px-4 py-4 text-left transition-all hover:bg-zinc-900 ${
-        overdue ? "border-rose-900/40" : upcoming ? "border-amber-800/40" : "border-zinc-800/70"
+      className={`group relative w-full overflow-hidden rounded-2xl border bg-zinc-900/50 px-4 py-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-900 active:scale-[0.99] ${
+        overdue ? "border-rose-900/40 hover:border-rose-800/60" : upcoming ? "border-amber-800/40 hover:border-amber-700/60" : "border-zinc-800/70 hover:border-zinc-700/70"
       }`}
     >
       {(overdue || upcoming) && (
@@ -187,7 +187,7 @@ export default function LoansScreen() {
           )}
         />
       ) : (
-        <div className="space-y-2.5">
+        <div key={filter} className="fa-rise space-y-2.5">
           {filtered.map((l) => (
             <LoanCard key={l.id} loan={l}
               onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id } } })} />

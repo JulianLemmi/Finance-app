@@ -10,7 +10,7 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, 
 import { calcProjection } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
-  Card, SectionTitle, EmptyState, Money, Badge, ChartTooltip, Button, ChartContainer,
+  Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer,
 } from "../components/ui.jsx";
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
 import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -112,7 +112,7 @@ function AssetCard({ asset, onOpen }: AssetCardProps) {
   const cat = (ASSET_CATEGORIES as Record<string, { label: string; color: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }> }>)[asset.category] || ASSET_CATEGORIES.other;
   return (
     <button onClick={() => onOpen(asset)}
-      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:bg-zinc-900">
+      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-700/70 hover:bg-zinc-900 active:scale-[0.99]">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-800/60"
         style={{ background: `${cat.color}18` }}>
         <cat.Icon className="h-5 w-5" style={{ color: cat.color }} />
@@ -183,11 +183,22 @@ export default function FinanceScreen() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
+      <div className="relative grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
+        {/* Indicador deslizante de la sub-vista activa */}
+        <span
+          aria-hidden
+          className="absolute bottom-1 top-1 rounded-xl bg-zinc-800/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_8px_rgba(0,0,0,0.3)]"
+          style={{
+            // p-1 (0.25rem) de padding + 3 gaps de 0.25rem entre las 4 columnas
+            left: `calc(0.25rem + ${SUB_VIEWS.findIndex((s) => s.v === sub)} * ((100% - 1.25rem) / 4 + 0.25rem))`,
+            width: "calc((100% - 1.25rem) / 4)",
+            transition: "left 340ms cubic-bezier(.3,1.3,.4,1)",
+          }}
+        />
         {SUB_VIEWS.map((s) => (
           <button key={s.v} onClick={() => setSub(s.v)}
-            className={`rounded-xl px-3 py-2 text-xs font-medium transition-all ${
-              sub === s.v ? "bg-zinc-800/80 text-white shadow-sm" : "text-zinc-400 hover:text-zinc-200"
+            className={`relative z-10 rounded-xl px-3 py-2 text-xs font-medium transition-colors duration-200 ${
+              sub === s.v ? "text-white" : "text-zinc-400 hover:text-zinc-200"
             }`}>
             {s.l}
           </button>
@@ -195,24 +206,24 @@ export default function FinanceScreen() {
       </div>
 
       {sub === "flow" && (
-        <>
+        <div className="fa-rise space-y-5">
           <div className="grid grid-cols-3 gap-3">
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ingresos</div>
               <div className="mt-1 text-lg font-semibold text-emerald-400 tabular-nums">
-                <Money value={derived.totalIncome} hide={hide} currency={cur} />
+                <AnimatedMoney value={derived.totalIncome} hide={hide} currency={cur} />
               </div>
             </Card>
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Gastos</div>
               <div className="mt-1 text-lg font-semibold text-rose-400 tabular-nums">
-                <Money value={derived.totalExpense} hide={hide} currency={cur} />
+                <AnimatedMoney value={derived.totalExpense} hide={hide} currency={cur} />
               </div>
             </Card>
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Balance</div>
               <div className={`mt-1 text-lg font-semibold tabular-nums ${derived.totalIncome - derived.totalExpense >= 0 ? "text-zinc-100" : "text-rose-400"}`}>
-                <Money value={derived.totalIncome - derived.totalExpense} hide={hide} currency={cur} />
+                <AnimatedMoney value={derived.totalIncome - derived.totalExpense} hide={hide} currency={cur} />
               </div>
             </Card>
           </div>
@@ -250,11 +261,11 @@ export default function FinanceScreen() {
               </Card>
             )}
           </div>
-        </>
+        </div>
       )}
 
       {sub === "categories" && (
-        <>
+        <div className="fa-rise space-y-5">
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Gastos por categoría</div>
@@ -307,29 +318,29 @@ export default function FinanceScreen() {
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Balance mes</div>
               <div className={`mt-1 text-lg font-semibold tabular-nums ${monthlyBalance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                <Money value={monthlyBalance} hide={hide} currency={cur} />
+                <AnimatedMoney value={monthlyBalance} hide={hide} currency={cur} />
               </div>
             </Card>
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ahorro acumulado</div>
               <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100">
-                <Money value={cumulativeSaving} hide={hide} currency={cur} />
+                <AnimatedMoney value={cumulativeSaving} hide={hide} currency={cur} />
               </div>
             </Card>
           </div>
-        </>
+        </div>
       )}
 
       {sub === "assets" && (
-        <>
+        <div className="fa-rise space-y-5">
           <div className="grid grid-cols-2 gap-3">
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total activos</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100"><Money value={derived.totalAssets} hide={hide} currency={cur} /></div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100"><AnimatedMoney value={derived.totalAssets} hide={hide} currency={cur} /></div>
             </Card>
             <Card className="p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Patrimonio total</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-amber-400"><Money value={derived.totalCapital} hide={hide} currency={cur} /></div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-amber-400"><AnimatedMoney value={derived.totalCapital} hide={hide} currency={cur} /></div>
             </Card>
           </div>
           {state.assets.length === 0 ? (
@@ -350,11 +361,11 @@ export default function FinanceScreen() {
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {sub === "projection" && (
-        <>
+        <div className="fa-rise space-y-5">
           <div className="grid grid-cols-3 gap-3">
             <Card className="p-4">
               <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10"><TrendingUp className="h-3.5 w-3.5 text-amber-400" /></div>
@@ -366,7 +377,7 @@ export default function FinanceScreen() {
             <Card className="p-4">
               <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10"><Banknote className="h-3.5 w-3.5 text-emerald-400" /></div>
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia por ciclo</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-400"><Money value={derived.nextProfitTotal} hide={hide} currency={cur} /></div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-400"><AnimatedMoney value={derived.nextProfitTotal} hide={hide} currency={cur} /></div>
               <div className="mt-0.5 text-[10px] text-zinc-600">cada ~{Math.round(projCalc.days)} días</div>
             </Card>
             <Card className="p-4">
@@ -453,7 +464,7 @@ export default function FinanceScreen() {
             </ChartContainer>
           </Card>
           <PortfolioAnalytics />
-        </>
+        </div>
       )}
     </div>
   );

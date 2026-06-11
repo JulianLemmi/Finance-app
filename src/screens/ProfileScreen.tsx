@@ -19,7 +19,7 @@ import {
   getLockConfig, saveLockConfig, clearLockConfig,
   isBiometricAvailable, registerBiometric, hashPin, checkPin,
 } from "../lib/lock.js";
-import { Card, SectionTitle, Input, Select, Toggle, Button, Money } from "../components/ui.jsx";
+import { Card, SectionTitle, Input, Select, Toggle, Button, AnimatedMoney } from "../components/ui.jsx";
 
 type LockSetup = "pin1" | "pin2" | "disable" | "add-biometric" | null;
 type TelegramStatus = "" | "sending" | "sent" | "error";
@@ -388,13 +388,13 @@ export default function ProfileScreen() {
           <Card className="p-4">
             <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total prestado</div>
             <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100">
-              <Money value={totalLent} hide={state.settings.hideBalances} currency={state.settings.currency} />
+              <AnimatedMoney value={totalLent} hide={state.settings.hideBalances} currency={state.settings.currency} />
             </div>
           </Card>
           <Card className="p-4">
             <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total generado</div>
             <div className="mt-1 text-lg font-semibold tabular-nums text-emerald-400">
-              <Money value={totalEarned} hide={state.settings.hideBalances} currency={state.settings.currency} />
+              <AnimatedMoney value={totalEarned} hide={state.settings.hideBalances} currency={state.settings.currency} />
             </div>
           </Card>
         </div>
