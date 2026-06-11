@@ -363,7 +363,7 @@ export default function HomeScreen() {
                   <YAxis hide />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey={(d: { income: number; profit: number }) => d.income + d.profit} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
+                  <Bar name="Ingresos + intereses" dataKey={(d: { income: number; profit: number }) => d.income + d.profit} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
                   <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]} />
                 </BarChart>
               )}

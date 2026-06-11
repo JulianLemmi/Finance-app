@@ -194,7 +194,9 @@ export default function ProfileScreen() {
     : lockSetup === "pin2" ? setupPin2
     : lockSetup === "disable" ? setupPin : "";
 
-  const totalLent = state.loans.reduce((a, l) => a + Number(l.amount), 0);
+  // totalDisbursed excluye préstamos refinanciados (refinancedFromId) para no
+  // contar el mismo capital dos veces por cada ciclo de refinanciación.
+  const totalLent = derived.totalDisbursed;
   const totalEarned = derived.accumulatedProfit;
 
   const onExport = () => {

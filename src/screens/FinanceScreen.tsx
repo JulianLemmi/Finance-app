@@ -5,7 +5,7 @@ import {
   Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon,
   Target, TrendingUp, Banknote, RefreshCw, Clock, Layers,
 } from "lucide-react";
-import { formatShortDate } from "../lib/utils.js";
+import { formatShortDate, todayISO, addDays, monthKey } from "../lib/utils.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import { calcProjection } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
@@ -35,7 +35,7 @@ function RoiTooltip({ active, payload }: { active?: boolean; payload?: TooltipPa
   );
 }
 
-interface ProjectionPoint { mes: number; ganancia: number; total: number; }
+interface ProjectionPoint { mes: number; ganancia: number; gananciaCons: number; total: number; }
 
 function ProjectionTooltip({ active, payload, hide, currency = "$" }: {
   active?: boolean; payload?: Array<{ payload: ProjectionPoint }>; hide?: boolean; currency?: string;
@@ -50,6 +50,13 @@ function ProjectionTooltip({ active, payload, hide, currency = "$" }: {
         <span className="text-zinc-400">Ganancia:</span>
         <span className="font-medium text-zinc-100 tabular-nums">
           {hide ? "••••••" : `${currency}${d.ganancia.toLocaleString("es-AR")}`}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-zinc-500" />
+        <span className="text-zinc-400">Conservador:</span>
+        <span className="font-medium text-zinc-300 tabular-nums">
+          {hide ? "••••••" : `${currency}${d.gananciaCons.toLocaleString("es-AR")}`}
         </span>
       </div>
       <div className="flex items-center gap-2">
@@ -132,10 +139,18 @@ function AssetCard({ asset, onOpen }: AssetCardProps) {
 }
 
 type SubView = "flow" | "categories" | "projection" | "assets";
+type CatPeriod = "month" | "3m" | "all";
+
+const CAT_PERIODS: { v: CatPeriod; l: string }[] = [
+  { v: "month", l: "Este mes" },
+  { v: "3m", l: "3 meses" },
+  { v: "all", l: "Todo" },
+];
 
 export default function FinanceScreen() {
   const { state, dispatch, derived } = useApp();
   const [sub, setSub] = useState<SubView>("flow");
+  const [catPeriod, setCatPeriod] = useState<CatPeriod>("month");
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
@@ -153,14 +168,36 @@ export default function FinanceScreen() {
     - (derived.months[derived.months.length - 1]?.expense ?? 0);
   const cumulativeSaving = derived.months.reduce((a, m) => a + (m.income - m.expense), 0);
 
+  // Gastos por categoría filtrados por período (derived.expenseByCategory es all-time).
+  const catData = useMemo(() => {
+    const cutoff = catPeriod === "month" ? `${monthKey(todayISO())}-01`
+      : catPeriod === "3m" ? addDays(todayISO(), -90)
+      : "";
+    const filtered = cutoff ? state.expenses.filter((e) => e.date >= cutoff) : state.expenses;
+    type ExpCatKey = keyof typeof EXPENSE_CATEGORIES;
+    const byCategory = (Object.keys(EXPENSE_CATEGORIES) as ExpCatKey[])
+      .map((k) => ({
+        key: k,
+        label: EXPENSE_CATEGORIES[k].label as string,
+        color: EXPENSE_CATEGORIES[k].color as string,
+        value: filtered.filter((e) => e.category === k).reduce((a, t) => a + Number(t.amount), 0),
+      }))
+      .filter((c) => c.value > 0);
+    const total = filtered.reduce((a, t) => a + Number(t.amount), 0);
+    return { byCategory, total };
+  }, [state.expenses, catPeriod]);
+
   const projCalc = useMemo(
     () => calcProjection({
       activeLoans: derived.activeLoans,
       overdueLoans: derived.overdueLoans,
       workingCapital: derived.workingCapital,
       avgRate: derived.avgRate,
+      termDays: derived.medianDays,
+      collectability: derived.collectabilityRate,
     }),
-    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate]
+    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate,
+     derived.medianDays, derived.collectabilityRate]
   );
 
   const SUB_VIEWS: { v: SubView; l: string }[] = [
@@ -239,7 +276,10 @@ export default function FinanceScreen() {
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                   <YAxis hide />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }} content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey="income" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
+                  {/* Ingresos manuales + intereses cobrados apilados: el total coincide
+                      con el gráfico "Mes actual" del Home. */}
+                  <Bar name="Ingresos" dataKey="income" stackId="in" fill={CHART_COLORS.income as string} />
+                  <Bar name="Intereses" dataKey="profit" stackId="in" fill={CHART_COLORS.gainStroke as string} radius={[4, 4, 0, 0]} />
                   <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]} />
                 </BarChart>
               )}
@@ -267,30 +307,42 @@ export default function FinanceScreen() {
       {sub === "categories" && (
         <div className="fa-rise space-y-5">
           <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Gastos por categoría</div>
-              <Badge tone="neutral">
-                <PieChartIcon className="h-3 w-3" />
-                {hide ? "••••••" : `${cur}${derived.totalExpense.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`}
-              </Badge>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Gastos por categoría</div>
+                <Badge tone="neutral">
+                  <PieChartIcon className="h-3 w-3" />
+                  {hide ? "••••••" : `${cur}${catData.total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-0.5 rounded-full border border-zinc-800/60 bg-zinc-900/40 p-0.5">
+                {CAT_PERIODS.map((p) => (
+                  <button key={p.v} onClick={() => setCatPeriod(p.v)}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                      catPeriod === p.v ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                    }`}>
+                    {p.l}
+                  </button>
+                ))}
+              </div>
             </div>
-            {derived.expenseByCategory.length === 0 ? (
-              <EmptyState Icon={PieChartIcon} title="Sin gastos cargados" hint="Cuando registres gastos vas a ver la distribución por categoría acá." />
+            {catData.byCategory.length === 0 ? (
+              <EmptyState Icon={PieChartIcon} title="Sin gastos en este período" hint="Cambiá el período o registrá gastos para ver la distribución por categoría acá." />
             ) : (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-5">
                 <ChartContainer className="sm:col-span-2 h-48 min-w-0">
                   {({ width, height }) => (
                     <PieChart width={width} height={height}>
-                      <Pie data={derived.expenseByCategory} dataKey="value" nameKey="label" innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none">
-                        {derived.expenseByCategory.map((c) => <Cell key={c.key} fill={c.color} />)}
+                      <Pie data={catData.byCategory} dataKey="value" nameKey="label" innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none">
+                        {catData.byCategory.map((c) => <Cell key={c.key} fill={c.color} />)}
                       </Pie>
                       <Tooltip content={<ChartTooltip hide={hide} currency={cur} />} />
                     </PieChart>
                   )}
                 </ChartContainer>
                 <div className="sm:col-span-3 space-y-2">
-                  {[...derived.expenseByCategory].sort((a, b) => b.value - a.value).map((c) => {
-                    const pct = derived.totalExpense ? (c.value / derived.totalExpense) * 100 : 0;
+                  {[...catData.byCategory].sort((a, b) => b.value - a.value).map((c) => {
+                    const pct = catData.total ? (c.value / catData.total) * 100 : 0;
                     const Icon = (EXPENSE_CATEGORIES as Record<string, { Icon?: React.ComponentType<{ className?: string }> }>)[c.key]?.Icon || Tag;
                     return (
                       <div key={c.key} className="flex items-center gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2.5">
@@ -456,12 +508,18 @@ export default function FinanceScreen() {
                   <YAxis hide domain={[0, "auto"]} />
                   <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeDasharray: "3 3" }}
                     content={<ProjectionTooltip hide={hide} currency={cur} />} />
+                  <Area type="monotone" name="Conservador" dataKey="gananciaCons"
+                    stroke="#71717a" strokeWidth={1.5} strokeDasharray="5 4" fill="transparent" dot={{ r: 0 }}
+                    activeDot={{ r: 3, fill: "#a1a1aa", stroke: "#0a0a0b", strokeWidth: 2 }} />
                   <Area type="monotone" name="Ganancia" dataKey="ganancia"
                     stroke={CHART_COLORS.gainStroke as string} strokeWidth={2.5} fill="url(#gainFill)" dot={{ r: 0 }}
                     activeDot={{ r: 4, fill: CHART_COLORS.gainStroke as string, stroke: "#0a0a0b", strokeWidth: 2 }} />
                 </AreaChart>
               )}
             </ChartContainer>
+            <div className="mt-2 text-[10px] text-zinc-600">
+              Línea punteada: escenario conservador (tasa ajustada por cobrabilidad, {Math.round(projCalc.consFactor * 100)}%).
+            </div>
           </Card>
           <PortfolioAnalytics />
         </div>

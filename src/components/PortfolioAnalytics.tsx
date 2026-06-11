@@ -2,7 +2,7 @@
 // y gráfico de flujo de caja proyectado. Se renderiza dentro de FinanceScreen.
 import { useMemo, useState, useRef, useEffect } from "react";
 import { CheckCircle2, Clock, TrendingDown, CalendarDays, BarChart2 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useApp } from "../store/index.js";
 import { formatShortDate, todayISO, addDays, getNextRenewalDate } from "../lib/utils.js";
 import { CHART_COLORS } from "../lib/constants.js";
@@ -84,38 +84,54 @@ function CashFlowChart() {
           No hay préstamos con vencimiento en los próximos 30 días
         </div>
       ) : (
-        <ChartContainer className="h-44 min-w-0">
-          {({ width, height }) => (
-            <BarChart width={width} height={height} data={derived.cashFlow30d}
-              margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="20%">
-              <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" axisLine={false} tickLine={false}
-                tick={{ fill: "#71717a", fontSize: 10 }} interval={0} />
-              <YAxis hide />
-              <Tooltip cursor={{ fill: "#27272a55" }}
-                content={({ active, payload }) => {
-                  if (!active || !payload?.length) return null;
-                  const d = payload[0].payload as { expected: number; date: string; count: number };
-                  if (d.expected === 0) return null;
-                  return (
-                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
-                      <div className="mb-1 text-zinc-400">{formatShortDate(d.date)}</div>
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS.cashflow as string }} />
-                        <span className="text-zinc-400">Cobrar:</span>
-                        <span className="font-medium text-zinc-100 tabular-nums">
-                          {hide ? "••••••" : `${cur}${Math.round(d.expected).toLocaleString("es-AR")}`}
-                        </span>
+        <>
+          <ChartContainer className="h-44 min-w-0">
+            {({ width, height }) => (
+              <ComposedChart width={width} height={height} data={derived.cashFlow30d}
+                margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="20%">
+                <CartesianGrid stroke="#1f1f22" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false}
+                  tick={{ fill: "#71717a", fontSize: 10 }} interval={0} />
+                <YAxis hide yAxisId="bars" />
+                <YAxis hide yAxisId="cum" orientation="right" />
+                <Tooltip cursor={{ fill: "#27272a55" }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload as { expected: number; cumulative: number; date: string; count: number };
+                    return (
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs shadow-2xl backdrop-blur">
+                        <div className="mb-1 text-zinc-400">{formatShortDate(d.date)}</div>
+                        {d.expected > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS.cashflow as string }} />
+                            <span className="text-zinc-400">Cobrar:</span>
+                            <span className="font-medium text-zinc-100 tabular-nums">
+                              {hide ? "••••••" : `${cur}${Math.round(d.expected).toLocaleString("es-AR")}`}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                          <span className="text-zinc-400">Acumulado:</span>
+                          <span className="font-medium text-emerald-300 tabular-nums">
+                            {hide ? "••••••" : `${cur}${Math.round(d.cumulative).toLocaleString("es-AR")}`}
+                          </span>
+                        </div>
+                        {d.count > 0 && <div className="mt-0.5 text-zinc-600">{d.count} préstamo{d.count > 1 ? "s" : ""}</div>}
                       </div>
-                      {d.count > 0 && <div className="mt-0.5 text-zinc-600">{d.count} préstamo{d.count > 1 ? "s" : ""}</div>}
-                    </div>
-                  );
-                }}
-              />
-              <Bar dataKey="expected" fill={CHART_COLORS.cashflow as string} radius={[3, 3, 0, 0]} maxBarSize={20} />
-            </BarChart>
-          )}
-        </ChartContainer>
+                    );
+                  }}
+                />
+                <Bar yAxisId="bars" dataKey="expected" fill={CHART_COLORS.cashflow as string} radius={[3, 3, 0, 0]} maxBarSize={20} />
+                <Line yAxisId="cum" type="monotone" dataKey="cumulative" stroke="#34d399"
+                  strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: "#34d399", stroke: "#0a0a0b", strokeWidth: 2 }} />
+              </ComposedChart>
+            )}
+          </ChartContainer>
+          <div className="mt-2 text-[10px] text-zinc-600">
+            Línea verde: acumulado — cuánto habrás cobrado al llegar a cada fecha (incluye renovaciones de atrasados).
+          </div>
+        </>
       )}
     </Card>
   );
@@ -124,6 +140,7 @@ function CashFlowChart() {
 interface DueEntry {
   loan: ResolvedLoan;
   gain: number;
+  total: number;
   isRenewal: boolean;
 }
 
@@ -134,13 +151,17 @@ interface HeatmapCell {
   dayNum: number;
   dueLoans: DueEntry[];
   gain: number;
+  total: number;
   count: number;
 }
+
+type HeatmapMode = "gain" | "total";
 
 function VencimientosHeatmap() {
   const { derived, state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
+  const [mode, setMode] = useState<HeatmapMode>("gain");
   const [openCell, setOpenCell] = useState<string | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClickRef = useRef(false);
@@ -160,27 +181,41 @@ function VencimientosHeatmap() {
         date: dateStr, day: i,
         dayName: date.toLocaleDateString("es-AR", { weekday: "short" }).slice(0, 3),
         dayNum: date.getDate(),
-        dueLoans: [], gain: 0, count: 0,
+        dueLoans: [], gain: 0, total: 0, count: 0,
       };
     });
     const idx = new Map(entries.map((e, i) => [e.date, i]));
 
     for (const l of derived.activeLoans) {
       const i = idx.get(l.dueDate);
-      if (i !== undefined) entries[i].dueLoans.push({ loan: l, gain: Number(l._profit) || 0, isRenewal: false });
+      if (i !== undefined) entries[i].dueLoans.push({
+        loan: l, gain: Number(l._profit) || 0, total: Number(l._remaining) || 0, isRenewal: false,
+      });
     }
     for (const l of derived.overdueLoans) {
       const next = getNextRenewalDate(l);
       const i = idx.get(next);
       if (i !== undefined) {
         const periodicGain = l._nextProfit;
-        entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(periodicGain) ? periodicGain : 0, isRenewal: true });
+        entries[i].dueLoans.push({
+          loan: l,
+          gain: Number.isFinite(periodicGain) ? periodicGain : 0,
+          total: Number(l._remaining) || 0,
+          isRenewal: true,
+        });
       }
     }
-    return entries.map((e) => ({ ...e, gain: e.dueLoans.reduce((s, x) => s + x.gain, 0), count: e.dueLoans.length }));
+    return entries.map((e) => ({
+      ...e,
+      gain: e.dueLoans.reduce((s, x) => s + x.gain, 0),
+      total: e.dueLoans.reduce((s, x) => s + x.total, 0),
+      count: e.dueLoans.length,
+    }));
   }, [derived.activeLoans, derived.overdueLoans]);
 
-  const maxGain = Math.max(...cells.map((c) => c.gain), 1);
+  const cellValue = (c: HeatmapCell) => (mode === "gain" ? c.gain : c.total);
+  const entryValue = (e: DueEntry) => (mode === "gain" ? e.gain : e.total);
+  const maxValue = Math.max(...cells.map(cellValue), 1);
 
   const handlePointerDown = (cell: HeatmapCell) => {
     if (cell.dueLoans.length === 0) return;
@@ -208,14 +243,27 @@ function VencimientosHeatmap() {
 
   return (
     <Card className="p-5">
-      <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
-        <CalendarDays className="h-3 w-3" />
-        Mapa de vencimientos · próximos 30 días
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+          <CalendarDays className="h-3 w-3" />
+          Mapa de vencimientos · próximos 30 días
+        </div>
+        <div className="flex items-center gap-0.5 rounded-full border border-zinc-800/60 bg-zinc-900/40 p-0.5">
+          {([["gain", "Ganancia"], ["total", "A cobrar"]] as [HeatmapMode, string][]).map(([v, l]) => (
+            <button key={v} onClick={() => setMode(v)}
+              className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                mode === v ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+              }`}>
+              {l}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-10">
         {cells.map((cell) => {
-          const intensity = cell.gain > 0 ? Math.max(0.15, cell.gain / maxGain) : 0;
-          const hasDue = cell.gain > 0;
+          const value = cellValue(cell);
+          const intensity = value > 0 ? Math.max(0.15, value / maxValue) : 0;
+          const hasDue = cell.count > 0;
           const isToday = cell.day === 0;
           const isOpen = openCell === cell.date;
           return (
@@ -237,7 +285,7 @@ function VencimientosHeatmap() {
               }`}>{cell.dayNum}</span>
               {hasDue && (
                 <span className="mt-0.5 text-[8px] font-medium tabular-nums text-emerald-400">
-                  {hide ? "•••" : cell.gain >= 1000 ? `${cur}${Math.round(cell.gain / 1000)}k` : `${cur}${Math.round(cell.gain)}`}
+                  {hide ? "•••" : value >= 1000 ? `${cur}${Math.round(value / 1000)}k` : `${cur}${Math.round(value)}`}
                 </span>
               )}
               {cell.count > 1 && <span className="mt-0.5 h-1 w-1 rounded-full bg-emerald-500" />}
@@ -248,7 +296,7 @@ function VencimientosHeatmap() {
                     <div key={`${entry.loan.id}_${i}`} className="flex items-center justify-between gap-2 text-zinc-500">
                       <span className="truncate">{entry.loan.clientName}{entry.isRenewal ? " ↻" : ""}</span>
                       <span className="shrink-0 text-emerald-400 tabular-nums">
-                        +{hide ? "•••" : `${cur}${Math.round(entry.gain).toLocaleString("es-AR")}`}
+                        +{hide ? "•••" : `${cur}${Math.round(entryValue(entry)).toLocaleString("es-AR")}`}
                       </span>
                     </div>
                   ))}

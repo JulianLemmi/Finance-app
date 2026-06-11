@@ -293,9 +293,19 @@ export function useDerived(state: AppState): Derived {
 
     const thisMonth = monthKey(todayISO());
 
+    // Porción de interés de cada pago: (total que el préstamo va a devolver − capital)
+    // sobre el total. Para préstamos cerrados es exacto (pagado − capital) / pagado;
+    // para los vencidos que capitalizaron refleja el interés compuesto real, a
+    // diferencia del margen fijo de un solo período (profit/return).
+    const interestMargin = (l: ResolvedLoan): number => {
+      const lifeTotal = l._paid + l._remaining;
+      if (lifeTotal <= 0) return 0;
+      return Math.min(1, Math.max(0, (lifeTotal - Number(l.amount)) / lifeTotal));
+    };
+
     const monthlyInterestsCollected = loansResolved.reduce((a, l) => {
       const monthPayments = (l.payments || []).filter((p) => monthKey(p.date) === thisMonth);
-      const margin = l._return > 0 ? l._profit / l._return : 0;
+      const margin = interestMargin(l);
       return a + monthPayments.reduce((s, p) => s + Number(p.amount), 0) * margin;
     }, 0);
 
@@ -329,10 +339,7 @@ export function useDerived(state: AppState): Derived {
 
     const expectedMonthlyProfit = activeLoans
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30 && l._daysUntilDue >= 0)
-      .reduce((a, l) => {
-        const profitRatio = l._return > 0 ? l._profit / l._return : 0;
-        return a + l._remaining * profitRatio;
-      }, 0);
+      .reduce((a, l) => a + l._remaining * interestMargin(l), 0);
 
     const monthlyReturnPct = totalCapital > 0 ? (expectedMonthlyProfit / totalCapital) * 100 : 0;
 
@@ -367,27 +374,6 @@ export function useDerived(state: AppState): Derived {
       : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
     const medianDays = terms.length ? median(terms) : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
 
-    const reinvestmentFactor = (m: number) => {
-      const cycles = avgDays > 0 ? (m * 30) / avgDays : 0;
-      return Math.pow(1 + avgRate / 100, cycles);
-    };
-    const baseCapital = Math.max(0, totalCapital);
-    const now = new Date();
-    const projections = {
-      m1: baseCapital * reinvestmentFactor(1),
-      m3: baseCapital * reinvestmentFactor(3),
-      m6: baseCapital * reinvestmentFactor(6),
-      y1: baseCapital * reinvestmentFactor(12),
-    };
-    const projectionSeries = Array.from({ length: 13 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      return {
-        key: d.toISOString().slice(0, 7),
-        label: d.toLocaleDateString("es-AR", { month: "short" }),
-        value: baseCapital * reinvestmentFactor(i),
-      };
-    });
-
     const paidOnTimeCount = paidLoans.filter((l) => {
       const sorted = [...(l.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
       return sorted.length > 0 && sorted[0].date <= l.dueDate;
@@ -400,17 +386,30 @@ export function useDerived(state: AppState): Derived {
           overdueLoans.length
         : 0;
 
-    const cashFlow30d = Array.from({ length: 30 }, (_, i) => {
-      const dateStr = addDays(todayStr, i);
-      const dueLoans = deployed.filter((l) => l.dueDate === dateStr);
-      return {
+    // Flujo de caja 30d: vencimientos de activos por dueDate + próximas renovaciones
+    // de atrasados (misma lógica que el mapa de vencimientos), con acumulado.
+    const cashFlow30d = (() => {
+      const buckets = Array.from({ length: 30 }, (_, i) => ({
         day: i,
-        date: dateStr,
-        expected: dueLoans.reduce((a, l) => a + l._remaining, 0),
-        count: dueLoans.length,
+        date: addDays(todayStr, i),
+        expected: 0,
+        cumulative: 0,
+        count: 0,
         label: i === 0 ? "Hoy" : i % 7 === 0 ? `+${i}d` : "",
-      };
-    });
+      }));
+      const idx = new Map(buckets.map((b, i) => [b.date, i]));
+      for (const l of activeLoans) {
+        const i = idx.get(l.dueDate);
+        if (i !== undefined) { buckets[i].expected += l._remaining; buckets[i].count += 1; }
+      }
+      for (const l of overdueLoans) {
+        const i = idx.get(getNextRenewalDate(l));
+        if (i !== undefined) { buckets[i].expected += l._remaining; buckets[i].count += 1; }
+      }
+      let running = 0;
+      for (const b of buckets) { running += b.expected; b.cumulative = running; }
+      return buckets;
+    })();
 
     return {
       capitalInvested, expectedProfitTotal, nextProfitTotal, totalExpectedProfit, accumulatedProfit,
@@ -419,7 +418,7 @@ export function useDerived(state: AppState): Derived {
       upcomingDue, dueTodayTomorrow,
       expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
       avgRate, avgDays, medianRate, medianDays,
-      projections, projectionSeries, paidOnTimeCount,
+      paidOnTimeCount,
       collectabilityRate, avgDaysLate, cashFlow30d,
     };
   }, [loanGroups, loansResolved, state.income, state.expenses, state.settings, state.assets]);
@@ -442,28 +441,69 @@ export function useDerived(state: AppState): Derived {
       const i = monthIdx[monthKey(t.date)];
       if (i !== undefined) months[i].expense += Number(t.amount);
     });
+    // Porción de interés de cada pago (misma convención que financials: exacta en
+    // cerrados, compuesto-consciente en vencidos).
+    const interestMargin = (l: ResolvedLoan): number => {
+      const lifeTotal = l._paid + l._remaining;
+      if (lifeTotal <= 0) return 0;
+      return Math.min(1, Math.max(0, (lifeTotal - Number(l.amount)) / lifeTotal));
+    };
     loansResolved.forEach((l) => {
-      const margin = l._return > 0 ? l._profit / l._return : 0;
+      const margin = interestMargin(l);
       (l.payments || []).forEach((p) => {
         const i = monthIdx[monthKey(p.date)];
         if (i !== undefined) months[i].profit += Number(p.amount) * margin;
       });
     });
+
+    // Capital principal en la calle a una fecha dada. Los pagos amortizan la porción
+    // de capital (1 − margen de interés); las refinanciaciones cortan el préstamo
+    // original en la fecha de su sucesor para no contarlo dos veces.
+    const refinancedAt = new Map<string, string>();
+    loansResolved.forEach((l) => {
+      if (l.refinancedFromId) refinancedAt.set(l.refinancedFromId, l.startDate);
+    });
+    const outstandingPrincipalAt = (cutoff: string): number =>
+      loansResolved.reduce((acc, l) => {
+        if (!l.startDate || l.startDate > cutoff) return acc;
+        const refDate = refinancedAt.get(l.id);
+        if (refDate && refDate <= cutoff) return acc;
+        const paidUpTo = (l.payments || [])
+          .filter((p) => p.date <= cutoff)
+          .reduce((s, p) => s + Number(p.amount), 0);
+        const principalRepaid = paidUpTo * (1 - interestMargin(l));
+        return acc + Math.max(0, Number(l.amount) - principalRepaid);
+      }, 0);
+
+    // ROI mensual: interés cobrado en el mes sobre el capital promedio desplegado
+    // durante el mes (promedio de principio y fin), no la foto de fin de mes.
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
-      const cutoff = new Date(yr, mo, 0).toISOString().slice(0, 10);
-      const investedAtMonth = loansResolved
-        .filter((l) => {
-          if (l.startDate > cutoff) return false;
-          const paidUpTo = (l.payments || [])
-            .filter((p) => p.date <= cutoff)
-            .reduce((s, p) => s + Number(p.amount), 0);
-          return paidUpTo < expectedReturn(l);
-        })
-        .reduce((acc, l) => acc + Number(l.amount), 0);
-      m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
-      m.roi = investedAtMonth > 0 ? (m.profit / investedAtMonth) * 100 : 0;
+      const endCutoff = new Date(yr, mo, 0).toISOString().slice(0, 10);
+      const startCutoff = new Date(yr, mo - 1, 0).toISOString().slice(0, 10);
+      const avgDeployed = (outstandingPrincipalAt(startCutoff) + outstandingPrincipalAt(endCutoff)) / 2;
+      m.roi = avgDeployed > 0 ? (m.profit / avgDeployed) * 100 : 0;
     });
+
+    // Evolución del capital: el capital de trabajo histórico no está guardado, así
+    // que se reconstruye hacia atrás desde el actual descontando los flujos netos
+    // de cada mes (ingresos manuales − gastos + intereses cobrados).
+    const investedNow = loansResolved.reduce(
+      (a, l) =>
+        a + (l._status === "overdue" ? l._remaining
+          : l._status === "active" ? Math.min(l._remaining, Number(l.amount))
+          : 0),
+      0
+    );
+    const workingCapitalNow = Number(state.settings.cashOnHand || 0) + investedNow;
+    const last = months.length - 1;
+    if (last >= 0) {
+      months[last].capital = Math.max(0, workingCapitalNow);
+      for (let i = last - 1; i >= 0; i--) {
+        const netNext = months[i + 1].income - months[i + 1].expense + months[i + 1].profit;
+        months[i].capital = Math.max(0, months[i + 1].capital - netNext);
+      }
+    }
     return { months };
   }, [loansResolved, state.income, state.expenses, state.settings]);
 

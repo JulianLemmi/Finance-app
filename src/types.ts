@@ -64,7 +64,8 @@ export interface Loan {
   guarantyType: GuarantyType;
   guarantyDetail: string;
   status: LoanStatus;
-  compoundInterest: boolean;
+  /** Legacy: la deuda siempre capitaliza al vencer; este flag ya no se consulta. */
+  compoundInterest?: boolean;
   noDueDate: boolean;
   refinancedFromId?: string;
   notes: string;
@@ -258,23 +259,11 @@ export interface ExpenseByCategoryItem {
   value: number;
 }
 
-export interface Projections {
-  m1: number;
-  m3: number;
-  m6: number;
-  y1: number;
-}
-
-export interface ProjectionSeriesPoint {
-  key: string;
-  label: string;
-  value: number;
-}
-
 export interface CashFlowPoint {
   day: number;
   date: ISODate;
   expected: number;
+  cumulative: number;
   count: number;
   label: string;
 }
@@ -320,8 +309,6 @@ export interface Derived {
   avgDays: number;
   medianRate: number;
   medianDays: number;
-  projections: Projections;
-  projectionSeries: ProjectionSeriesPoint[];
   paidOnTimeCount: number;
   collectabilityRate: number | null;
   avgDaysLate: number;

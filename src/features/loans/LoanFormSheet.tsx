@@ -29,7 +29,6 @@ interface LoanFormState {
   status: LoanStatus;
   notes: string;
   payments: Payment[];
-  compoundInterest: boolean;
   noDueDate: boolean;
   createdAt?: number;
 }
@@ -50,7 +49,7 @@ function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
     interestRate: String(rate), startDate: start, paymentType,
     customDays: days, dueDate: addDays(start, days), guarantyType: "cash",
     guarantyDetail: "", status: "active", notes: "", payments: [],
-    compoundInterest: false, noDueDate: false,
+    noDueDate: false,
   };
 }
 
@@ -178,19 +177,6 @@ export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSh
             value={form.interestRate} onChange={(e) => updateField("interestRate", e.target.value)} Icon={TrendingUp}
             error={errors.interestRate} />
         </div>
-
-        {!form.noDueDate && (
-          <button type="button" onClick={() => updateField("compoundInterest", !form.compoundInterest)}
-            className={`self-start flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              form.compoundInterest
-                ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                : "bg-zinc-800/60 text-zinc-500 border border-zinc-700/60 hover:text-zinc-400"
-            }`}
-          >
-            <TrendingUp className="h-3 w-3" />
-            Interés compuesto al vencer
-          </button>
-        )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Input label="Inicio" type="date" value={form.startDate}

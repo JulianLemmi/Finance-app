@@ -114,10 +114,14 @@ export function nextPeriodInterest(loan: Loan): number {
 }
 
 export function loanProgress(loan: Loan): number {
-  const total = expectedReturn(loan);
-  if (!total || total <= 0 || !Number.isFinite(total)) return 0;
+  // Progreso real de cobro: pagado / (pagado + deuda viva). A diferencia de
+  // pagado / retorno de un período, no marca 100% mientras quede deuda
+  // capitalizada por períodos vencidos.
   const paid = paidAmount(loan);
-  if (!Number.isFinite(paid)) return 0;
+  if (!Number.isFinite(paid) || paid <= 0) return 0;
+  const remaining = remainingDebt(loan);
+  const total = paid + Math.max(0, remaining);
+  if (!total || !Number.isFinite(total)) return 0;
   return Math.min(1, Math.max(0, paid / total));
 }
 
@@ -214,7 +218,10 @@ export function compoundPeriods(loan: Loan): CompoundPeriod[] {
     return periods;
   }
 
-  if (!loan.compoundInterest || !loan.dueDate) return [];
+  // La deuda siempre capitaliza al vencer (igual que remainingDebt/compoundReturn),
+  // así el timeline muestra exactamente lo que se cobra. El flag legacy
+  // `compoundInterest` ya no se consulta.
+  if (!loan.dueDate) return [];
   const meta = getOverdueMeta(loan);
   if (!meta || meta.overduePeriods === 0) return [];
 
@@ -247,11 +254,13 @@ export interface ProfitSeriesPoint {
   mes: number;
   label: string;
   ganancia: number;
+  gananciaCons: number;
   total: number;
 }
 
 export interface CalcProjectionResult {
   rate: number;
+  consFactor: number;
   days: number;
   base: number;
   cyclesPerYear: number;
@@ -267,27 +276,41 @@ export function calcProjection({
   overdueLoans = [],
   workingCapital = 0,
   avgRate = 0,
+  termDays = 30,
+  collectability = null,
 }: {
   activeLoans?: ResolvedLoan[];
   overdueLoans?: ResolvedLoan[];
   workingCapital?: number;
   avgRate?: number;
+  /** Plazo típico de la cartera en días (mediana). Define el largo del ciclo. */
+  termDays?: number;
+  /** Tasa de cobro en término (0..1) para el escenario conservador; null = sin historial. */
+  collectability?: number | null;
 }): CalcProjectionResult {
   const deployedLoans = [...activeLoans, ...overdueLoans];
   const deployedBase = deployedLoans.reduce((a, l) => a + (l._remaining ?? Number(l.amount)), 0);
   const base = Math.max(0, deployedBase || workingCapital);
 
-  // Tasa promedio simple de TODOS los préstamos desplegados (activos + atrasados),
-  // no ponderada por capital. Es la que se muestra en el label "X% × N ciclos".
+  // Tasa ponderada por capital desplegado: un préstamo grande pesa según su monto,
+  // no igual que uno chico. Es la que se muestra en el label "X% × N ciclos".
   const rate =
-    deployedLoans.length > 0
-      ? deployedLoans.reduce((a, l) => a + Number(l.interestRate), 0) / deployedLoans.length / 100
+    deployedBase > 0
+      ? deployedLoans.reduce(
+          (a, l) => a + Number(l.interestRate) * (l._remaining ?? Number(l.amount)),
+          0
+        ) / deployedBase / 100
       : avgRate / 100;
-  const days = 30;
+  // Ciclo según el plazo real (mediana) de la cartera, no 30 días fijos.
+  const days = Math.min(365, Math.max(1, Number(termDays) || 30));
   const cyclesPerYear = 365 / days;
   const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
   const doublingYears = rate > 0 ? (Math.log(2) / Math.log(1 + rate)) * (days / 365) : null;
   const gainPerCycle = base * rate;
+  // Escenario conservador: la tasa efectiva se reduce por la cobrabilidad histórica
+  // (préstamos cobrados en término). Sin historial se asume 90%.
+  const consFactor = collectability != null ? Math.min(1, Math.max(0, collectability)) : 0.9;
+  const rateCons = rate * consFactor;
 
   const cyclePoints: CyclePoint[] = [
     1,
@@ -315,13 +338,15 @@ export function calcProjection({
   const profitSeries: ProfitSeriesPoint[] = Array.from({ length: 25 }, (_, i) => {
     const cycles = (i * 30) / days;
     const total = base * Math.pow(1 + rate, cycles);
+    const totalCons = base * Math.pow(1 + rateCons, cycles);
     return {
       mes: i,
       label: i % 6 === 0 ? (i === 0 ? "Hoy" : `${i}m`) : "",
       ganancia: Math.round(total - base),
+      gananciaCons: Math.round(totalCons - base),
       total: Math.round(total),
     };
   });
 
-  return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
+  return { rate, consFactor, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
 }
