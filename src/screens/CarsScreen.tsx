@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Plus, Car, Search, ChevronRight, Gauge, Palette } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { CAR_STATUSES } from "../lib/constants.js";
-import { Button, Input, EmptyState, Money } from "../components/ui.jsx";
+import { Button, Input, EmptyState, Money, AnimatedMoney } from "../components/ui.jsx";
 import CarFormSheet from "../features/cars/CarFormSheet.jsx";
 import type { Car as CarType, PrepCost } from "../types";
 
@@ -44,7 +44,7 @@ function CarCard({ car, onOpen }: CarCardProps) {
 
   return (
     <button onClick={() => onOpen(car)}
-      className="group relative w-full overflow-hidden rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-4 text-left transition-all hover:bg-zinc-900"
+      className="group relative w-full overflow-hidden rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-700/70 hover:bg-zinc-900 active:scale-[0.99]"
     >
       <span className="absolute left-0 top-0 h-full w-0.5 rounded-l-2xl"
         style={{ background: (CAR_STATUSES as Record<string, { color: string }>)[car.status]?.color || "#52525b" }} />
@@ -174,7 +174,7 @@ export default function CarsScreen() {
             <div key={s.label} className="rounded-2xl border border-zinc-800/70 bg-zinc-900/50 p-4">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">{s.label}</div>
               <div className={`mt-1 text-lg font-semibold tabular-nums ${s.color}`}>
-                <Money value={s.value} hide={hide} currency={cur} />
+                <AnimatedMoney value={s.value} hide={hide} currency={cur} />
               </div>
               <div className="mt-0.5 text-[10px] text-zinc-600">{s.hint}</div>
             </div>
@@ -211,7 +211,7 @@ export default function CarsScreen() {
       ) : filtered.length === 0 ? (
         <EmptyState Icon={Car} title="Sin resultados" hint="No hay autos que coincidan con el filtro o la búsqueda." />
       ) : (
-        <div className="space-y-2.5">
+        <div key={filter} className="fa-rise space-y-2.5">
           {filtered.map((car) => (
             <CarCard key={car.id} car={car} onOpen={(c) => { setEditingCar(c); setFormOpen(true); }} />
           ))}

@@ -34,7 +34,7 @@ export const Button = ({
 }: ButtonProps) => (
   <button
     {...rest}
-    className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none ${sizes[size]} ${variants[variant]} ${className}`}
+    className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 [transition-timing-function:cubic-bezier(.3,1.2,.4,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 disabled:pointer-events-none ${sizes[size]} ${variants[variant]} ${className}`}
   >
     {Icon ? <Icon className="h-4 w-4" /> : null}
     {children}
@@ -51,7 +51,7 @@ export const IconButton = ({ Icon, "aria-label": ariaLabel, className = "", ...r
   <button
     {...rest}
     aria-label={ariaLabel}
-    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800/70 bg-zinc-900/70 text-zinc-300 transition-all hover:bg-zinc-800 hover:text-white active:scale-95 ${className}`}
+    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800/70 bg-zinc-900/70 text-zinc-300 transition-all duration-200 [transition-timing-function:cubic-bezier(.3,1.2,.4,1)] hover:bg-zinc-800 hover:text-white active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${className}`}
   >
     <Icon className="h-4 w-4" />
   </button>

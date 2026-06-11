@@ -12,7 +12,7 @@ import { UI_LIMITS, CHART_COLORS } from "../lib/constants.js";
 import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import {
-  Card, SectionTitle, EmptyState, Money, StatCard, ChartTooltip,
+  Card, SectionTitle, EmptyState, Money, AnimatedMoney, StatCard, ChartTooltip,
   DeltaPill, Badge, IconButton, ChartContainer,
 } from "../components/ui.jsx";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -85,18 +85,25 @@ export default function HomeScreen() {
               onClick={() => dispatch({ type: "SET_TAB", payload: "loans" })}
               className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800/70 bg-zinc-900/70 text-zinc-300 transition-all hover:bg-zinc-800 hover:text-white"
             >
-              <Bell className="h-4 w-4" />
-              {derived.overdueLoans.length + derived.upcomingDue.filter(
-                (l) => l._daysUntilDue !== null && l._daysUntilDue <= UI_LIMITS.ALERT_DAYS_THRESHOLD && l._daysUntilDue >= 0
-              ).length > 0 && (
-                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
-              )}
+              {(() => {
+                const alerts = derived.overdueLoans.length + derived.upcomingDue.filter(
+                  (l) => l._daysUntilDue !== null && l._daysUntilDue <= UI_LIMITS.ALERT_DAYS_THRESHOLD && l._daysUntilDue >= 0
+                ).length;
+                return (
+                  <>
+                    <Bell className={`h-4 w-4 ${alerts > 0 ? "fa-ring" : ""}`} />
+                    {alerts > 0 && (
+                      <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]" />
+                    )}
+                  </>
+                );
+              })()}
             </button>
           </div>
         </div>
 
         {/* Capital card */}
-        <div className={`relative overflow-hidden rounded-3xl border border-amber-800/25 bg-gradient-to-br from-zinc-900/95 via-[#0d0a06]/95 to-amber-950/40 p-6 shadow-[0_0_60px_rgba(120,53,15,0.18)] backdrop-blur-sm${state.settings.theme !== "light" ? " glow-card" : ""}`}>
+        <div className={`fa-aurora fa-grain relative overflow-hidden rounded-3xl border border-amber-800/25 bg-gradient-to-br from-zinc-900/95 via-[#0d0a06]/95 to-amber-950/40 p-6 shadow-[0_0_60px_rgba(120,53,15,0.18)] backdrop-blur-sm${state.settings.theme !== "light" ? " glow-card" : ""}`}>
           <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-amber-700/12 blur-[60px]" />
           <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-amber-900/18 blur-[50px]" />
           <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(245,158,11,0.02)_0%,transparent_60%)]" />
@@ -106,7 +113,7 @@ export default function HomeScreen() {
               Capital total
             </div>
             <div className="mt-2 text-4xl font-semibold tracking-tight text-white">
-              <Money value={derived.totalCapital} hide={hide} currency={cur} />
+              <AnimatedMoney value={derived.totalCapital} hide={hide} currency={cur} />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
               <span className="flex items-center gap-1">
@@ -126,7 +133,7 @@ export default function HomeScreen() {
             </div>
             <div className="mt-4">
               <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
-                <div className="h-full bg-gradient-to-r from-amber-700 to-amber-500 transition-all duration-700"
+                <div className="fa-bar-shine h-full bg-gradient-to-r from-amber-700 to-amber-500 transition-all duration-700"
                   style={{ width: `${Math.max(0, Math.min(100, allocationPct * 100))}%` }} />
               </div>
               {(() => {
@@ -183,17 +190,17 @@ export default function HomeScreen() {
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Ganancia mensual" Icon={TrendingUp} tone="success"
-            value={<Money value={derived.monthlyInterestsCollected} hide={hide} currency={cur} />}
+            value={<AnimatedMoney value={derived.monthlyInterestsCollected} hide={hide} currency={cur} />}
             hint="Intereses cobrados este mes" />
           <StatCard label="Ganancia por cobrar" Icon={Briefcase} tone="success"
-            value={<Money value={derived.nextProfitTotal} hide={hide} currency={cur} />}
+            value={<AnimatedMoney value={derived.nextProfitTotal} hide={hide} currency={cur} />}
             hint={`${derived.activeLoans.length + derived.overdueLoans.length} activo${derived.activeLoans.length + derived.overdueLoans.length === 1 ? "" : "s"}`} />
           <StatCard label="Préstamos activos" Icon={Activity}
             value={derived.activeLoans.length + derived.overdueLoans.length}
             hint={derived.overdueLoans.length > 0 ? `${derived.overdueLoans.length} atrasado${derived.overdueLoans.length > 1 ? "s" : ""}` : "Todo al día"}
             tone={derived.overdueLoans.length > 0 ? "danger" : undefined} />
           <StatCard label="Por cobrar" Icon={CalendarClock}
-            value={<Money value={derived.expectedProfitTotal + derived.capitalInvested} hide={hide} currency={cur} />}
+            value={<AnimatedMoney value={derived.expectedProfitTotal + derived.capitalInvested} hide={hide} currency={cur} />}
             hint={`Próximos: ${derived.upcomingDue.length}`} />
         </div>
 
@@ -217,7 +224,7 @@ export default function HomeScreen() {
               return (
                 <>
                   <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                    <div className={`h-full rounded-full transition-all duration-700 ${reached ? "bg-emerald-500" : "bg-amber-500"}`}
+                    <div className={`fa-bar-shine h-full rounded-full transition-all duration-700 ${reached ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-amber-500"}`}
                       style={{ width: `${(pct * 100).toFixed(1)}%` }} />
                   </div>
                   <div className="mt-1.5 flex items-center justify-between text-[11px]">

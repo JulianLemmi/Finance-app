@@ -1,16 +1,24 @@
-// Animación de fondo: billetes cayendo en canvas. Solo se muestra en tema oscuro
-// (GlobalStyles oculta el canvas con .theme-light canvas { display: none }).
+// Animación de fondo: billetes cayendo con vaivén + chispas doradas en canvas.
+// Solo se muestra en tema oscuro (GlobalStyles oculta el canvas con
+// .theme-light canvas { display: none }). Respeta prefers-reduced-motion.
 import { useRef, useEffect } from "react";
 
 interface Bill {
   x: number; y: number; w: number; h: number;
-  speed: number; alpha: number; rot: number; rotSpeed: number; drift: number;
+  speed: number; alpha: number; rot: number; rotSpeed: number;
+  drift: number; swayPhase: number; swayAmp: number;
+}
+
+interface Spark {
+  x: number; y: number; r: number;
+  phase: number; twinkle: number; driftY: number;
 }
 
 export default function DollarRain() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
@@ -33,10 +41,22 @@ export default function DollarRain() {
         rot: (Math.random() - 0.5) * 0.55,
         rotSpeed: (Math.random() - 0.5) * 0.006,
         drift: (Math.random() - 0.5) * 0.16,
+        swayPhase: Math.random() * Math.PI * 2,
+        swayAmp: Math.random() * 0.35 + 0.1,
       };
     };
 
+    const makeSpark = (): Spark => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.3 + 0.5,
+      phase: Math.random() * Math.PI * 2,
+      twinkle: Math.random() * 0.015 + 0.006,
+      driftY: -(Math.random() * 0.08 + 0.02),
+    });
+
     const bills: Bill[] = Array.from({ length: 28 }, () => makeBill(true));
+    const sparks: Spark[] = Array.from({ length: 22 }, makeSpark);
 
     const drawBill = (b: Bill) => {
       ctx.save();
@@ -61,11 +81,35 @@ export default function DollarRain() {
       ctx.restore();
     };
 
+    const drawSpark = (s: Spark, t: number) => {
+      const a = Math.max(0, Math.sin(s.phase + t * s.twinkle)) * 0.35;
+      if (a < 0.01) return;
+      ctx.save();
+      ctx.globalAlpha = a;
+      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
+      glow.addColorStop(0, "rgba(253,230,138,0.9)");
+      glow.addColorStop(1, "rgba(253,230,138,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
     let raf: number;
+    let t = 0;
     const animate = () => {
+      t += 1;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      sparks.forEach((s) => {
+        s.y += s.driftY;
+        if (s.y < -10) { s.y = canvas.height + 10; s.x = Math.random() * canvas.width; }
+        drawSpark(s, t);
+      });
       bills.forEach((b) => {
-        b.y += b.speed; b.x += b.drift; b.rot += b.rotSpeed;
+        b.y += b.speed;
+        b.x += b.drift + Math.sin(b.swayPhase + t * 0.012) * b.swayAmp * 0.4;
+        b.rot += b.rotSpeed;
         if (b.y > canvas.height + 60) Object.assign(b, makeBill(false));
         drawBill(b);
       });

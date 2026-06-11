@@ -12,7 +12,7 @@ import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
 import {
   Sheet, Button, Input, Card, Badge, StatusBadge, SectionTitle,
-  Money, ProgressBar,
+  Money, AnimatedMoney, ProgressBar,
 } from "../../components/ui.jsx";
 import LoanChain from "./LoanChain.jsx";
 import PaymentSheet from "./PaymentSheet.jsx";
@@ -184,7 +184,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
       >
         <div className="space-y-5">
           {/* Summary card */}
-          <div className="rounded-2xl border border-zinc-800/70 bg-gradient-to-b from-zinc-900/60 to-zinc-950 p-5">
+          <div className="fa-grain relative overflow-hidden rounded-2xl border border-zinc-800/70 bg-gradient-to-b from-zinc-900/60 to-zinc-950 p-5">
             <div className="mb-3 flex items-center justify-between">
               <StatusBadge status={loan._status} />
               <Badge tone="bronze">
@@ -200,7 +200,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
             )}
             <div className="text-[11px] uppercase tracking-wider text-zinc-500">Deuda restante</div>
             <div className="mt-1 text-3xl font-semibold tracking-tight text-white">
-              <Money value={loan._remaining} hide={hide} currency={cur} />
+              <AnimatedMoney value={loan._remaining} hide={hide} currency={cur} duration={800} />
             </div>
             <div className="mt-3">
               <ProgressBar value={loan._progress} tone={loan._status === "overdue" ? "rose" : "bronze"} />

@@ -19,7 +19,7 @@ function ClientCard({ client, onOpen }: ClientCardProps) {
   return (
     <button
       onClick={() => onOpen(client.id)}
-      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:bg-zinc-900"
+      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-700/70 hover:bg-zinc-900 active:scale-[0.99]"
     >
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-800 to-amber-950 text-sm font-semibold text-amber-100">
         {initials || "?"}
@@ -106,7 +106,7 @@ export default function ClientsScreen() {
           )}
         />
       ) : (
-        <div className="space-y-2">
+        <div className="fa-rise space-y-2">
           {filtered.map((c) => (
             <ClientCard key={c.id} client={c}
               onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "client-detail", payload: { id } } })} />
