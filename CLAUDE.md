@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Finance-app
 
 App mobile-first en español para gestión personal de préstamos, clientes, gastos, ingresos y activos. UI dark theme con tab bar inferior.
@@ -52,6 +56,14 @@ Tres backends en cascada (`src/lib/storage.ts`):
 3. **`localStorage`** como fallback final — dispara `finance:storage-quota-exceeded` si se llena.
 
 Claves centralizadas en `src/lib/constants.js:STORAGE_KEYS`. Sync debounced vía `useStorageSync` (`src/lib/hooks.ts`).
+
+Schema Supabase (no hay migraciones en el repo — crear a mano; SQL completo en `README.md`):
+- `user_data(user_id, key, value jsonb)` — key-value por usuario, PK compuesta, RLS `auth.uid() = user_id`.
+- `push_subscriptions(user_id, endpoint, p256dh, auth, ...)` — suscripciones web push.
+- Bucket de storage `loan-photos`.
+
+### Auth
+Gate en `src/FinanceApp.tsx`: `SetupScreen` (sin `.env`) → `LoginScreen` → `AuthedApp`. Dos métodos en `LoginScreen`: Google OAuth (`signInWithOAuth`) y magic-link por email (`signInWithOtp`).
 
 ### Routing
 No usa react-router. Navegación por `ui.activeTab` en el reducer, renderizado por `BottomTabBar`. Pantallas lazy-loaded para code-splitting (Recharts pesa):
@@ -124,4 +136,6 @@ src/
 - **`useDerived` memoiza pesado**: usar para todo cálculo derivado, nunca recalcular en componentes.
 - **Campos `_*` son computed-only**: solo existen en `ResolvedLoan`/`ResolvedClient`. Nunca persistir ni despachar.
 - **`constants.js` queda como JS**: tiene icons de Lucide como valores; TypeScript infiere sus tipos correctamente con `allowJs: true`.
+- **`supabase/functions/_shared/loanMath.ts` duplica los cálculos del frontend**: las edge functions no pueden importar desde `src/` (Deno solo bundlea dentro de la carpeta de la function). Si cambiás una fórmula en `lib/calcs.ts` o `lib/utils.ts`, replicala ahí o las notificaciones divergen de lo que ve el usuario.
+- **PWA service worker**: `vite-plugin-pwa` con `registerType: autoUpdate`; importa `public/push-handler.js` para los push. Runtime caching solo para la API de bluelytics.
 - **`npx tsc --noEmit` debe pasar siempre**: correrlo antes de commitear cambios de tipos.
