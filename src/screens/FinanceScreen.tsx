@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
-import { calcProjection } from "../lib/calcs.js";
+import { calcProjection, interestAccruals } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer,
@@ -153,14 +153,25 @@ export default function FinanceScreen() {
     - (derived.months[derived.months.length - 1]?.expense ?? 0);
   const cumulativeSaving = derived.months.reduce((a, m) => a + (m.income - m.expense), 0);
 
+  // Interés ya devengado por vencimientos/re-vencimientos en toda la cartera, a la fecha.
+  // Es lo que se le fue acumulando a las deudas y ya forma parte del capital.
+  const accruedToDate = useMemo(
+    () => derived.loansResolved.reduce(
+      (a, l) => a + interestAccruals(l).reduce((s, ev) => s + ev.amount, 0),
+      0
+    ),
+    [derived.loansResolved]
+  );
+
   const projCalc = useMemo(
     () => calcProjection({
       activeLoans: derived.activeLoans,
       overdueLoans: derived.overdueLoans,
       workingCapital: derived.workingCapital,
       avgRate: derived.avgRate,
+      accumulatedProfit: accruedToDate,
     }),
-    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate]
+    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate, accruedToDate]
   );
 
   const SUB_VIEWS: { v: SubView; l: string }[] = [
@@ -412,7 +423,7 @@ export default function FinanceScreen() {
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <div className="text-[11px] uppercase tracking-wider text-zinc-500">ROI histórico mensual</div>
-                <div className="mt-0.5 text-xs text-zinc-600">Rendimiento real cobrado vs capital desplegado</div>
+                <div className="mt-0.5 text-xs text-zinc-600">Interés devengado vs capital desplegado</div>
               </div>
               <Badge tone="neutral"><TrendingUp className="h-3 w-3" />{BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</Badge>
             </div>
@@ -438,7 +449,7 @@ export default function FinanceScreen() {
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia acumulada proyectada</div>
-                <div className="mt-0.5 text-xs text-zinc-600">24 meses · reinversión continua</div>
+                <div className="mt-0.5 text-xs text-zinc-600">Devengado a la fecha + 24 meses de reinversión</div>
               </div>
               <Badge tone="bronze"><RefreshCw className="h-3 w-3" />Interés compuesto</Badge>
             </div>

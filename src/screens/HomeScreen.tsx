@@ -8,7 +8,7 @@ import {
   Banknote, Sun,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
-import { UI_LIMITS, CHART_COLORS } from "../lib/constants.js";
+import { UI_LIMITS, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import {
@@ -68,7 +68,7 @@ export default function HomeScreen() {
     ? derived.capitalInvested / derived.workingCapital : 0;
 
   const monthIncome = (derived.months[derived.months.length - 1]?.income ?? 0)
-    + (derived.months[derived.months.length - 1]?.profit ?? 0);
+    + (derived.months[derived.months.length - 1]?.accrued ?? 0);
   const monthExpense = derived.months[derived.months.length - 1]?.expense ?? 0;
   const monthDelta = monthIncome - monthExpense;
 
@@ -323,7 +323,7 @@ export default function HomeScreen() {
                   <Money value={derived.totalCapital} hide={hide} currency={cur} />
                 </div>
               </div>
-              <Badge tone="bronze">Últimos 6 meses</Badge>
+              <Badge tone="bronze">Últimos {BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</Badge>
             </div>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
@@ -363,7 +363,7 @@ export default function HomeScreen() {
                   <YAxis hide />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey={(d: { income: number; profit: number }) => d.income + d.profit} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
+                  <Bar name="Ingresos" dataKey={(d: { income: number; accrued: number }) => d.income + d.accrued} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
                   <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]} />
                 </BarChart>
               )}

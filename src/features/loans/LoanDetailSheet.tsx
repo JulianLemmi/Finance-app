@@ -6,7 +6,7 @@ import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
   MessageSquare, Plus, X,
 } from "lucide-react";
-import { todayISO, addDays, formatDate, formatShortDate, daysBetween } from "../../lib/utils.js";
+import { todayISO, addDays, formatDate, formatShortDate, daysBetween, getNextRenewalDate } from "../../lib/utils.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
@@ -61,6 +61,9 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
   const daysOverdue =
     loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, todayISO())) : 0;
+  // Próximo vencimiento: en los vencidos es el próximo re-vencimiento futuro, no la
+  // fecha original ya pasada. En los activos el próximo vencimiento es su propio dueDate.
+  const nextDueDate = loan._status === "overdue" ? getNextRenewalDate(loan) : loan.dueDate;
   const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
   const monthsOverdue = Math.floor(daysOverdue / 30);
   const extraDaysOverdue = daysOverdue % 30;
@@ -243,7 +246,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               { label: "Capital inicial", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
               { label: "Próx. ganancia", value: <Money value={loan._nextProfit} hide={hide} currency={cur} />, cls: "text-emerald-400" },
               { label: "Interés", value: `${Number(loan.interestRate).toFixed(1)}%`, cls: "text-zinc-100" },
-              { label: "Vence", value: formatDate(loan.dueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
+              { label: "Vence", value: formatDate(nextDueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
             ].map(({ label, value, cls }) => (
               <Card key={label} className="p-3">
                 <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>

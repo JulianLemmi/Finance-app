@@ -4,7 +4,7 @@ import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRe
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
-  loanIntegrityErrors,
+  loanIntegrityErrors, loanCapitalAt, interestAccruals,
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
@@ -427,11 +427,11 @@ export function useDerived(state: AppState): Derived {
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
     const now = new Date();
-    const months: { key: string; label: string; income: number; expense: number; capital: number; profit: number; roi: number }[] = [];
+    const months: { key: string; label: string; income: number; expense: number; capital: number; accrued: number; roi: number }[] = [];
     for (let i = BUSINESS_RULES.CHART_HISTORY_MONTHS - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.toISOString().slice(0, 7);
-      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, profit: 0, roi: 0 });
+      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, accrued: 0, roi: 0 });
     }
     const monthIdx: Record<string, number> = Object.fromEntries(months.map((m, i) => [m.key, i]));
     state.income.forEach((t) => {
@@ -443,15 +443,20 @@ export function useDerived(state: AppState): Derived {
       if (i !== undefined) months[i].expense += Number(t.amount);
     });
     loansResolved.forEach((l) => {
-      const margin = l._return > 0 ? l._profit / l._return : 0;
-      (l.payments || []).forEach((p) => {
-        const i = monthIdx[monthKey(p.date)];
-        if (i !== undefined) months[i].profit += Number(p.amount) * margin;
+      // accrued: interés devengado por vencimiento/re-vencimiento, lo paguen o no.
+      // Es el rendimiento económico real del mes y alimenta el ROI histórico.
+      interestAccruals(l).forEach((ev) => {
+        const i = monthIdx[monthKey(ev.date)];
+        if (i !== undefined) months[i].accrued += ev.amount;
       });
     });
+    const today = todayISO();
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
-      const cutoff = new Date(yr, mo, 0).toISOString().slice(0, 10);
+      const monthEnd = new Date(yr, mo, 0).toISOString().slice(0, 10);
+      // Para el mes en curso no proyectamos a fin de mes: cortamos en hoy, así el
+      // último punto coincide con el capital invertido actual del header.
+      const cutoff = monthEnd > today ? today : monthEnd;
       const investedAtMonth = loansResolved
         .filter((l) => {
           if (l.startDate > cutoff) return false;
@@ -461,8 +466,14 @@ export function useDerived(state: AppState): Derived {
           return paidUpTo < expectedReturn(l);
         })
         .reduce((acc, l) => acc + Number(l.amount), 0);
-      m.capital = Number(state.settings.cashOnHand || 0) + investedAtMonth;
-      m.roi = investedAtMonth > 0 ? (m.profit / investedAtMonth) * 100 : 0;
+      // Capital de la curva: incluye el interés capitalizado por vencimientos y
+      // re-vencimientos acumulados a esa fecha (no sólo el principal prestado).
+      const capitalAtMonth = loansResolved
+        .reduce((acc, l) => acc + loanCapitalAt(l, cutoff), 0);
+      m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth;
+      // ROI del mes: interés devengado (lo acumulado por vencimientos) sobre el capital
+      // desplegado, tomado como base. Refleja el rendimiento real, se cobre o no.
+      m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
     });
     return { months };
   }, [loansResolved, state.income, state.expenses, state.settings]);

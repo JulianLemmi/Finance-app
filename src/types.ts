@@ -285,7 +285,9 @@ export interface MonthData {
   income: number;
   expense: number;
   capital: number;
-  profit: number;
+  /** Interés devengado en el mes: lo que se le acumuló a la deuda de los clientes
+   *  por vencimiento + re-vencimientos, lo paguen o no. Base del ROI histórico. */
+  accrued: number;
   roi: number;
 }
 

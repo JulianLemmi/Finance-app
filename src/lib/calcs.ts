@@ -100,6 +100,105 @@ export function remainingDebt(loan: Loan): number {
   return Math.max(0, balance);
 }
 
+// Versión "a una fecha" de remainingDebt: calcula la deuda (capital + interés
+// capitalizado por vencimientos/re-vencimientos) tal como estaba al cierre de `asOf`,
+// contando sólo los pagos hechos hasta esa fecha. Con asOf = hoy coincide con remainingDebt.
+export function remainingDebtAt(loan: Loan, asOf: string): number {
+  if (loan.startDate && loan.startDate > asOf) return 0;
+
+  const rate = Number(loan.interestRate) / 100;
+  const base = Number(loan.amount);
+  const paymentsUpTo = (loan.payments || []).filter((p) => (p.date || "") <= asOf);
+  const paidUpTo = paymentsUpTo.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  // Sin vencimiento: compone un período por cada ciclo transcurrido desde el inicio.
+  if (loan.noDueDate) {
+    const termDays = Math.max(1, getLoanCycleDays(loan));
+    const daysElapsed = Math.max(0, daysBetween(loan.startDate, asOf));
+    const periods = Math.floor(daysElapsed / termDays) + 1;
+    return Math.max(0, base * Math.pow(1 + rate, periods) - paidUpTo);
+  }
+
+  if (!loan.dueDate) return Math.max(0, expectedReturn(loan) - paidUpTo);
+
+  const daysOverdue = daysBetween(loan.dueDate, asOf);
+  const termDays = Math.max(1, getLoanCycleDays(loan));
+  const overduePeriods = daysOverdue > 0 ? Math.floor(daysOverdue / termDays) : 0;
+
+  if (overduePeriods === 0) return Math.max(0, expectedReturn(loan) - paidUpTo);
+
+  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, termDays, loan.dueDate);
+  let balance = expectedReturn(loan);
+  paymentsUpTo.filter((p) => getPos(p) === 0).forEach((p) => {
+    balance = Math.max(0, balance - Number(p.amount));
+  });
+  for (let i = 1; i <= overduePeriods; i++) {
+    if (balance > 0) balance *= 1 + rate;
+    paymentsUpTo.filter((p) => getPos(p) === i).forEach((p) => {
+      balance = Math.max(0, balance - Number(p.amount));
+    });
+  }
+  return Math.max(0, balance);
+}
+
+// Capital desplegado en un préstamo al cierre de `asOf`, con la misma clasificación
+// que `capitalInvested` (financials): los vencidos aportan toda su deuda capitalizada,
+// los activos el principal acotado a lo que aún se debe. Refinanciados, ya cobrados y
+// los que todavía no arrancaron no aportan. Con asOf = hoy, la suma == capitalInvested.
+export function loanCapitalAt(loan: Loan, asOf: string): number {
+  if (loan.status === "refinanced") return 0;
+  if (loan.startDate && loan.startDate > asOf) return 0;
+  const remaining = remainingDebtAt(loan, asOf);
+  if (remaining <= CALC.PAID_THRESHOLD) return 0;
+  const overdueAt = !loan.noDueDate && !!loan.dueDate && loan.dueDate < asOf;
+  return overdueAt ? remaining : Math.min(remaining, Number(loan.amount));
+}
+
+// Eventos de interés devengado de un préstamo: cada vez que cae un vencimiento se le
+// "cobra" interés al cliente (se suma a su deuda), lo pague o no. El primer vencimiento
+// devenga el interés contratado (capital × tasa) en la fecha de vencimiento; cada
+// re-vencimiento devenga tasa sobre la deuda compuesta. Se cuenta hasta hoy, o hasta que
+// el préstamo se cerró (último pago) si está pagado/refinanciado, para no inventar
+// intereses posteriores al cierre.
+export function interestAccruals(loan: Loan): { date: string; amount: number }[] {
+  const events: { date: string; amount: number }[] = [];
+  const rate = Number(loan.interestRate) / 100;
+  const base = Number(loan.amount);
+  if (!(base > 0) || !(rate > 0)) return events;
+
+  const today = todayDate().toISOString().slice(0, 10);
+  const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
+  const closed = loan.status === "paid" || loan.status === "refinanced";
+  const horizon = closed ? (lastPayment || loan.dueDate || today) : today;
+  const term = Math.max(1, getLoanCycleDays(loan));
+
+  if (loan.noDueDate) {
+    if (!loan.startDate) return events;
+    let balance = base;
+    for (let i = 1; ; i++) {
+      const date = addDays(loan.startDate, i * term);
+      if (date > horizon) break;
+      const interest = balance * rate;
+      events.push({ date, amount: interest });
+      balance += interest;
+    }
+    return events;
+  }
+
+  if (!loan.dueDate || loan.dueDate > horizon) return events;
+  // Vencimiento original: interés contratado.
+  events.push({ date: loan.dueDate, amount: base * rate });
+  let balance = base * (1 + rate);
+  for (let i = 1; ; i++) {
+    const date = addDays(loan.dueDate, i * term);
+    if (date > horizon) break;
+    const interest = balance * rate;
+    events.push({ date, amount: interest });
+    balance += interest;
+  }
+  return events;
+}
+
 // Próxima ganancia del préstamo:
 // - Activo (todavía no vence): la ganancia contratada que se cobra al vencimiento (capital × tasa).
 // - Vencido: el contratado ya está devengado; lo que sigue es la capitalización del próximo
@@ -267,11 +366,15 @@ export function calcProjection({
   overdueLoans = [],
   workingCapital = 0,
   avgRate = 0,
+  accumulatedProfit = 0,
 }: {
   activeLoans?: ResolvedLoan[];
   overdueLoans?: ResolvedLoan[];
   workingCapital?: number;
   avgRate?: number;
+  /** Interés ya acumulado por vencimientos a la fecha. La ganancia acumulada proyectada
+   *  arranca desde acá (mes 0) en vez de cero, para reflejar lo ya devengado. */
+  accumulatedProfit?: number;
 }): CalcProjectionResult {
   const deployedLoans = [...activeLoans, ...overdueLoans];
   const deployedBase = deployedLoans.reduce((a, l) => a + (l._remaining ?? Number(l.amount)), 0);
@@ -318,7 +421,10 @@ export function calcProjection({
     return {
       mes: i,
       label: i % 6 === 0 ? (i === 0 ? "Hoy" : `${i}m`) : "",
-      ganancia: Math.round(total - base),
+      // Ganancia acumulada = lo ya devengado por vencimientos + la proyección hacia adelante.
+      // El capital proyectado (total) ya incorpora el interés capitalizado vía la base,
+      // así que no se le vuelve a sumar accumulatedProfit.
+      ganancia: Math.round(accumulatedProfit + total - base),
       total: Math.round(total),
     };
   });
