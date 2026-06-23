@@ -113,6 +113,12 @@ src/
 ### Cálculos de negocio
 `src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`, `validateLoan`, `compoundPeriods`, `calcProjection`. Reglas duras en `BUSINESS_RULES` (constants.js).
 
+Modelo de devengado/proyección para los gráficos (mismo archivo):
+- `remainingDebtAt(loan, asOf)` — deuda (principal + interés capitalizado por vencimientos/re-vencimientos) a una fecha dada. Con `asOf = hoy` coincide con `remainingDebt`.
+- `loanCapitalAt(loan, asOf)` — capital desplegado a una fecha, con la misma clasificación que `capitalInvested` (vencidos: deuda completa; activos: principal acotado). Alimenta la curva "Evolución del capital".
+- `interestAccruals(loan)` — eventos de interés devengado por vencimiento, lo paguen o no (hasta hoy o el cierre). Base del ROI histórico y del gráfico "Mes actual" (`months[].accrued`).
+- `upcomingInterest(loan, until)` — interés a cobrar entre hoy y `until`; proyecta el crecimiento del capital (usado en la proyección "En 30d" de la card de capital).
+
 ### Edge functions (`supabase/functions/` — Deno)
 - `telegram-bot` — webhook + comandos `/resumen /vencimientos /gasto /ingreso /chatid`
 - `mp-balance` — proxy CORS para Mercado Pago
