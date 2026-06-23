@@ -1,13 +1,14 @@
 // Pantalla principal: capital total, préstamos próximos a vencer, agenda del día,
 // gráficos de evolución y actividad reciente. El reloj vive en LiveClock aislado
 // para que sólo ese componente haga re-render cada segundo.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp, Wallet,
   Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
   Banknote, Sun,
 } from "lucide-react";
-import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
+import { formatShortDate, getNextRenewalDate, addDays, todayISO } from "../lib/utils.js";
+import { upcomingInterest } from "../lib/calcs.js";
 import { UI_LIMITS, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
@@ -66,6 +67,14 @@ export default function HomeScreen() {
 
   const allocationPct = derived.workingCapital > 0
     ? derived.capitalInvested / derived.workingCapital : 0;
+
+  // Crecimiento del capital por venir en los próximos 30 días (rolling desde hoy):
+  // el interés que se va a cobrar por los vencimientos/re-vencimientos en esa ventana.
+  const growth30d = useMemo(() => {
+    const until = addDays(todayISO(), 30);
+    return [...derived.activeLoans, ...derived.overdueLoans]
+      .reduce((sum, l) => sum + upcomingInterest(l, until), 0);
+  }, [derived.activeLoans, derived.overdueLoans]);
 
   const monthIncome = (derived.months[derived.months.length - 1]?.income ?? 0)
     + (derived.months[derived.months.length - 1]?.accrued ?? 0);
@@ -137,13 +146,15 @@ export default function HomeScreen() {
                   style={{ width: `${Math.max(0, Math.min(100, allocationPct * 100))}%` }} />
               </div>
               {(() => {
-                const totalProjected = derived.totalCapital + Number(state.settings.mpBalance || 0) + derived.expectedProfitTotal;
-                const gainPct = totalProjected > 0 ? ((totalProjected - derived.totalCapital) / totalProjected) * 100 : 0;
+                // Patrimonio proyectado a 30 días: capital actual + lo que va a crecer por
+                // los vencimientos de la ventana. El % es el crecimiento sobre el capital total.
+                const projected30d = derived.totalCapital + growth30d;
+                const gainPct = derived.totalCapital > 0 ? (growth30d / derived.totalCapital) * 100 : 0;
                 return (
                   <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
                     <span>{Math.round(allocationPct * 100)}% asignado</span>
                     <span className="flex items-center gap-1.5">
-                      Total <span className="text-zinc-300 tabular-nums"><Money value={totalProjected} hide={hide} currency={cur} /></span>
+                      En 30d <span className="text-zinc-300 tabular-nums"><Money value={projected30d} hide={hide} currency={cur} /></span>
                       {gainPct > 0 && (
                         <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 tabular-nums">
                           +{gainPct.toFixed(1)}%

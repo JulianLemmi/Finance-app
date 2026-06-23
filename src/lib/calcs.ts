@@ -199,6 +199,48 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   return events;
 }
 
+// Interés que se va a cobrar (capitalizar a la deuda) entre hoy y `until`, por los
+// vencimientos / re-vencimientos que caen en esa ventana. Proyecta hacia adelante: es el
+// crecimiento futuro del capital. Compone si entran varios ciclos. Ignora pagos futuros.
+export function upcomingInterest(loan: Loan, until: string): number {
+  if (loan.status === "paid" || loan.status === "refinanced") return 0;
+  const rate = Number(loan.interestRate) / 100;
+  const base = Number(loan.amount);
+  if (!(base > 0) || !(rate > 0)) return 0;
+  const today = todayDate().toISOString().slice(0, 10);
+  if (until <= today) return 0;
+  const term = Math.max(1, getLoanCycleDays(loan));
+
+  let nextDate: string;
+  let balance: number;
+  if (loan.noDueDate) {
+    if (!loan.startDate) return 0;
+    const periodsDone = Math.floor(Math.max(0, daysBetween(loan.startDate, today)) / term);
+    nextDate = addDays(loan.startDate, (periodsDone + 1) * term);
+    balance = remainingDebtAt(loan, today);
+  } else {
+    if (!loan.dueDate) return 0;
+    if (loan.dueDate > today) {
+      // Todavía no venció: el próximo vencimiento es el original (interés contratado).
+      nextDate = loan.dueDate;
+      balance = base;
+    } else {
+      const overduePeriods = Math.floor(Math.max(0, daysBetween(loan.dueDate, today)) / term);
+      nextDate = addDays(loan.dueDate, (overduePeriods + 1) * term);
+      balance = remainingDebtAt(loan, today);
+    }
+  }
+
+  let total = 0;
+  for (let guard = 0; nextDate <= until && guard < 64; guard++) {
+    const interest = balance * rate;
+    total += interest;
+    balance += interest;
+    nextDate = addDays(nextDate, term);
+  }
+  return total;
+}
+
 // Próxima ganancia del préstamo:
 // - Activo (todavía no vence): la ganancia contratada que se cobra al vencimiento (capital × tasa).
 // - Vencido: el contratado ya está devengado; lo que sigue es la capitalización del próximo
