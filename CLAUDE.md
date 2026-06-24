@@ -127,6 +127,7 @@ Ingreso fijo mensual **virtual**: helpers `salaryForMonth` / `totalSalary` en `s
 - `mp-balance` — proxy CORS para Mercado Pago
 - `send-push` — notificaciones web push via VAPID
 - `daily-digest` — cron (pg_cron) que llama `send-push` con vencimientos del día
+- `dollar-watch` — cron que vigila el dólar blue (bluelytics) y manda push por umbral (`?mode=watch`) o resumen diario (`?mode=summary`). Estado global en tabla `app_kv`; opt-in vía `settings.dollarAlerts`/`dollarThreshold`. SQL/cron en README.
 
 ## Convenciones
 - UI en español (textos visibles al usuario). Código en inglés o español, indistinto.

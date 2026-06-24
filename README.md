@@ -191,6 +191,60 @@ await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
    select cron.unschedule('finance-daily-digest');
    ```
 
+### Alertas de dólar (cron)
+
+`supabase/functions/dollar-watch/index.ts` vigila el dólar blue (bluelytics) y manda push. Dos modos: `watch` (avisa cuando el blue venta se movió más que el umbral del usuario desde el último aviso) y `summary` (un resumen diario al cierre con la variación del día). Opt-in por usuario desde Perfil → Notificaciones push → "Alertas de dólar".
+
+1. **Crear la tabla de estado global** (Dashboard → SQL Editor):
+   ```sql
+   create table app_kv (
+     key text primary key,
+     value jsonb,
+     updated_at timestamptz default now()
+   );
+   alter table app_kv enable row level security;  -- sin policies: sólo el service role (edge functions) la toca
+   ```
+
+2. **Desplegar la función** (reutiliza `CRON_SECRET` del daily-digest):
+   ```bash
+   supabase functions deploy dollar-watch --no-verify-jwt
+   ```
+
+3. **Programar los crons** (Dashboard → SQL Editor). Reemplazá `PEGA_AQUI_TU_CRON_SECRET` y el `<project>`:
+   ```sql
+   -- watch: cada 30 min de 10 a 18 hs ART (13–21 UTC), lun a vie
+   select cron.schedule(
+     'finance-dollar-watch',
+     '*/30 13-21 * * 1-5',
+     $$
+     select net.http_post(
+       url := 'https://<project>.functions.supabase.co/dollar-watch?mode=watch',
+       headers := jsonb_build_object('X-Cron-Secret', 'PEGA_AQUI_TU_CRON_SECRET', 'Content-Type', 'application/json'),
+       body := '{}'::jsonb
+     );
+     $$
+   );
+
+   -- summary: 18:05 ART (21:05 UTC), lun a vie
+   select cron.schedule(
+     'finance-dollar-summary',
+     '5 21 * * 1-5',
+     $$
+     select net.http_post(
+       url := 'https://<project>.functions.supabase.co/dollar-watch?mode=summary',
+       headers := jsonb_build_object('X-Cron-Secret', 'PEGA_AQUI_TU_CRON_SECRET', 'Content-Type', 'application/json'),
+       body := '{}'::jsonb
+     );
+     $$
+   );
+   ```
+
+4. **Probar manualmente:**
+   ```bash
+   curl -X POST -H "X-Cron-Secret: TU_CRON_SECRET" "https://<project>.functions.supabase.co/dollar-watch?mode=watch"
+   ```
+   Respuesta esperada: `{"mode":"watch","sell":N,"users":N,"sent":M,...}`. El primer run sólo fija la base (no manda nada).
+
 ## Estructura
 
 ```

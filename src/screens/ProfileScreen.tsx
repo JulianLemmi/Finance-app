@@ -33,6 +33,7 @@ export default function ProfileScreen() {
   const [monthlyTarget, setMonthlyTarget] = useState(String(state.settings.monthlyTarget || ""));
   const [fixedIncome, setFixedIncome] = useState(String(state.settings.fixedIncomeAmount || ""));
   const [fixedIncomeDay, setFixedIncomeDay] = useState(String(state.settings.fixedIncomeDay || ""));
+  const [dollarThreshold, setDollarThreshold] = useState(String(state.settings.dollarThreshold || ""));
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [defaultRate, setDefaultRate] = useState(String(state.settings.defaultRate ?? 8));
   const [defaultDays, setDefaultDays] = useState(String(state.settings.defaultDays ?? 30));
@@ -92,6 +93,7 @@ export default function ProfileScreen() {
     if (prev.monthlyTarget !== curr.monthlyTarget) setMonthlyTarget(String(curr.monthlyTarget || ""));
     if (prev.fixedIncomeAmount !== curr.fixedIncomeAmount) setFixedIncome(String(curr.fixedIncomeAmount || ""));
     if (prev.fixedIncomeDay !== curr.fixedIncomeDay) setFixedIncomeDay(String(curr.fixedIncomeDay || ""));
+    if (prev.dollarThreshold !== curr.dollarThreshold) setDollarThreshold(String(curr.dollarThreshold || ""));
     if (prev.currency !== curr.currency) setCurrency(curr.currency || "$");
     if (prev.defaultRate !== curr.defaultRate) setDefaultRate(String(curr.defaultRate ?? 8));
     if (prev.defaultDays !== curr.defaultDays) setDefaultDays(String(curr.defaultDays ?? 30));
@@ -115,6 +117,11 @@ export default function ProfileScreen() {
     const d = Math.min(31, Math.max(1, Math.round(Number(fixedIncomeDay) || 1)));
     setFixedIncomeDay(String(d));
     dispatch({ type: "UPDATE_SETTINGS", payload: { fixedIncomeDay: d } });
+  };
+  const saveDollarThreshold = () => {
+    const t = Math.max(1, Number(dollarThreshold) || 20);
+    setDollarThreshold(String(t));
+    dispatch({ type: "UPDATE_SETTINGS", payload: { dollarThreshold: t } });
   };
   const saveTelegramChatId = () => dispatch({ type: "UPDATE_SETTINGS", payload: { telegramChatId: telegramChatId.trim() } });
 
@@ -489,6 +496,18 @@ export default function ProfileScreen() {
                       {pushStatus.kind === "ok" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
                       {pushStatus.msg}
                     </span>
+                  )}
+                </div>
+              )}
+              {PUSH_SUPPORTED && PUSH_CONFIGURED && pushState.subscribed && (
+                <div className="space-y-3 border-t border-zinc-800/70 pt-3">
+                  <Toggle label="Alertas de dólar" hint="Avisa cuando el dólar blue (venta) sube o baja, más un resumen diario al cierre. Lo procesa el servidor (cron)."
+                    checked={state.settings.dollarAlerts}
+                    onChange={(v) => dispatch({ type: "UPDATE_SETTINGS", payload: { dollarAlerts: v } })} />
+                  {state.settings.dollarAlerts && (
+                    <Input label="Umbral de aviso ($)" type="number" inputMode="decimal" placeholder="20"
+                      value={dollarThreshold} onChange={(e) => setDollarThreshold(e.target.value)} onBlur={saveDollarThreshold} Icon={TrendingUp}
+                      hint="Avisa cuando el blue se movió más que este monto en pesos desde el último aviso." />
                   )}
                 </div>
               )}

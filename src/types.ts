@@ -176,6 +176,10 @@ export interface Settings {
   fixedIncomeAmount: number;
   /** Día del mes en que se cobra el sueldo fijo (1-31). */
   fixedIncomeDay: number;
+  /** Recibir push cuando el dólar blue se mueve (lo procesa el edge function dollar-watch). */
+  dollarAlerts: boolean;
+  /** Umbral en pesos: avisa cuando el blue venta se movió más que esto desde el último aviso. */
+  dollarThreshold: number;
 }
 
 export interface ModalPayload {

@@ -24,6 +24,7 @@ export const initialState: AppState = {
     currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark",
     defaultRate: 8, defaultDays: 30, mpBalance: 0, telegramChatId: "",
     monthlyTarget: 0, fixedIncomeAmount: 0, fixedIncomeDay: 1,
+    dollarAlerts: false, dollarThreshold: 20,
   },
   ui: { activeTab: "home", modal: null },
 };
