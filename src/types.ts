@@ -171,6 +171,11 @@ export interface Settings {
   mpBalance: number;
   telegramChatId: string;
   monthlyTarget: number;
+  /** Sueldo fijo mensual (virtual): se suma al ingreso de cada mes en los gráficos y el
+   *  balance, pero no crea transacción ni afecta el efectivo. 0 = desactivado. */
+  fixedIncomeAmount: number;
+  /** Día del mes en que se cobra el sueldo fijo (1-31). */
+  fixedIncomeDay: number;
 }
 
 export interface ModalPayload {
@@ -312,6 +317,8 @@ export interface Derived {
   totalCapital: number;
   monthlyInterestsCollected: number;
   collectedThisMonth: number;
+  /** Sueldo fijo virtual del mes en curso (0 si está desactivado o aún no es el día de cobro). */
+  fixedIncomeThisMonth: number;
   upcomingDue: ResolvedLoan[];
   dueTodayTomorrow: ResolvedLoan[];
   expectedInflow30d: number;

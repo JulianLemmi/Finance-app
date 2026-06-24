@@ -241,7 +241,7 @@ export default function FinanceScreen() {
           <Card className="p-5">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Flujo mensual</div>
-              <Badge tone="neutral">Últimos 6 meses</Badge>
+              <Badge tone="neutral">Últimos {BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</Badge>
             </div>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (

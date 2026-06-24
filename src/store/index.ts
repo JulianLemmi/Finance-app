@@ -23,7 +23,7 @@ export const initialState: AppState = {
   settings: {
     currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark",
     defaultRate: 8, defaultDays: 30, mpBalance: 0, telegramChatId: "",
-    monthlyTarget: 0,
+    monthlyTarget: 0, fixedIncomeAmount: 0, fixedIncomeDay: 1,
   },
   ui: { activeTab: "home", modal: null },
 };
@@ -226,6 +226,29 @@ export const useApp = (): AppContextValue => {
   return ctx;
 };
 
+// Sueldo fijo virtual aplicable a un mes (YYYY-MM): el monto si la fecha de cobro de ese
+// mes ya pasó y el mes no es anterior a la primera actividad registrada; 0 si no aplica.
+function salaryForMonth(mKey: string, amount: number, day: number, firstMonth: string, today: string): number {
+  if (!(amount > 0) || mKey < firstMonth) return 0;
+  const [yr, mo] = mKey.split("-").map(Number);
+  const payDay = Math.min(day, new Date(yr, mo, 0).getDate());
+  const payDate = `${mKey}-${String(payDay).padStart(2, "0")}`;
+  return payDate <= today ? amount : 0;
+}
+
+// Suma del sueldo fijo virtual desde el primer mes con actividad hasta el mes actual.
+function totalSalary(firstMonth: string, currentMonth: string, amount: number, day: number, today: string): number {
+  if (!(amount > 0)) return 0;
+  let total = 0;
+  let [yr, mo] = firstMonth.split("-").map(Number);
+  const [ey, em] = currentMonth.split("-").map(Number);
+  while (yr < ey || (yr === ey && mo <= em)) {
+    total += salaryForMonth(`${yr}-${String(mo).padStart(2, "0")}`, amount, day, firstMonth, today);
+    if (++mo > 12) { mo = 1; yr++; }
+  }
+  return total;
+}
+
 export function useDerived(state: AppState): Derived {
   // Stage 1: resolve each loan's computed fields
   const loansResolved = useMemo<ResolvedLoan[]>(() =>
@@ -256,6 +279,16 @@ export function useDerived(state: AppState): Derived {
     refinancedLoans: loansResolved.filter((l) => l._status === "refinanced"),
   }), [loansResolved]);
 
+  // Primera fecha con actividad registrada (préstamo o movimiento). Acota desde cuándo
+  // aplica el sueldo fijo virtual para no inventar ingreso en meses previos sin datos.
+  const firstActivityISO = useMemo(() => {
+    const dates: string[] = [];
+    loansResolved.forEach((l) => { if (l.startDate) dates.push(l.startDate); });
+    state.income.forEach((t) => { if (t.date) dates.push(t.date); });
+    state.expenses.forEach((t) => { if (t.date) dates.push(t.date); });
+    return dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : todayISO();
+  }, [loansResolved, state.income, state.expenses]);
+
   // Stage 3: financial aggregates
   const financials = useMemo(() => {
     const { activeLoans, overdueLoans, paidLoans } = loanGroups;
@@ -280,7 +313,7 @@ export function useDerived(state: AppState): Derived {
     const nextProfitTotal = deployed.reduce((a, l) => a + l._nextProfit, 0);
     const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);
     const accumulatedProfit = paidLoans.reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
-    const totalIncome = state.income.reduce((a, t) => a + Number(t.amount), 0);
+    const incomeTransactions = state.income.reduce((a, t) => a + Number(t.amount), 0);
     const totalExpense = state.expenses.reduce((a, t) => a + Number(t.amount), 0);
     const collected = loansResolved.reduce((a, l) => a + l._paid, 0);
     const totalDisbursed = loansResolved
@@ -291,7 +324,16 @@ export function useDerived(state: AppState): Derived {
     const workingCapital = available + capitalInvested;
     const totalCapital = workingCapital + totalAssets;
 
-    const thisMonth = monthKey(todayISO());
+    const todayStr = todayISO();
+    const thisMonth = monthKey(todayStr);
+
+    // Sueldo fijo virtual: del mes en curso (para "Ganancia mensual") y total acumulado
+    // desde la primera actividad (para los totales de Ingresos/Balance).
+    const fixedAmt = Number(state.settings.fixedIncomeAmount || 0);
+    const fixedDay = Math.min(31, Math.max(1, Number(state.settings.fixedIncomeDay || 1)));
+    const firstMonth = firstActivityISO.slice(0, 7);
+    const fixedIncomeThisMonth = salaryForMonth(thisMonth, fixedAmt, fixedDay, firstMonth, todayStr);
+    const totalIncome = incomeTransactions + totalSalary(firstMonth, thisMonth, fixedAmt, fixedDay, todayStr);
 
     const monthlyInterestsCollected = loansResolved.reduce((a, l) => {
       const monthPayments = (l.payments || []).filter((p) => monthKey(p.date) === thisMonth);
@@ -310,7 +352,6 @@ export function useDerived(state: AppState): Derived {
       .sort((a, b) => (a._daysUntilDue as number) - (b._daysUntilDue as number))
       .slice(0, UI_LIMITS.UPCOMING_DUE_MAX);
 
-    const todayStr = todayISO();
     const dueTodayTomorrow = deployed
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue >= 0 && l._daysUntilDue <= 1)
       .sort((a, b) => (a._daysUntilDue as number) - (b._daysUntilDue as number));
@@ -416,13 +457,14 @@ export function useDerived(state: AppState): Derived {
       capitalInvested, expectedProfitTotal, nextProfitTotal, totalExpectedProfit, accumulatedProfit,
       totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
       workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
+      fixedIncomeThisMonth,
       upcomingDue, dueTodayTomorrow,
       expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
       avgRate, avgDays, medianRate, medianDays,
       projections, projectionSeries, paidOnTimeCount,
       collectabilityRate, avgDaysLate, cashFlow30d,
     };
-  }, [loanGroups, loansResolved, state.income, state.expenses, state.settings, state.assets]);
+  }, [loanGroups, loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets]);
 
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
@@ -442,6 +484,17 @@ export function useDerived(state: AppState): Derived {
       const i = monthIdx[monthKey(t.date)];
       if (i !== undefined) months[i].expense += Number(t.amount);
     });
+    // Sueldo fijo virtual: se suma al ingreso de cada mes (desde la primera actividad y
+    // sólo si la fecha de cobro ya pasó). No crea transacción ni afecta el efectivo.
+    const fixedAmt = Number(state.settings.fixedIncomeAmount || 0);
+    if (fixedAmt > 0) {
+      const fixedDay = Math.min(31, Math.max(1, Number(state.settings.fixedIncomeDay || 1)));
+      const todayStr = todayISO();
+      const firstMonth = firstActivityISO.slice(0, 7);
+      months.forEach((m) => {
+        m.income += salaryForMonth(m.key, fixedAmt, fixedDay, firstMonth, todayStr);
+      });
+    }
     loansResolved.forEach((l) => {
       // accrued: interés devengado por vencimiento/re-vencimiento, lo paguen o no.
       // Es el rendimiento económico real del mes y alimenta el ROI histórico.
@@ -476,7 +529,7 @@ export function useDerived(state: AppState): Derived {
       m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
     });
     return { months };
-  }, [loansResolved, state.income, state.expenses, state.settings]);
+  }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings]);
 
   // Stage 5: client stats
   const clientStats = useMemo(() =>

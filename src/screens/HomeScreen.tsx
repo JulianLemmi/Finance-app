@@ -201,8 +201,8 @@ export default function HomeScreen() {
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Ganancia mensual" Icon={TrendingUp} tone="success"
-            value={<AnimatedMoney value={derived.monthlyInterestsCollected} hide={hide} currency={cur} />}
-            hint="Intereses cobrados este mes" />
+            value={<AnimatedMoney value={derived.monthlyInterestsCollected + derived.fixedIncomeThisMonth} hide={hide} currency={cur} />}
+            hint={derived.fixedIncomeThisMonth > 0 ? "Intereses cobrados + sueldo de este mes" : "Intereses cobrados este mes"} />
           <StatCard label="Ganancia por cobrar" Icon={Briefcase} tone="success"
             value={<AnimatedMoney value={derived.nextProfitTotal} hide={hide} currency={cur} />}
             hint={`${derived.activeLoans.length + derived.overdueLoans.length} activo${derived.activeLoans.length + derived.overdueLoans.length === 1 ? "" : "s"}`} />

@@ -31,6 +31,8 @@ export default function ProfileScreen() {
   const [capital, setCapital] = useState(String(state.settings.cashOnHand || ""));
   const [mpBalance, setMpBalance] = useState(String(state.settings.mpBalance || ""));
   const [monthlyTarget, setMonthlyTarget] = useState(String(state.settings.monthlyTarget || ""));
+  const [fixedIncome, setFixedIncome] = useState(String(state.settings.fixedIncomeAmount || ""));
+  const [fixedIncomeDay, setFixedIncomeDay] = useState(String(state.settings.fixedIncomeDay || ""));
   const [currency, setCurrency] = useState(state.settings.currency || "$");
   const [defaultRate, setDefaultRate] = useState(String(state.settings.defaultRate ?? 8));
   const [defaultDays, setDefaultDays] = useState(String(state.settings.defaultDays ?? 30));
@@ -88,6 +90,8 @@ export default function ProfileScreen() {
     if (prev.cashOnHand !== curr.cashOnHand) setCapital(String(curr.cashOnHand || ""));
     if (prev.mpBalance !== curr.mpBalance) setMpBalance(String(curr.mpBalance || ""));
     if (prev.monthlyTarget !== curr.monthlyTarget) setMonthlyTarget(String(curr.monthlyTarget || ""));
+    if (prev.fixedIncomeAmount !== curr.fixedIncomeAmount) setFixedIncome(String(curr.fixedIncomeAmount || ""));
+    if (prev.fixedIncomeDay !== curr.fixedIncomeDay) setFixedIncomeDay(String(curr.fixedIncomeDay || ""));
     if (prev.currency !== curr.currency) setCurrency(curr.currency || "$");
     if (prev.defaultRate !== curr.defaultRate) setDefaultRate(String(curr.defaultRate ?? 8));
     if (prev.defaultDays !== curr.defaultDays) setDefaultDays(String(curr.defaultDays ?? 30));
@@ -106,6 +110,12 @@ export default function ProfileScreen() {
   const saveCapital = () => dispatch({ type: "UPDATE_SETTINGS", payload: { cashOnHand: Number(capital) || 0 } });
   const saveMpBalance = () => dispatch({ type: "UPDATE_SETTINGS", payload: { mpBalance: Number(mpBalance) || 0 } });
   const saveMonthlyTarget = () => dispatch({ type: "UPDATE_SETTINGS", payload: { monthlyTarget: Number(monthlyTarget) || 0 } });
+  const saveFixedIncome = () => dispatch({ type: "UPDATE_SETTINGS", payload: { fixedIncomeAmount: Math.max(0, Number(fixedIncome) || 0) } });
+  const saveFixedIncomeDay = () => {
+    const d = Math.min(31, Math.max(1, Math.round(Number(fixedIncomeDay) || 1)));
+    setFixedIncomeDay(String(d));
+    dispatch({ type: "UPDATE_SETTINGS", payload: { fixedIncomeDay: d } });
+  };
   const saveTelegramChatId = () => dispatch({ type: "UPDATE_SETTINGS", payload: { telegramChatId: telegramChatId.trim() } });
 
   const testTelegramNotification = async () => {
@@ -253,6 +263,13 @@ export default function ProfileScreen() {
         <Input label="Objetivo mensual de cobranza" type="number" inputMode="decimal" placeholder="0"
           value={monthlyTarget} onChange={(e) => setMonthlyTarget(e.target.value)} onBlur={saveMonthlyTarget} Icon={TrendingUp}
           hint="Meta de cobros mensuales. Aparece como barra de progreso en el inicio." />
+        <div className="grid grid-cols-[1fr_5.5rem] gap-3">
+          <Input label="Sueldo fijo mensual" type="number" inputMode="decimal" placeholder="0"
+            value={fixedIncome} onChange={(e) => setFixedIncome(e.target.value)} onBlur={saveFixedIncome} Icon={Banknote}
+            hint="Ingreso fijo que cobrás cada mes (ej. sueldo). Se suma a los ingresos de cada mes en los gráficos y el balance. No crea movimiento ni efectivo. 0 = desactivado." />
+          <Input label="Día" type="number" inputMode="numeric" placeholder="1"
+            value={fixedIncomeDay} onChange={(e) => setFixedIncomeDay(e.target.value)} onBlur={saveFixedIncomeDay} />
+        </div>
         <Select label="Moneda" value={currency} onChange={saveCurrency} Icon={Hash}
           options={[{ value: "$", label: "$ (Peso)" }, { value: "US$", label: "US$ (Dólar)" }, { value: "€", label: "€ (Euro)" }]} />
       </div>

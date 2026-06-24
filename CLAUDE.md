@@ -119,6 +119,9 @@ Modelo de devengado/proyección para los gráficos (mismo archivo):
 - `interestAccruals(loan)` — eventos de interés devengado por vencimiento, lo paguen o no (hasta hoy o el cierre). Base del ROI histórico y del gráfico "Mes actual" (`months[].accrued`).
 - `upcomingInterest(loan, until)` — interés a cobrar entre hoy y `until`; proyecta el crecimiento del capital (usado en la proyección "En 30d" de la card de capital).
 
+### Sueldo fijo virtual (`settings.fixedIncomeAmount` / `fixedIncomeDay`)
+Ingreso fijo mensual **virtual**: helpers `salaryForMonth` / `totalSalary` en `store/index.ts`. Se suma al ingreso de cada mes (desde la primera actividad registrada, sólo si la fecha de cobro ya pasó) y por eso aparece en: `months[].income` (gráfico "Mes actual", balance/ahorro mensual), `totalIncome` (cards Ingresos/Balance de Finanzas) y `fixedIncomeThisMonth` (sumado a "Ganancia mensual" del inicio). **No** crea transacción (`state.income`), **no** afecta `cashOnHand`/capital, y **no** entra en las métricas de interés de préstamos (`nextProfitTotal` "Ganancia por cobrar", ROI, `expectedMonthlyProfit`).
+
 ### Edge functions (`supabase/functions/` — Deno)
 - `telegram-bot` — webhook + comandos `/resumen /vencimientos /gasto /ingreso /chatid`
 - `mp-balance` — proxy CORS para Mercado Pago
