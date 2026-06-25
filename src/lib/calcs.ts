@@ -278,8 +278,11 @@ export function daysUntilDue(loan: Loan): number | null {
 
 export function resolveStatus(loan: Loan): LoanStatus {
   if (loan.status === "paid" || loan.status === "refinanced") return loan.status;
-  if (remainingDebt(loan) <= CALC.PAID_THRESHOLD) return "paid";
-  if (isOverdue(loan)) return "overdue";
+  const remaining = remainingDebt(loan);
+  if (remaining <= CALC.PAID_THRESHOLD) return "paid";
+  // If the client paid all accrued interest (remaining ≤ original principal),
+  // the loan is current regardless of whether the due date has passed.
+  if (isOverdue(loan) && remaining > Number(loan.amount)) return "overdue";
   return "active";
 }
 
