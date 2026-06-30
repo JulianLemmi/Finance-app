@@ -150,7 +150,13 @@ export function loanCapitalAt(loan: Loan, asOf: string): number {
   if (loan.startDate && loan.startDate > asOf) return 0;
   const remaining = remainingDebtAt(loan, asOf);
   if (remaining <= CALC.PAID_THRESHOLD) return 0;
-  const overdueAt = !loan.noDueDate && !!loan.dueDate && loan.dueDate < asOf;
+  // Clasificación "vencido": a hoy usamos resolveStatus (respeta el criterio de "sigue
+  // activo si el interés está al día") para que la suma coincida con capitalInvested;
+  // para fechas pasadas alcanza con la fecha de vencimiento.
+  const today = todayDate().toISOString().slice(0, 10);
+  const overdueAt = asOf >= today
+    ? resolveStatus(loan) === "overdue"
+    : !loan.noDueDate && !!loan.dueDate && loan.dueDate < asOf;
   return overdueAt ? remaining : Math.min(remaining, Number(loan.amount));
 }
 
