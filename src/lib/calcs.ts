@@ -276,11 +276,40 @@ export function daysUntilDue(loan: Loan): number | null {
   return daysBetween(todayDate(), due);
 }
 
+// Balance after periods 0..overduePeriods-1 (excludes current period's compounding).
+// Used to detect if the client was current entering the latest period.
+function balanceThroughPrevPeriod(loan: Loan, meta: OverdueMeta): number {
+  const { overduePeriods, termDays, rate } = meta;
+  const payments = loan.payments || [];
+  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, termDays, loan.dueDate);
+
+  let balance = expectedReturn(loan);
+  payments.filter((p) => getPos(p) === 0).forEach((p) => {
+    balance = Math.max(0, balance - Number(p.amount));
+  });
+  for (let i = 1; i <= overduePeriods - 1; i++) {
+    if (balance > 0) balance *= 1 + rate;
+    payments.filter((p) => getPos(p) === i).forEach((p) => {
+      balance = Math.max(0, balance - Number(p.amount));
+    });
+  }
+  return Math.max(0, balance);
+}
+
 export function resolveStatus(loan: Loan): LoanStatus {
   if (loan.status === "paid" || loan.status === "refinanced") return loan.status;
-  if (remainingDebt(loan) <= CALC.PAID_THRESHOLD) return "paid";
-  if (isOverdue(loan)) return "overdue";
-  return "active";
+  const remaining = remainingDebt(loan);
+  if (remaining <= CALC.PAID_THRESHOLD) return "paid";
+  if (!isOverdue(loan)) return "active";
+  const amount = Number(loan.amount);
+  // All accrued interest paid — definitely current.
+  if (remaining <= amount) return "active";
+  // There's outstanding interest. But if the client was fully current at the end
+  // of the previous period, the excess is only the new period's interest — still active.
+  const meta = getOverdueMeta(loan);
+  if (meta && meta.overduePeriods >= 1 && balanceThroughPrevPeriod(loan, meta) <= amount)
+    return "active";
+  return "overdue";
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
