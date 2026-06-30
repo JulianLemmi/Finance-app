@@ -30,6 +30,15 @@
  * Deploy:
  *   supabase functions deploy dollar-watch --no-verify-jwt
  *
+ * IMPORTANTE — "Verify JWT" debe quedar DESACTIVADO en esta función.
+ *   Por qué: el cron la llama con un header X-Cron-Secret (no manda un JWT de Supabase).
+ *   Si "Verify JWT" está activado, el gateway de Supabase rechaza la llamada con 401
+ *   ANTES de que corra el código (ni siquiera llega a chequear el CRON_SECRET). La auth
+ *   real la hace este código comparando X-Cron-Secret === CRON_SECRET.
+ *   - Por CLI: el flag --no-verify-jwt ya lo deja off.
+ *   - Por Dashboard: Edge Functions → dollar-watch → pestaña "Details" (o el engranaje
+ *     "Function settings") → desactivar "Verify JWT". Mismo motivo que send-push/daily-digest.
+ *
  * Ver README para el SQL de los cron jobs.
  */
 
