@@ -76,8 +76,10 @@ export default function HomeScreen() {
       .reduce((sum, l) => sum + upcomingInterest(l, until), 0);
   }, [derived.activeLoans, derived.overdueLoans]);
 
-  const monthIncome = (derived.months[derived.months.length - 1]?.income ?? 0)
-    + (derived.months[derived.months.length - 1]?.accrued ?? 0);
+  // "Mes actual" = interés devengado + sueldo fijo. No suma las transacciones de ingreso
+  // manuales, para no duplicar el interés si el usuario carga los cobros como ingreso.
+  const monthIncome = (derived.months[derived.months.length - 1]?.accrued ?? 0)
+    + (derived.months[derived.months.length - 1]?.salary ?? 0);
   const monthExpense = derived.months[derived.months.length - 1]?.expense ?? 0;
   const monthDelta = monthIncome - monthExpense;
 
@@ -374,7 +376,7 @@ export default function HomeScreen() {
                   <YAxis hide />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey={(d: { income: number; accrued: number }) => d.income + d.accrued} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
+                  <Bar name="Ingresos" dataKey={(d: { salary: number; accrued: number }) => d.accrued + d.salary} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
                   <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]} />
                 </BarChart>
               )}

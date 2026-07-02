@@ -470,11 +470,11 @@ export function useDerived(state: AppState): Derived {
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
     const now = new Date();
-    const months: { key: string; label: string; income: number; expense: number; capital: number; accrued: number; roi: number }[] = [];
+    const months: { key: string; label: string; income: number; expense: number; capital: number; accrued: number; salary: number; roi: number }[] = [];
     for (let i = BUSINESS_RULES.CHART_HISTORY_MONTHS - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.toISOString().slice(0, 7);
-      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, accrued: 0, roi: 0 });
+      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, accrued: 0, salary: 0, roi: 0 });
     }
     const monthIdx: Record<string, number> = Object.fromEntries(months.map((m, i) => [m.key, i]));
     state.income.forEach((t) => {
@@ -493,7 +493,11 @@ export function useDerived(state: AppState): Derived {
       const todayStr = todayISO();
       const firstMonth = firstActivityISO.slice(0, 7);
       months.forEach((m) => {
-        m.income += salaryForMonth(m.key, fixedAmt, fixedDay, firstMonth, todayStr);
+        // `salary` queda separado (gráfico "Mes actual" = interés + sueldo, sin
+        // transacciones); `income` lo sigue incluyendo para el flujo/balance de Finanzas.
+        const s = salaryForMonth(m.key, fixedAmt, fixedDay, firstMonth, todayStr);
+        m.salary = s;
+        m.income += s;
       });
     }
     loansResolved.forEach((l) => {

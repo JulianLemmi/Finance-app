@@ -297,6 +297,9 @@ export interface MonthData {
   /** Interés devengado en el mes: lo que se le acumuló a la deuda de los clientes
    *  por vencimiento + re-vencimientos, lo paguen o no. Base del ROI histórico. */
   accrued: number;
+  /** Sueldo fijo virtual del mes (ya incluido dentro de `income`). Separado para el
+   *  gráfico "Mes actual", que muestra interés + sueldo sin las transacciones manuales. */
+  salary: number;
   roi: number;
 }
 
