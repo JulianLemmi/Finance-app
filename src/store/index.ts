@@ -509,6 +509,7 @@ export function useDerived(state: AppState): Derived {
       });
     });
     const today = todayISO();
+    const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
       const monthEnd = new Date(yr, mo, 0).toISOString().slice(0, 10);
@@ -529,7 +530,9 @@ export function useDerived(state: AppState): Derived {
       const capitalAtMonth = loansResolved
         .reduce((acc, l) => acc + loanCapitalAt(l, cutoff), 0);
       m.capitalInvested = capitalAtMonth;
-      m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth;
+      // Capital total de la curva: efectivo + invertido + activos (igual que totalCapital
+      // del header). Los activos se suman a todos los meses (no tienen histórico por fecha).
+      m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth + totalAssets;
       // ROI del mes: interés devengado (lo acumulado por vencimientos) sobre el capital
       // desplegado, tomado como base. Refleja el rendimiento real, se cobre o no.
       m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
@@ -537,7 +540,7 @@ export function useDerived(state: AppState): Derived {
       m.monthGain = m.accrued + m.salary;
     });
     return { months };
-  }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings]);
+  }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets]);
 
   // Stage 5: client stats
   const clientStats = useMemo(() =>
