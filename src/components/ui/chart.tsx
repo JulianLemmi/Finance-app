@@ -78,8 +78,16 @@ export function ChartContainer({ className, children }: ChartContainerProps) {
     return () => ro.disconnect();
   }, []);
 
+  // En mobile, al tocar una barra Recharts muestra el tooltip pero no lo cierra al soltar
+  // el dedo (no hay mouseleave). Al terminar el touch forzamos el cierre disparando un
+  // mouseout (React lo traduce a onMouseLeave y Recharts oculta el tooltip).
+  const dismissTooltip = () => {
+    const wrapper = ref.current?.querySelector(".recharts-wrapper");
+    wrapper?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, cancelable: true }));
+  };
+
   return (
-    <div ref={ref} className={className}>
+    <div ref={ref} className={className} onTouchEnd={dismissTooltip} onTouchCancel={dismissTooltip}>
       {size ? children(size) : null}
     </div>
   );
