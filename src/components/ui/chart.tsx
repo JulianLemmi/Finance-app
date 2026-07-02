@@ -1,5 +1,23 @@
 import { useEffect, useState, useRef } from "react";
-import { formatMoney } from "../../lib/utils.js";
+import { formatMoney, formatCompact } from "../../lib/utils.js";
+
+interface BarLabelProps { x?: number | string; y?: number | string; width?: number | string; value?: unknown; }
+
+// Etiqueta compacta encima de una barra, para leer el valor sin tener que tocar el
+// gráfico. Pensada para mobile: fuente chica, valor abreviado. Con hide muestra puntos.
+// Usar como: <LabelList content={makeBarLabel({ hide })} /> dentro de un <Bar>.
+export function makeBarLabel({ hide = false, kind = "money" }: { hide?: boolean; kind?: "money" | "percent" }) {
+  return function BarLabel({ x, y, width, value }: BarLabelProps) {
+    const nx = Number(x) || 0, ny = Number(y) || 0, nw = Number(width) || 0, v = Number(value) || 0;
+    if (!v) return null;
+    const text = kind === "percent" ? (hide ? "••" : `${v.toFixed(1)}%`) : formatCompact(v, hide);
+    return (
+      <text x={nx + nw / 2} y={ny - 4} textAnchor="middle" fontSize={9} fontWeight={600} fill="#d4d4d8">
+        {text}
+      </text>
+    );
+  };
+}
 
 interface TooltipPayloadEntry {
   name?: string;

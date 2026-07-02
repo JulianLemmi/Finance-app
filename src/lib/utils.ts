@@ -58,6 +58,19 @@ export const formatMoney = (value: number | string, hidden = false, currency = "
   return `${sign}${currency}${formatted}`;
 };
 
+// Número compacto para etiquetas de gráficos en mobile (sin símbolo de moneda):
+// 4400 → "4,4k", 5000 → "5k", 384 → "384", 1_200_000 → "1,2M".
+export const formatCompact = (value: number | string, hidden = false): string => {
+  if (hidden) return "••";
+  const n = Number(value || 0);
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  const trim = (x: number) => x.toFixed(1).replace(/\.0$/, "").replace(".", ",");
+  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}${trim(abs / 1_000)}k`;
+  return `${sign}${Math.round(abs)}`;
+};
+
 export const formatDate = (iso: string): string => {
   const d = parseISO(iso);
   if (!d) return "—";

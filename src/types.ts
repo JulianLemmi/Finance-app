@@ -294,12 +294,16 @@ export interface MonthData {
   income: number;
   expense: number;
   capital: number;
+  /** Capital desplegado en préstamos a esa fecha (sin el efectivo). Curva "Capital invertido". */
+  capitalInvested: number;
   /** Interés devengado en el mes: lo que se le acumuló a la deuda de los clientes
    *  por vencimiento + re-vencimientos, lo paguen o no. Base del ROI histórico. */
   accrued: number;
   /** Sueldo fijo virtual del mes (ya incluido dentro de `income`). Separado para el
    *  gráfico "Mes actual", que muestra interés + sueldo sin las transacciones manuales. */
   salary: number;
+  /** Ganancia del mes para el gráfico "Mes actual": `accrued + salary`. */
+  monthGain: number;
   roi: number;
 }
 

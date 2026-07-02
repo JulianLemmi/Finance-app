@@ -470,11 +470,11 @@ export function useDerived(state: AppState): Derived {
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
     const now = new Date();
-    const months: { key: string; label: string; income: number; expense: number; capital: number; accrued: number; salary: number; roi: number }[] = [];
+    const months: { key: string; label: string; income: number; expense: number; capital: number; capitalInvested: number; accrued: number; salary: number; monthGain: number; roi: number }[] = [];
     for (let i = BUSINESS_RULES.CHART_HISTORY_MONTHS - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.toISOString().slice(0, 7);
-      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, accrued: 0, salary: 0, roi: 0 });
+      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, capitalInvested: 0, accrued: 0, salary: 0, monthGain: 0, roi: 0 });
     }
     const monthIdx: Record<string, number> = Object.fromEntries(months.map((m, i) => [m.key, i]));
     state.income.forEach((t) => {
@@ -528,10 +528,13 @@ export function useDerived(state: AppState): Derived {
       // re-vencimientos acumulados a esa fecha (no sólo el principal prestado).
       const capitalAtMonth = loansResolved
         .reduce((acc, l) => acc + loanCapitalAt(l, cutoff), 0);
+      m.capitalInvested = capitalAtMonth;
       m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth;
       // ROI del mes: interés devengado (lo acumulado por vencimientos) sobre el capital
       // desplegado, tomado como base. Refleja el rendimiento real, se cobre o no.
       m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
+      // Ganancia del mes para el gráfico "Mes actual": interés devengado + sueldo fijo.
+      m.monthGain = m.accrued + m.salary;
     });
     return { months };
   }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings]);

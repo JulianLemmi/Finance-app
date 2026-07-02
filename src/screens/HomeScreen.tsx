@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp, Wallet,
-  Briefcase, Activity, CalendarClock, ArrowDown, ChevronRight, ChevronDown, CheckCircle2, Search,
+  Briefcase, Activity, CalendarClock, ChevronRight, ChevronDown, CheckCircle2, Search,
   Banknote, Sun,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate, addDays, todayISO } from "../lib/utils.js";
@@ -14,9 +14,9 @@ import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, StatCard, ChartTooltip,
-  DeltaPill, Badge, IconButton, ChartContainer,
+  DeltaPill, Badge, IconButton, ChartContainer, makeBarLabel,
 } from "../components/ui.jsx";
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LabelList } from "recharts";
 import DolarBlue from "../components/DolarBlue.jsx";
 import type { ResolvedLoan } from "../types";
 
@@ -59,7 +59,6 @@ export default function HomeScreen() {
   const cur = state.settings.currency;
 
   const [showUpcoming, setShowUpcoming] = useState(true);
-  const [showHistory, setShowHistory] = useState(true);
   const [quickPayLoan, setQuickPayLoan] = useState<ResolvedLoan | null>(null);
 
   const hasAnyData = state.loans.length > 0 || state.clients.length > 0
@@ -340,21 +339,16 @@ export default function HomeScreen() {
             </div>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
-                <AreaChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="capitalFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART_COLORS.capital as string} stopOpacity={0.45} />
-                      <stop offset="100%" stopColor={CHART_COLORS.capital as string} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 4, left: 0, bottom: 0 }} barCategoryGap="26%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                  <YAxis hide />
-                  <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeDasharray: "3 3" }}
+                  <YAxis hide domain={[0, "auto"]} />
+                  <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Area type="monotone" name="Capital" dataKey="capital"
-                    stroke={CHART_COLORS.capitalStroke as string} strokeWidth={2} fill="url(#capitalFill)" />
-                </AreaChart>
+                  <Bar name="Capital" dataKey="capital" fill={CHART_COLORS.capitalStroke as string} radius={[4, 4, 0, 0]}>
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
+                </BarChart>
               )}
             </ChartContainer>
           </Card>
@@ -370,19 +364,50 @@ export default function HomeScreen() {
             </div>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 4, left: 0, bottom: 0 }} barCategoryGap="26%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                  <YAxis hide />
+                  <YAxis hide domain={[0, "auto"]} />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey={(d: { salary: number; accrued: number }) => d.accrued + d.salary} fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
-                  <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]} />
+                  <Bar name="Ingresos" dataKey="monthGain" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]}>
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
+                  <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]}>
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
                 </BarChart>
               )}
             </ChartContainer>
           </Card>
         </div>
+
+        {/* Capital invertido */}
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Capital invertido</div>
+              <div className="mt-0.5 text-lg font-semibold tracking-tight text-white">
+                <Money value={derived.capitalInvested} hide={hide} currency={cur} />
+              </div>
+            </div>
+            <Badge tone="bronze">Últimos {BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</Badge>
+          </div>
+          <ChartContainer className="h-44 min-w-0">
+            {({ width, height }) => (
+              <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 4, left: 0, bottom: 0 }} barCategoryGap="26%">
+                <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                <YAxis hide domain={[0, "auto"]} />
+                <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
+                  content={<ChartTooltip hide={hide} currency={cur} />} />
+                <Bar name="Invertido" dataKey="capitalInvested" fill={CHART_COLORS.capital as string} radius={[4, 4, 0, 0]}>
+                  <LabelList content={makeBarLabel({ hide })} />
+                </Bar>
+              </BarChart>
+            )}
+          </ChartContainer>
+        </Card>
 
         {/* Upcoming */}
         <div>
@@ -444,43 +469,6 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        {/* History */}
-        {state.history.length > 0 && (
-          <div>
-            <SectionTitle action={
-              <button onClick={() => setShowHistory((v) => !v)}
-                className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-300">
-                <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${showHistory ? "" : "-rotate-180"}`} />
-              </button>
-            }>
-              Actividad reciente
-            </SectionTitle>
-            <div style={{ display: "grid", gridTemplateRows: showHistory ? "1fr" : "0fr", transition: "grid-template-rows 300ms ease", overflow: "hidden" }}>
-              <div style={{ minHeight: 0 }}>
-                <Card className="divide-y divide-zinc-800/70">
-                  {state.history.slice(0, UI_LIMITS.HISTORY_HOME_MAX).map((h) => (
-                    <div key={h.id} className="flex items-center justify-between px-4 py-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">
-                          {h.kind === "loan_created"
-                            ? <Plus className="h-4 w-4 text-zinc-400" />
-                            : <ArrowDown className="h-4 w-4 text-emerald-400" />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm text-zinc-200">{h.label}</div>
-                          <div className="text-[11px] text-zinc-500">{h.date}</div>
-                        </div>
-                      </div>
-                      <div className="text-sm font-medium tabular-nums text-zinc-100">
-                        <Money value={h.amount} hide={hide} currency={cur} />
-                      </div>
-                    </div>
-                  ))}
-                </Card>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {quickPayLoan && (

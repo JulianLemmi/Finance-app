@@ -10,10 +10,10 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, 
 import { calcProjection, interestAccruals } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
-  Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer,
+  Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer, makeBarLabel,
 } from "../components/ui.jsx";
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
-import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, LabelList } from "recharts";
 import type { Transaction, Asset } from "../types";
 
 interface TooltipPayload {
@@ -245,13 +245,17 @@ export default function FinanceScreen() {
             </div>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="28%">
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 4, left: 0, bottom: 0 }} barCategoryGap="26%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                  <YAxis hide />
+                  <YAxis hide domain={[0, "auto"]} />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }} content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Ingresos" dataKey="income" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]} />
-                  <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]} />
+                  <Bar name="Ingresos" dataKey="income" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]}>
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
+                  <Bar name="Gastos" dataKey="expense" fill={CHART_COLORS.expense as string} radius={[4, 4, 0, 0]}>
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
                 </BarChart>
               )}
             </ChartContainer>
@@ -432,15 +436,15 @@ export default function FinanceScreen() {
             ) : (
               <ChartContainer className="h-44 min-w-0">
                 {({ width, height }) => (
-                  <LineChart width={width} height={height} data={derived.months} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 8, left: 0, bottom: 0 }} barCategoryGap="26%">
                     <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                     <YAxis hide domain={[0, "auto"]} />
-                    <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeDasharray: "3 3" }} content={<RoiTooltip />} />
-                    <Line type="monotone" dataKey="roi" stroke={CHART_COLORS.gainStroke as string} strokeWidth={2.5}
-                      dot={{ r: 3, fill: CHART_COLORS.gainStroke as string, stroke: "#0a0a0b", strokeWidth: 2 }}
-                      activeDot={{ r: 5, fill: CHART_COLORS.gainStroke as string, stroke: "#0a0a0b", strokeWidth: 2 }} />
-                  </LineChart>
+                    <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }} content={<RoiTooltip />} />
+                    <Bar dataKey="roi" fill={CHART_COLORS.gainStroke as string} radius={[4, 4, 0, 0]}>
+                      <LabelList content={makeBarLabel({ kind: "percent" })} />
+                    </Bar>
+                  </BarChart>
                 )}
               </ChartContainer>
             )}

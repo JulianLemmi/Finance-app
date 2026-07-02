@@ -1,11 +1,11 @@
 // Listado de todos los préstamos con filtro por estado y búsqueda de texto.
 // Cada préstamo muestra deuda restante, progreso de pago y próximo vencimiento.
 import { useState, useMemo } from "react";
-import { Plus, Search, Wallet, CalendarClock, Calendar } from "lucide-react";
+import { Plus, Search, Wallet, CalendarClock, Calendar, ArrowDown, ChevronDown } from "lucide-react";
 import { useApp } from "../store/index.js";
-import { GUARANTY_TYPES } from "../lib/constants.js";
+import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
 import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
-import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge } from "../components/ui.jsx";
+import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card } from "../components/ui.jsx";
 import type { ResolvedLoan, LoanStatus } from "../types";
 
 interface LoanCardProps {
@@ -96,9 +96,12 @@ function LoanCard({ loan, onOpen }: LoanCardProps) {
 type FilterValue = LoanStatus | "all";
 
 export default function LoansScreen() {
-  const { dispatch, derived } = useApp();
+  const { state, dispatch, derived } = useApp();
   const [filter, setFilter] = useState<FilterValue>("all");
   const [query, setQuery] = useState("");
+  const [showHistory, setShowHistory] = useState(true);
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
 
   const filters: { v: FilterValue; l: string; n: number }[] = [
     { v: "all", l: "Todos", n: derived.loansResolved.length },
@@ -192,6 +195,44 @@ export default function LoansScreen() {
             <LoanCard key={l.id} loan={l}
               onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id } } })} />
           ))}
+        </div>
+      )}
+
+      {/* Actividad reciente */}
+      {state.history.length > 0 && (
+        <div>
+          <SectionTitle action={
+            <button onClick={() => setShowHistory((v) => !v)}
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800/70 hover:text-zinc-300">
+              <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${showHistory ? "" : "-rotate-180"}`} />
+            </button>
+          }>
+            Actividad reciente
+          </SectionTitle>
+          <div style={{ display: "grid", gridTemplateRows: showHistory ? "1fr" : "0fr", transition: "grid-template-rows 300ms ease", overflow: "hidden" }}>
+            <div style={{ minHeight: 0 }}>
+              <Card className="divide-y divide-zinc-800/70">
+                {state.history.slice(0, UI_LIMITS.HISTORY_HOME_MAX).map((h) => (
+                  <div key={h.id} className="flex items-center justify-between px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">
+                        {h.kind === "loan_created"
+                          ? <Plus className="h-4 w-4 text-zinc-400" />
+                          : <ArrowDown className="h-4 w-4 text-emerald-400" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm text-zinc-200">{h.label}</div>
+                        <div className="text-[11px] text-zinc-500">{h.date}</div>
+                      </div>
+                    </div>
+                    <div className="text-sm font-medium tabular-nums text-zinc-100">
+                      <Money value={h.amount} hide={hide} currency={cur} />
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          </div>
         </div>
       )}
     </div>
