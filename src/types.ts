@@ -123,12 +123,23 @@ export interface PrepCost {
   amount: number;
 }
 
+export interface AssetPayment {
+  id: string;
+  amount: number;
+  date: ISODate;
+  note?: string;
+}
+
 export interface Asset {
   id: string;
   name?: string;
   category: AssetCategory;
   description: string;
   value: number;
+  /** Cuotas pagadas si el activo se financia. Cada cuota suma al `value` (equity). */
+  installments?: AssetPayment[];
+  /** Cantidad total de cuotas del plan, para mostrar progreso "X de Y" (opcional). */
+  totalCuotas?: number;
 }
 
 export interface Car {

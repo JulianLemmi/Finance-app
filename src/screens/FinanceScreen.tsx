@@ -119,7 +119,13 @@ function AssetCard({ asset, onOpen }: AssetCardProps) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-zinc-100">{asset.name}</div>
-        {asset.description && <div className="mt-0.5 truncate text-[11px] text-zinc-500">{asset.description}</div>}
+        {asset.installments?.length ? (
+          <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+            {asset.installments.length}{asset.totalCuotas ? `/${asset.totalCuotas}` : ""} cuotas
+          </div>
+        ) : asset.description ? (
+          <div className="mt-0.5 truncate text-[11px] text-zinc-500">{asset.description}</div>
+        ) : null}
       </div>
       <div className="text-right">
         <div className="text-sm font-semibold tabular-nums text-zinc-100">
