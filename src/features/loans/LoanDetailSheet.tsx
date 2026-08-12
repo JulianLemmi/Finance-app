@@ -4,9 +4,9 @@
 import { useState, useMemo } from "react";
 import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
-  MessageSquare, Plus, X,
+  MessageSquare, Plus, X, Users, Car as CarIcon,
 } from "lucide-react";
-import { todayISO, addDays, formatDate, formatShortDate, daysBetween, getNextRenewalDate } from "../../lib/utils.js";
+import { todayISO, addDays, formatDate, formatShortDate, daysBetween, getNextRenewalDate, formatInterest, myShare, formatMoney } from "../../lib/utils.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
@@ -47,6 +47,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   const [contactNote, setContactNote] = useState("");
   const [contactDate, setContactDate] = useState(() => todayISO());
   const [showContactForm, setShowContactForm] = useState(false);
+
+  const [parkingAmount, setParkingAmount] = useState("");
+  const [parkingDate, setParkingDate] = useState(() => todayISO());
+  const [parkingNote, setParkingNote] = useState("");
+  const [showParkingForm, setShowParkingForm] = useState(false);
 
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
@@ -146,6 +151,29 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
   const G = GUARANTY_TYPES[loan.guarantyType as keyof typeof GUARANTY_TYPES] || GUARANTY_TYPES.other;
 
+  const parkingFee = Number(loan.parkingFee || 0);
+  const parkingActive = parkingFee > 0;
+  const parkingMonthsAccrued = parkingActive
+    ? Math.max(1, 1 + Math.floor(Math.max(0, daysBetween(loan.startDate, todayISO())) / 30))
+    : 0;
+  const parkingAccrued = parkingFee * parkingMonthsAccrued;
+  const parkingCollected = (loan.parkingPayments || []).reduce((a, p) => a + Number(p.amount || 0), 0);
+  const parkingPending = Math.max(0, parkingAccrued - parkingCollected);
+
+  const addParkingPayment = () => {
+    const amount = Number(parkingAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    dispatch({
+      type: "ADD_PARKING_PAYMENT",
+      payload: {
+        loanId: loan.id,
+        payment: { id: uid("pkg"), amount, date: parkingDate, note: parkingNote.trim() || undefined, createdAt: Date.now() },
+      },
+    });
+    setParkingAmount(""); setParkingNote(""); setParkingDate(todayISO());
+    setShowParkingForm(false);
+  };
+
   const addContact = () => {
     if (!contactNote.trim()) return;
     dispatch({
@@ -188,8 +216,16 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
         <div className="space-y-5">
           {/* Summary card */}
           <div className="fa-grain relative overflow-hidden rounded-2xl border border-zinc-800/70 bg-gradient-to-b from-zinc-900/60 to-zinc-950 p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <StatusBadge status={loan._status} />
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={loan._status} />
+                {loan.sharedWith && (
+                  <Badge tone="info">
+                    <Users className="h-3 w-3" />
+                    {loan.sharedWith} · mío {Math.round(myShare(loan) * 100)}%
+                  </Badge>
+                )}
+              </div>
               <Badge tone="bronze">
                 <G.Icon className="h-3 w-3" />
                 {G.label}
@@ -245,7 +281,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
             {[
               { label: "Capital inicial", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
               { label: "Próx. ganancia", value: <Money value={loan._nextProfit} hide={hide} currency={cur} />, cls: "text-emerald-400" },
-              { label: "Interés", value: `${Number(loan.interestRate).toFixed(1)}%`, cls: "text-zinc-100" },
+              { label: "Interés", value: formatInterest(loan, cur), cls: "text-zinc-100" },
               { label: "Vence", value: formatDate(nextDueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
             ].map(({ label, value, cls }) => (
               <Card key={label} className="p-3">
@@ -254,6 +290,139 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               </Card>
             ))}
           </div>
+
+          {/* ── Tu parte (préstamo compartido) ── */}
+          {loan.sharedWith && (
+            <div className="rounded-2xl border border-blue-900/30 bg-blue-950/15 p-4">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-blue-300/80">
+                <Users className="h-3 w-3" />
+                Tu parte ({Math.round(myShare(loan) * 100)}%)
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div>
+                  <div className="text-zinc-500 text-xs">Tu capital</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-zinc-100">
+                    <Money value={Number(loan.amount) * myShare(loan)} hide={hide} currency={cur} />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 text-xs">Tu ganancia esperada</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-emerald-400">
+                    <Money value={loan._profit * myShare(loan)} hide={hide} currency={cur} />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 text-xs">Cobrado tuyo</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-zinc-100">
+                    <Money value={loan._paid * myShare(loan)} hide={hide} currency={cur} />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 text-xs">Deuda pendiente tuya</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-zinc-100">
+                    <Money value={loan._remaining * myShare(loan)} hide={hide} currency={cur} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Estacionamiento ── */}
+          {parkingActive && (
+            <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-400">
+                  <CarIcon className="h-3 w-3" />
+                  Estacionamiento
+                  {loan.parkingRecipient && (
+                    <span className="normal-case tracking-normal text-zinc-500">
+                      · para {loan.parkingRecipient}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setShowParkingForm((v) => !v); setParkingAmount(String(parkingFee)); setParkingNote(""); setParkingDate(todayISO()); }}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                >
+                  {showParkingForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                  {showParkingForm ? "Cancelar" : "Registrar cobro"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div>
+                  <div className="text-zinc-500 text-xs">Cargo mensual</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-zinc-100">
+                    {formatMoney(parkingFee, hide, cur)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 text-xs">Devengado ({parkingMonthsAccrued}m)</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-zinc-100">
+                    {formatMoney(parkingAccrued, hide, cur)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 text-xs">Cobrado</div>
+                  <div className="mt-0.5 font-semibold tabular-nums text-emerald-400">
+                    {formatMoney(parkingCollected, hide, cur)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 text-xs">Pendiente</div>
+                  <div className={`mt-0.5 font-semibold tabular-nums ${parkingPending > 0 ? "text-amber-400" : "text-zinc-500"}`}>
+                    {formatMoney(parkingPending, hide, cur)}
+                  </div>
+                </div>
+              </div>
+              {showParkingForm && (
+                <div className="space-y-2 rounded-xl border border-zinc-800/70 bg-zinc-950/50 p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input label="Monto" type="number" inputMode="decimal" Icon={Banknote}
+                      value={parkingAmount}
+                      onChange={(e) => setParkingAmount(e.target.value)} />
+                    <Input label="Fecha" type="date" Icon={Calendar}
+                      value={parkingDate}
+                      onChange={(e) => setParkingDate(e.target.value)} />
+                  </div>
+                  <input
+                    placeholder="Nota (opcional)"
+                    value={parkingNote}
+                    onChange={(e) => setParkingNote(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700/40 bg-zinc-800/40 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-amber-700/60 focus:ring-1 focus:ring-amber-700/40"
+                  />
+                  <div className="flex justify-end">
+                    <Button variant="bronze" size="sm" onClick={addParkingPayment} disabled={!(Number(parkingAmount) > 0)}>
+                      Guardar cobro
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {(loan.parkingPayments || []).length > 0 && (
+                <div className="divide-y divide-zinc-800/60 rounded-xl border border-zinc-800/60 bg-zinc-950/40">
+                  {[...(loan.parkingPayments || [])]
+                    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+                    .map((p) => (
+                      <div key={p.id} className="group flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium tabular-nums text-zinc-200">
+                            {formatMoney(Number(p.amount), hide, cur)}
+                          </div>
+                          <div className="text-[11px] text-zinc-500">
+                            {formatShortDate(p.date)}{p.note ? ` · ${p.note}` : ""}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => dispatch({ type: "DELETE_PARKING_PAYMENT", payload: { loanId: loan.id, paymentId: p.id ?? "" } })}
+                          className="hidden shrink-0 rounded-lg p-1 text-zinc-600 transition-colors hover:text-rose-400 group-hover:block"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <LoanTimeline loan={loan} currentCompoundPeriods={currentCompoundPeriods} loanTermDays={loanTermDays} />
 

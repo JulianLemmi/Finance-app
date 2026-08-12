@@ -106,3 +106,18 @@ export const getMonthLabel = (iso: string): string => {
   if (!d) return iso;
   return d.toLocaleDateString("es-AR", { month: "short" });
 };
+
+// Etiqueta corta del interés de un préstamo: "8.0%" en modo tasa, "$50k fijo" en modo monto fijo.
+export function formatInterest(loan: Pick<Loan, "interestMode" | "interestRate" | "fixedInterest">, currency = "$"): string {
+  if (loan.interestMode === "fixed") {
+    return `${formatMoney(Number(loan.fixedInterest || 0), false, currency)} fijo`;
+  }
+  return `${Number(loan.interestRate || 0).toFixed(1)}%`;
+}
+
+// Mi parte (fracción 0-1) de un préstamo compartido. Sin campo o 100 → 1 (todo mío).
+export function myShare(loan: Pick<Loan, "myPercent">): number {
+  const pct = Number(loan.myPercent);
+  if (!Number.isFinite(pct) || pct <= 0) return 1;
+  return Math.min(1, pct / 100);
+}

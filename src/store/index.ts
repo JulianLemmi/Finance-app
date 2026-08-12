@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, stripComputed } from "../lib/utils.js";
+import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, stripComputed, myShare } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -138,6 +138,31 @@ export function reducer(state: AppState, action: AppAction): AppState {
           },
           ...state.history,
         ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
+      };
+    }
+    case "ADD_PARKING_PAYMENT": {
+      const { loanId, payment } = action.payload;
+      const amount = Number(payment?.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        console.warn("[ADD_PARKING_PAYMENT] invalid payment — rejected", { loanId, amount });
+        return state;
+      }
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          return { ...l, parkingPayments: [...(l.parkingPayments || []), payment] };
+        }),
+      };
+    }
+    case "DELETE_PARKING_PAYMENT": {
+      const { loanId, paymentId } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          return { ...l, parkingPayments: (l.parkingPayments || []).filter((p) => p.id !== paymentId) };
+        }),
       };
     }
     case "ADD_CLIENT": {
@@ -299,27 +324,29 @@ export function useDerived(state: AppState): Derived {
     // devengado (_remaining), así que ese monto entero cuenta como capital realizado.
     // En los activos es el principal prestado, pero acotado a la deuda que aún queda
     // (min): si ya se cobró más que el interés y se comió principal, el capital baja.
-    // Resultado: capitalInvested + expectedProfitTotal = deuda real en todos los casos.
+    // En préstamos compartidos se prorratea por `myShare` (0-1): mi capital, mi ganancia,
+    // mis pagos. Los números "brutos" (_paid, _remaining, etc.) quedan intactos para la UI
+    // del detalle; el share sólo aplica a las métricas globales agregadas.
     const capitalInvested = deployed.reduce(
-      (a, l) => a + (l._status === "overdue" ? l._remaining : Math.min(l._remaining, Number(l.amount))),
+      (a, l) => a + myShare(l) * (l._status === "overdue" ? l._remaining : Math.min(l._remaining, Number(l.amount))),
       0
     );
     // Ganancia esperada (aún no realizada): sólo de los activos. En los vencidos el
     // interés ya se capitalizó dentro de capitalInvested, así que no se vuelve a sumar.
     const expectedProfitTotal = deployed.reduce(
-      (a, l) => a + (l._status === "overdue" ? 0 : Math.max(0, l._remaining - Number(l.amount))),
+      (a, l) => a + myShare(l) * (l._status === "overdue" ? 0 : Math.max(0, l._remaining - Number(l.amount))),
       0
     );
     // Ganancia que se cobraría en el próximo período de cada préstamo (lo que muestra cada card).
-    const nextProfitTotal = deployed.reduce((a, l) => a + l._nextProfit, 0);
-    const totalExpectedProfit = loansResolved.reduce((a, l) => a + l._profit, 0);
-    const accumulatedProfit = paidLoans.reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
+    const nextProfitTotal = deployed.reduce((a, l) => a + myShare(l) * l._nextProfit, 0);
+    const totalExpectedProfit = loansResolved.reduce((a, l) => a + myShare(l) * l._profit, 0);
+    const accumulatedProfit = paidLoans.reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0);
     const incomeTransactions = state.income.reduce((a, t) => a + Number(t.amount), 0);
     const totalExpense = state.expenses.reduce((a, t) => a + Number(t.amount), 0);
-    const collected = loansResolved.reduce((a, l) => a + l._paid, 0);
+    const collected = loansResolved.reduce((a, l) => a + myShare(l) * l._paid, 0);
     const totalDisbursed = loansResolved
       .filter((l) => !l.refinancedFromId)
-      .reduce((a, l) => a + Number(l.amount), 0);
+      .reduce((a, l) => a + myShare(l) * Number(l.amount), 0);
     const available = Number(state.settings.cashOnHand || 0);
     const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
     const workingCapital = available + capitalInvested;
@@ -339,11 +366,11 @@ export function useDerived(state: AppState): Derived {
     const monthlyInterestsCollected = loansResolved.reduce((a, l) => {
       const monthPayments = (l.payments || []).filter((p) => monthKey(p.date) === thisMonth);
       const margin = l._return > 0 ? l._profit / l._return : 0;
-      return a + monthPayments.reduce((s, p) => s + Number(p.amount), 0) * margin;
+      return a + myShare(l) * monthPayments.reduce((s, p) => s + Number(p.amount), 0) * margin;
     }, 0);
 
     const collectedThisMonth = loansResolved.reduce((a, l) =>
-      a + (l.payments || [])
+      a + myShare(l) * (l.payments || [])
         .filter((p) => monthKey(p.date) === thisMonth)
         .reduce((s, p) => s + Number(p.amount), 0),
     0);
@@ -363,17 +390,17 @@ export function useDerived(state: AppState): Derived {
         const next = getNextRenewalDate(l);
         return next && next <= horizon;
       })
-      .reduce((a, l) => a + l._remaining, 0);
+      .reduce((a, l) => a + myShare(l) * l._remaining, 0);
     const expectedInflow30d =
       activeLoans
         .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30)
-        .reduce((a, l) => a + l._remaining, 0) + overdueRenewalsInWindow;
+        .reduce((a, l) => a + myShare(l) * l._remaining, 0) + overdueRenewalsInWindow;
 
     const expectedMonthlyProfit = activeLoans
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30 && l._daysUntilDue >= 0)
       .reduce((a, l) => {
         const profitRatio = l._return > 0 ? l._profit / l._return : 0;
-        return a + l._remaining * profitRatio;
+        return a + myShare(l) * l._remaining * profitRatio;
       }, 0);
 
     const monthlyReturnPct = totalCapital > 0 ? (expectedMonthlyProfit / totalCapital) * 100 : 0;
@@ -448,7 +475,7 @@ export function useDerived(state: AppState): Derived {
       return {
         day: i,
         date: dateStr,
-        expected: dueLoans.reduce((a, l) => a + l._remaining, 0),
+        expected: dueLoans.reduce((a, l) => a + myShare(l) * l._remaining, 0),
         count: dueLoans.length,
         label: i === 0 ? "Hoy" : i % 7 === 0 ? `+${i}d` : "",
       };
@@ -503,9 +530,11 @@ export function useDerived(state: AppState): Derived {
     loansResolved.forEach((l) => {
       // accrued: interés devengado por vencimiento/re-vencimiento, lo paguen o no.
       // Es el rendimiento económico real del mes y alimenta el ROI histórico.
+      // Prorrateado por mi share en préstamos compartidos.
+      const share = myShare(l);
       interestAccruals(l).forEach((ev) => {
         const i = monthIdx[monthKey(ev.date)];
-        if (i !== undefined) months[i].accrued += ev.amount;
+        if (i !== undefined) months[i].accrued += share * ev.amount;
       });
     });
     const today = todayISO();
@@ -524,11 +553,11 @@ export function useDerived(state: AppState): Derived {
             .reduce((s, p) => s + Number(p.amount), 0);
           return paidUpTo < expectedReturn(l);
         })
-        .reduce((acc, l) => acc + Number(l.amount), 0);
+        .reduce((acc, l) => acc + myShare(l) * Number(l.amount), 0);
       // Capital de la curva: incluye el interés capitalizado por vencimientos y
       // re-vencimientos acumulados a esa fecha (no sólo el principal prestado).
       const capitalAtMonth = loansResolved
-        .reduce((acc, l) => acc + loanCapitalAt(l, cutoff), 0);
+        .reduce((acc, l) => acc + myShare(l) * loanCapitalAt(l, cutoff), 0);
       m.capitalInvested = capitalAtMonth;
       // Capital total de la curva: efectivo + invertido + activos (igual que totalCapital
       // del header). Los activos se suman a todos los meses (no tienen histórico por fecha).
@@ -547,10 +576,12 @@ export function useDerived(state: AppState): Derived {
     state.clients.map((c) => {
       const cLoans = loansResolved.filter((l) => l.clientId === c.id);
       const active = cLoans.filter((l) => l._status === "active" || l._status === "overdue");
-      const debt = active.reduce((a, l) => a + l._remaining, 0);
+      // La deuda del cliente y las ganancias generadas se prorratean por mi share:
+      // reflejan mi exposición y mi ganancia, no la deuda total del cliente.
+      const debt = active.reduce((a, l) => a + myShare(l) * l._remaining, 0);
       const totalGenerated = cLoans
         .filter((l) => l._status === "paid")
-        .reduce((a, l) => a + (l._paid - Number(l.amount)), 0);
+        .reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0);
       const overdueCount = cLoans.filter((l) => l._status === "overdue").length;
       return { ...c, _loans: cLoans, _active: active, _debt: debt, _totalGenerated: totalGenerated, _overdueCount: overdueCount };
     }),

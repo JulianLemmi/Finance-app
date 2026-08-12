@@ -7,7 +7,7 @@ import {
   Briefcase, Activity, CalendarClock, ChevronRight, ChevronDown, CheckCircle2, Search,
   Banknote, Sun,
 } from "lucide-react";
-import { formatShortDate, getNextRenewalDate, addDays, todayISO } from "../lib/utils.js";
+import { formatShortDate, getNextRenewalDate, addDays, todayISO, formatInterest } from "../lib/utils.js";
 import { upcomingInterest } from "../lib/calcs.js";
 import { UI_LIMITS, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import PaymentSheet from "../features/loans/PaymentSheet.jsx";
@@ -277,7 +277,7 @@ export default function HomeScreen() {
                       </span>
                     </div>
                     <div className="mt-0.5 text-[11px] text-zinc-500">
-                      {formatShortDate(l.dueDate)} · {Number(l.interestRate).toFixed(1)}%
+                      {formatShortDate(l.dueDate)} · {formatInterest(l, state.settings.currency)}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -457,7 +457,7 @@ export default function HomeScreen() {
                           <div className="text-sm font-semibold tabular-nums text-zinc-100">
                             <Money value={l._remaining} hide={hide} currency={cur} />
                           </div>
-                          <div className="text-[11px] text-zinc-500 tabular-nums">{Number(l.interestRate).toFixed(1)}%</div>
+                          <div className="text-[11px] text-zinc-500 tabular-nums">{formatInterest(l, cur)}</div>
                         </div>
                         <ChevronRight className="h-4 w-4 text-zinc-600" />
                       </div>

@@ -4,8 +4,10 @@ import { useState, useMemo } from "react";
 import { Plus, Search, Wallet, CalendarClock, Calendar, ArrowDown, ChevronDown } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
-import { formatShortDate, getNextRenewalDate } from "../lib/utils.js";
-import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card } from "../components/ui.jsx";
+import { formatShortDate, getNextRenewalDate, formatInterest } from "../lib/utils.js";
+import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card, Badge } from "../components/ui.jsx";
+import { Users } from "lucide-react";
+import { myShare } from "../lib/utils.js";
 import type { ResolvedLoan, LoanStatus } from "../types";
 
 interface LoanCardProps {
@@ -44,9 +46,15 @@ function LoanCard({ loan, onOpen }: LoanCardProps) {
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-sm font-medium text-zinc-100">{loan.clientName}</span>
             <StatusBadge status={loan._status} />
+            {loan.sharedWith && (
+              <Badge tone="info">
+                <Users className="h-3 w-3" />
+                {Math.round(myShare(loan) * 100)}%
+              </Badge>
+            )}
           </div>
           {loan.alias && <div className="mt-0.5 truncate text-xs text-zinc-500">{loan.alias}</div>}
         </div>
@@ -54,7 +62,7 @@ function LoanCard({ loan, onOpen }: LoanCardProps) {
           <div className="text-sm font-semibold tracking-tight text-zinc-100 tabular-nums">
             <Money value={loan._remaining} hide={state.settings.hideBalances} currency={state.settings.currency} />
           </div>
-          <div className="mt-0.5 text-[11px] text-zinc-500 tabular-nums">{Number(loan.interestRate).toFixed(1)}%</div>
+          <div className="mt-0.5 text-[11px] text-zinc-500 tabular-nums">{formatInterest(loan, state.settings.currency)}</div>
         </div>
       </div>
       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-600">

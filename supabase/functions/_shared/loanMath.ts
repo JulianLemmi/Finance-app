@@ -22,6 +22,9 @@ export type Loan = {
   clientName?: string;
   amount?: number;
   interestRate?: number;
+  /** "percent" (default) usa interestRate; "fixed" usa fixedInterest. */
+  interestMode?: "percent" | "fixed";
+  fixedInterest?: number;
   startDate?: string;
   dueDate?: string;
   status?: string;
@@ -65,7 +68,14 @@ export function getNextRenewalDate(loan: Loan, today: string): string | null {
   return addDays(loan.dueDate, (periods + 1) * term);
 }
 
+/** Interés que se agrega en un período dado. Fijo: constante (fixedInterest). */
+function periodInterest(loan: Loan, balance: number): number {
+  if (loan.interestMode === "fixed") return Number(loan.fixedInterest ?? 0);
+  return balance * (Number(loan.interestRate ?? 0) / 100);
+}
+
 export function expectedProfit(loan: Loan): number {
+  if (loan.interestMode === "fixed") return Number(loan.fixedInterest ?? 0);
   return (Number(loan.amount ?? 0) * Number(loan.interestRate ?? 0)) / 100;
 }
 
@@ -105,7 +115,7 @@ export function remainingDebt(loan: Loan, today: string): number {
     return Math.max(0, expectedReturn(loan) - paidAmount(loan));
   }
 
-  const { overduePeriods, termDays, rate } = meta;
+  const { overduePeriods, termDays } = meta;
   const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, termDays, loan.dueDate!);
 
   let balance = expectedReturn(loan);
@@ -113,7 +123,7 @@ export function remainingDebt(loan: Loan, today: string): number {
     balance = Math.max(0, balance - Number(p.amount ?? 0));
   });
   for (let i = 1; i <= overduePeriods; i++) {
-    if (balance > 0) balance *= 1 + rate;
+    if (balance > 0) balance += periodInterest(loan, balance);
     payments.filter((p) => getPos(p) === i).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount ?? 0));
     });

@@ -48,6 +48,8 @@ export interface Contact {
   createdAt?: number;
 }
 
+export type InterestMode = "percent" | "fixed";
+
 export interface Loan {
   id: string;
   clientId: string;
@@ -55,6 +57,23 @@ export interface Loan {
   alias?: string;
   amount: number;
   interestRate: number;
+  /** Modo de cálculo del interés. Default: "percent" (usa `interestRate`).
+   *  "fixed" ignora la tasa y cobra `fixedInterest` por período. */
+  interestMode?: InterestMode;
+  /** Monto fijo por período cuando `interestMode === "fixed"`. La mora suma otro
+   *  `fixedInterest` por cada ciclo vencido (no capitaliza sobre sí mismo). */
+  fixedInterest?: number;
+  /** Socio con quien se comparte el préstamo (ej: "Papá"). Sin valor → 100% mío. */
+  sharedWith?: string;
+  /** Mi porcentaje del préstamo (0-100). Todo (capital, ganancia, pagos) se prorratea
+   *  por este valor en las métricas globales. Ausente o ≥100 → todo mío. */
+  myPercent?: number;
+  /** Cargo mensual de estacionamiento (para autos). No entra en las métricas del préstamo. */
+  parkingFee?: number;
+  /** Quién cobra el estacionamiento (ej: "Papá"). Informativo. */
+  parkingRecipient?: string;
+  /** Cobros del estacionamiento, separados de los pagos del préstamo. */
+  parkingPayments?: Payment[];
   startDate: ISODate;
   dueDate: ISODate;
   paymentType: PaymentType;
@@ -243,6 +262,8 @@ export type AppAction =
   | { type: "ADD_CONTACT"; payload: { loanId: string; contact: Contact } }
   | { type: "DELETE_CONTACT"; payload: { loanId: string; contactId: string } }
   | { type: "ADD_PAYMENT"; payload: { loanId: string; payment: Payment } }
+  | { type: "ADD_PARKING_PAYMENT"; payload: { loanId: string; payment: Payment } }
+  | { type: "DELETE_PARKING_PAYMENT"; payload: { loanId: string; paymentId: string } }
   | {
       type: "ADD_CLIENT";
       payload: Omit<Client, "id" | "createdAt" | "riskLevel"> &

@@ -2,7 +2,7 @@
 // Si la cadena tiene un solo elemento no renderiza nada. Cada item abre el
 // detalle del préstamo correspondiente al hacer click.
 import { Layers, ChevronRight } from "lucide-react";
-import { formatShortDate } from "../../lib/utils.js";
+import { formatShortDate, formatInterest } from "../../lib/utils.js";
 import { SectionTitle, Money, StatusBadge } from "../../components/ui.jsx";
 import { useApp } from "../../store/index.js";
 import type { ResolvedLoan } from "../../types";
@@ -62,7 +62,7 @@ export default function LoanChain({ chain, currentLoanId, onOpenLoan }: LoanChai
                   <StatusBadge status={l._status} />
                 </div>
                 <div className="mt-0.5 text-[10px] text-zinc-600">
-                  {formatShortDate(l.startDate)} → {formatShortDate(l.dueDate)} · {Number(l.interestRate).toFixed(1)}%
+                  {formatShortDate(l.startDate)} → {formatShortDate(l.dueDate)} · {formatInterest(l, cur)}
                 </div>
               </div>
               <div className="text-right">

@@ -5,8 +5,8 @@ import { useMemo } from "react";
 import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown,
 } from "lucide-react";
-import { addDays, formatDate } from "../../lib/utils.js";
-import { expectedReturn, resolvePaymentPos } from "../../lib/calcs.js";
+import { addDays, formatDate, formatInterest } from "../../lib/utils.js";
+import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
 import type { ResolvedLoan } from "../../types";
@@ -35,7 +35,6 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
   const overdueTimelinePeriods = useMemo<MoraEvent[]>(() => {
     if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
 
-    const rate = Number(loan.interestRate) / 100;
     const payments = loan.payments || [];
     const getPos = (p: typeof payments[number]) =>
       resolvePaymentPos(p, currentCompoundPeriods, loanTermDays, loan.dueDate);
@@ -48,7 +47,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
     const result: MoraEvent[] = [];
     for (let i = 1; i <= currentCompoundPeriods; i++) {
       const prevBalance = Math.max(0, balance);
-      const added = prevBalance * rate;
+      const added = periodInterest(loan, prevBalance);
       const afterMora = prevBalance + added;
       result.push({
         type: "mora",
@@ -174,7 +173,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
                       <Money value={loan._return} hide={hide} currency={cur} />
                     </div>
                     <div className="text-[11px] text-emerald-400/80 tabular-nums">
-                      +<Money value={loan._profit} hide={hide} currency={cur} /> ({Number(loan.interestRate).toFixed(1)}%)
+                      +<Money value={loan._profit} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
                     </div>
                   </div>
                 </div>
@@ -200,7 +199,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
                       <Money value={ev.total} hide={hide} currency={cur} />
                     </div>
                     <div className="text-[11px] text-rose-400 tabular-nums font-medium">
-                      +<Money value={ev.added} hide={hide} currency={cur} /> ({Number(loan.interestRate).toFixed(1)}%)
+                      +<Money value={ev.added} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
                     </div>
                   </div>
                 </div>
@@ -284,7 +283,9 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
                   <div className="text-xs font-semibold tabular-nums text-zinc-500">
                     +<Money value={nextOverdueAdded} hide={hide} currency={cur} />
                   </div>
-                  <div className="text-[11px] text-zinc-600">({Number(loan.interestRate).toFixed(1)}% adicional)</div>
+                  <div className="text-[11px] text-zinc-600">
+                    {loan.interestMode === "fixed" ? "(monto fijo)" : `(${formatInterest(loan, cur)} adicional)`}
+                  </div>
                 </div>
               </div>
             </div>

@@ -3,7 +3,7 @@
 // crear un nuevo préstamo pre-cargado con el cliente, o eliminar el cliente.
 import { useState, useMemo } from "react";
 import { Edit2, Plus, Wallet, Trash2, AlertTriangle } from "lucide-react";
-import { formatDate } from "../../lib/utils.js";
+import { formatDate, formatInterest } from "../../lib/utils.js";
 import { useApp } from "../../store/index.js";
 import {
   Sheet, Button, Card, Badge, RiskBadge, SectionTitle,
@@ -136,7 +136,7 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
                         <Money value={l.amount} hide={state.settings.hideBalances} currency={state.settings.currency} />
                       </div>
                       <div className="text-xs text-zinc-500 tabular-nums">
-                        {Number(l.interestRate).toFixed(1)}%
+                        {formatInterest(l, state.settings.currency)}
                       </div>
                     </div>
                   </button>
