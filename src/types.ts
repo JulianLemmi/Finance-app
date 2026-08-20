@@ -20,7 +20,8 @@ export type ModalType =
   | "loan-form" | "loan-detail"
   | "client-form" | "client-detail"
   | "tx-form" | "asset-form"
-  | "car-form" | "car-detail";
+  | "car-form" | "car-detail"
+  | "liability-form";
 
 // ── Core entities ─────────────────────────────────────────────────────────────
 export interface Photo {
@@ -161,6 +162,19 @@ export interface Asset {
   totalCuotas?: number;
 }
 
+export interface Liability {
+  id: string;
+  /** A quién se le debe (ej: "Papá"). */
+  name: string;
+  /** Monto total original de la deuda. */
+  amount: number;
+  startDate: ISODate;
+  /** Pagos hechos contra la deuda; `amount - suma(payments)` es lo que queda adeudado. */
+  payments: AssetPayment[];
+  notes?: string;
+  createdAt: number;
+}
+
 export interface Car {
   id: string;
   status: CarStatus;
@@ -220,6 +234,7 @@ export interface ModalPayload {
   editingClient?: Client;
   editingAsset?: Asset;
   editingCar?: Car;
+  editingLiability?: Liability;
 }
 
 export interface ModalState {
@@ -241,6 +256,7 @@ export interface AppState {
   history: HistoryEntry[];
   assets: Asset[];
   cars: Car[];
+  liabilities: Liability[];
   settings: Settings;
   ui: UIState;
 }
@@ -289,7 +305,10 @@ export type AppAction =
   | { type: "DELETE_ASSET"; payload: string }
   | { type: "ADD_CAR"; payload: Car }
   | { type: "UPDATE_CAR"; payload: { id: string } & Partial<Car> }
-  | { type: "DELETE_CAR"; payload: string };
+  | { type: "DELETE_CAR"; payload: string }
+  | { type: "ADD_LIABILITY"; payload: Liability }
+  | { type: "UPDATE_LIABILITY"; payload: { id: string } & Partial<Liability> }
+  | { type: "DELETE_LIABILITY"; payload: string };
 
 // ── Derived (output of useDerived) ────────────────────────────────────────────
 export interface ExpenseByCategoryItem {
@@ -356,6 +375,8 @@ export interface Derived {
   totalDisbursed: number;
   available: number;
   totalAssets: number;
+  /** Suma de lo que queda adeudado en `state.liabilities` (amount - pagos). Resta de `totalCapital`. */
+  totalLiabilities: number;
   workingCapital: number;
   totalCapital: number;
   monthlyInterestsCollected: number;

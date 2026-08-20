@@ -1,6 +1,6 @@
 // Pantalla principal: capital total, préstamos próximos a vencer, agenda del día,
-// gráficos de evolución y actividad reciente. El reloj vive en LiveClock aislado
-// para que sólo ese componente haga re-render cada segundo.
+// mapa de vencimientos (30 días), gráficos de evolución y actividad reciente. El
+// reloj vive en LiveClock aislado para que sólo ese componente haga re-render cada segundo.
 import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp, Wallet,
@@ -18,6 +18,7 @@ import {
 } from "../components/ui.jsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LabelList } from "recharts";
 import DolarBlue from "../components/DolarBlue.jsx";
+import { VencimientosHeatmap } from "../components/PortfolioAnalytics.jsx";
 import type { ResolvedLoan } from "../types";
 
 function getGreet(h: number): string {
@@ -138,6 +139,12 @@ export default function HomeScreen() {
                 <span className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
                   Activos <Money value={derived.totalAssets} hide={hide} currency={cur} className="text-zinc-200" />
+                </span>
+              )}
+              {derived.totalLiabilities > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                  Pasivos <Money value={derived.totalLiabilities} hide={hide} currency={cur} className="text-rose-300" />
                 </span>
               )}
             </div>
@@ -408,6 +415,8 @@ export default function HomeScreen() {
             )}
           </ChartContainer>
         </Card>
+
+        <VencimientosHeatmap />
 
         {/* Upcoming */}
         <div>

@@ -242,6 +242,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
           history:  Array.isArray(data[STORAGE_KEYS.history])  ? data[STORAGE_KEYS.history] as never  : [],
           assets:   Array.isArray(data[STORAGE_KEYS.assets])   ? data[STORAGE_KEYS.assets] as never   : [],
           cars:     Array.isArray(data[STORAGE_KEYS.cars])     ? data[STORAGE_KEYS.cars] as never     : [],
+          liabilities: Array.isArray(data[STORAGE_KEYS.liabilities]) ? data[STORAGE_KEYS.liabilities] as never : [],
           settings: data[STORAGE_KEYS.settings] && typeof data[STORAGE_KEYS.settings] === "object"
             ? data[STORAGE_KEYS.settings] as never : undefined,
         },
@@ -262,6 +263,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
   useStorageSync(STORAGE_KEYS.settings, state.settings, state.loaded);
   useStorageSync(STORAGE_KEYS.assets,   state.assets,   state.loaded);
   useStorageSync(STORAGE_KEYS.cars,     state.cars,     state.loaded);
+  useStorageSync(STORAGE_KEYS.liabilities, state.liabilities, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [quotaKeys, setQuotaKeys] = useState<Set<string>>(() => new Set());

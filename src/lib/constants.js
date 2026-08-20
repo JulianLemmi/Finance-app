@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   settings: "finance:settings",
   assets: "finance:assets",
   cars: "finance:cars",
+  liabilities: "finance:liabilities",
 };
 
 export const CAR_STATUSES = {

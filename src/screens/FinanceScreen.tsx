@@ -1,9 +1,9 @@
-// Pantalla de finanzas personales con 4 sub-vistas: Movimientos, Categorías,
-// Proyección y Activos. Incluye gráficos de Recharts y cálculo de proyección compuesta.
+// Pantalla de finanzas personales con 5 sub-vistas: Proyección, Activos, Pasivos,
+// Movimientos y Categorías. Incluye gráficos de Recharts y cálculo de proyección compuesta.
 import { useState, useMemo } from "react";
 import {
   Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon,
-  Target, TrendingUp, Banknote, RefreshCw, Clock, Layers,
+  Target, TrendingUp, Banknote, RefreshCw, Clock, Layers, HandCoins,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
@@ -14,7 +14,7 @@ import {
 } from "../components/ui.jsx";
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
 import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, LabelList } from "recharts";
-import type { Transaction, Asset } from "../types";
+import type { Transaction, Asset, Liability } from "../types";
 
 interface TooltipPayload {
   payload: { label: string; roi: number };
@@ -137,11 +137,46 @@ function AssetCard({ asset, onOpen }: AssetCardProps) {
   );
 }
 
-type SubView = "flow" | "categories" | "projection" | "assets";
+interface LiabilityCardProps {
+  liability: Liability;
+  onOpen: (l: Liability) => void;
+}
+
+function LiabilityCard({ liability, onOpen }: LiabilityCardProps) {
+  const { state } = useApp();
+  const paid = (liability.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+  const owed = Math.max(0, Number(liability.amount) - paid);
+  return (
+    <button onClick={() => onOpen(liability)}
+      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-700/70 hover:bg-zinc-900 active:scale-[0.99]">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-800/60 bg-rose-500/10">
+        <HandCoins className="h-5 w-5 text-rose-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-zinc-100">{liability.name}</div>
+        {paid > 0 ? (
+          <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+            Pagado {state.settings.currency}{paid.toLocaleString("es-AR")}
+          </div>
+        ) : (
+          <div className="mt-0.5 text-[11px] text-zinc-500">Desde {formatShortDate(liability.startDate)}</div>
+        )}
+      </div>
+      <div className="text-right">
+        <div className="text-sm font-semibold tabular-nums text-rose-400">
+          <Money value={owed} hide={state.settings.hideBalances} currency={state.settings.currency} />
+        </div>
+        <div className="mt-0.5 text-[11px] text-zinc-500">adeudado</div>
+      </div>
+    </button>
+  );
+}
+
+type SubView = "projection" | "assets" | "liabilities" | "flow" | "categories";
 
 export default function FinanceScreen() {
   const { state, dispatch, derived } = useApp();
-  const [sub, setSub] = useState<SubView>("flow");
+  const [sub, setSub] = useState<SubView>("projection");
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
@@ -181,10 +216,11 @@ export default function FinanceScreen() {
   );
 
   const SUB_VIEWS: { v: SubView; l: string }[] = [
-    { v: "flow", l: "Movimientos" },
-    { v: "categories", l: "Categorías" },
     { v: "projection", l: "Proyección" },
     { v: "assets", l: "Activos" },
+    { v: "liabilities", l: "Pasivos" },
+    { v: "flow", l: "Movimientos" },
+    { v: "categories", l: "Categorías" },
   ];
 
   return (
@@ -200,27 +236,196 @@ export default function FinanceScreen() {
         </Button>
       </div>
 
-      <div className="relative grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
+      <div className="relative grid grid-cols-5 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-1">
         {/* Indicador deslizante de la sub-vista activa */}
         <span
           aria-hidden
           className="absolute bottom-1 top-1 rounded-xl bg-zinc-800/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_8px_rgba(0,0,0,0.3)]"
           style={{
-            // p-1 (0.25rem) de padding + 3 gaps de 0.25rem entre las 4 columnas
-            left: `calc(0.25rem + ${SUB_VIEWS.findIndex((s) => s.v === sub)} * ((100% - 1.25rem) / 4 + 0.25rem))`,
-            width: "calc((100% - 1.25rem) / 4)",
+            // p-1 (0.25rem) de padding + 4 gaps de 0.25rem entre las 5 columnas
+            left: `calc(0.25rem + ${SUB_VIEWS.findIndex((s) => s.v === sub)} * ((100% - 1.5rem) / 5 + 0.25rem))`,
+            width: "calc((100% - 1.5rem) / 5)",
             transition: "left 340ms cubic-bezier(.3,1.3,.4,1)",
           }}
         />
         {SUB_VIEWS.map((s) => (
           <button key={s.v} onClick={() => setSub(s.v)}
-            className={`relative z-10 rounded-xl px-3 py-2 text-xs font-medium transition-colors duration-200 ${
+            className={`relative z-10 rounded-xl px-1.5 py-2 text-xs font-medium transition-colors duration-200 ${
               sub === s.v ? "text-white" : "text-zinc-400 hover:text-zinc-200"
             }`}>
             {s.l}
           </button>
         ))}
       </div>
+
+      {sub === "projection" && (
+        <div className="fa-rise space-y-5">
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="p-4">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10"><TrendingUp className="h-3.5 w-3.5 text-amber-400" /></div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Tasa efectiva anual</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-amber-400">{(projCalc.tea * 100).toFixed(1)}%</div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">{(projCalc.rate * 100).toFixed(1)}% × {projCalc.cyclesPerYear.toFixed(1)} ciclos</div>
+              <div className="mt-1 text-[10px] text-zinc-600">Mediana <span className="text-zinc-400 tabular-nums">{derived.medianRate.toFixed(1)}%</span></div>
+            </Card>
+            <Card className="p-4">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10"><Banknote className="h-3.5 w-3.5 text-emerald-400" /></div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia por ciclo</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-400"><AnimatedMoney value={derived.nextProfitTotal} hide={hide} currency={cur} /></div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">cada ~{Math.round(projCalc.days)} días</div>
+            </Card>
+            <Card className="p-4">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-800/70"><Clock className="h-3.5 w-3.5 text-zinc-400" /></div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Duplicación</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-100">
+                {projCalc.doublingYears != null ? `${projCalc.doublingYears.toFixed(1)} años` : "—"}
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">reinvirtiendo todo</div>
+            </Card>
+          </div>
+          <Card className="p-5">
+            <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-amber-500/80">
+              <Target className="h-3 w-3" />
+              Proyección por ciclos de préstamo
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {projCalc.cyclePoints.map((p) => (
+                <div key={p.n} className="rounded-xl border border-zinc-800/70 bg-zinc-950/60 p-3">
+                  <div className="text-[11px] font-medium text-zinc-300">{p.label}</div>
+                  <div className="mt-0.5 text-[10px] text-zinc-600">{p.sublabel}</div>
+                  <div className="mt-2 text-base font-semibold tabular-nums text-zinc-100"><Money value={p.total} hide={hide} currency={cur} /></div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span className="text-[11px] font-medium tabular-nums text-emerald-400">+<Money value={p.profit} hide={hide} currency={cur} /></span>
+                    <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 tabular-nums">+{p.pct.toFixed(1)}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card className="p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">ROI histórico mensual</div>
+                <div className="mt-0.5 text-xs text-zinc-600">Interés devengado vs capital desplegado</div>
+              </div>
+              <Badge tone="neutral"><TrendingUp className="h-3 w-3" />{BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</Badge>
+            </div>
+            {derived.months.every((m) => m.roi === 0) ? (
+              <div className="flex h-32 items-center justify-center text-xs text-zinc-600">Aún no hay suficiente historial</div>
+            ) : (
+              <ChartContainer className="h-44 min-w-0">
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 8, left: 0, bottom: 0 }} barCategoryGap="26%">
+                    <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                    <YAxis hide domain={[0, "auto"]} />
+                    <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }} content={<RoiTooltip />} />
+                    <Bar dataKey="roi" fill={CHART_COLORS.gainStroke as string} radius={[4, 4, 0, 0]}>
+                      <LabelList content={makeBarLabel({ kind: "percent" })} />
+                    </Bar>
+                  </BarChart>
+                )}
+              </ChartContainer>
+            )}
+          </Card>
+          <Card className="p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia acumulada proyectada</div>
+                <div className="mt-0.5 text-xs text-zinc-600">Devengado a la fecha + 24 meses de reinversión</div>
+              </div>
+              <Badge tone="bronze"><RefreshCw className="h-3 w-3" />Interés compuesto</Badge>
+            </div>
+            <ChartContainer className="h-56 min-w-0">
+              {({ width, height }) => (
+                <AreaChart width={width} height={height} data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS.gain as string} stopOpacity={0.5} />
+                      <stop offset="100%" stopColor={CHART_COLORS.gain as string} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} interval={0} />
+                  <YAxis hide domain={[0, "auto"]} />
+                  <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeDasharray: "3 3" }}
+                    content={<ProjectionTooltip hide={hide} currency={cur} />} />
+                  <Area type="monotone" name="Ganancia" dataKey="ganancia"
+                    stroke={CHART_COLORS.gainStroke as string} strokeWidth={2.5} fill="url(#gainFill)" dot={{ r: 0 }}
+                    activeDot={{ r: 4, fill: CHART_COLORS.gainStroke as string, stroke: "#0a0a0b", strokeWidth: 2 }} />
+                </AreaChart>
+              )}
+            </ChartContainer>
+          </Card>
+          <PortfolioAnalytics />
+        </div>
+      )}
+
+      {sub === "assets" && (
+        <div className="fa-rise space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total activos</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100"><AnimatedMoney value={derived.totalAssets} hide={hide} currency={cur} /></div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Patrimonio total</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-amber-400"><AnimatedMoney value={derived.totalCapital} hide={hide} currency={cur} /></div>
+            </Card>
+          </div>
+          {state.assets.length === 0 ? (
+            <EmptyState Icon={Layers} title="Sin activos registrados"
+              hint="Cargá bienes como un auto, propiedad o inversión para ver tu patrimonio real."
+              action={<Button variant="bronze" Icon={Plus} onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form" } })}>Agregar activo</Button>}
+            />
+          ) : (
+            <div>
+              <SectionTitle action={
+                <Button variant="bronze" size="sm" Icon={Plus} onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form" } })}>Nuevo</Button>
+              }>Mis activos</SectionTitle>
+              <div className="space-y-2">
+                {state.assets.map((asset) => (
+                  <AssetCard key={asset.id} asset={asset}
+                    onOpen={(a) => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form", payload: { editingAsset: a } } })} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sub === "liabilities" && (
+        <div className="fa-rise space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total adeudado</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-rose-400"><AnimatedMoney value={derived.totalLiabilities} hide={hide} currency={cur} /></div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Patrimonio total</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-amber-400"><AnimatedMoney value={derived.totalCapital} hide={hide} currency={cur} /></div>
+            </Card>
+          </div>
+          {state.liabilities.length === 0 ? (
+            <EmptyState Icon={HandCoins} title="Sin deudas registradas"
+              hint="Cargá lo que le debés a alguien para tener un control real de tu capital actual."
+              action={<Button variant="bronze" Icon={Plus} onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "liability-form" } })}>Agregar deuda</Button>}
+            />
+          ) : (
+            <div>
+              <SectionTitle action={
+                <Button variant="bronze" size="sm" Icon={Plus} onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "liability-form" } })}>Nuevo</Button>
+              }>Mis deudas</SectionTitle>
+              <div className="space-y-2">
+                {state.liabilities.map((liability) => (
+                  <LiabilityCard key={liability.id} liability={liability}
+                    onOpen={(l) => dispatch({ type: "OPEN_MODAL", payload: { type: "liability-form", payload: { editingLiability: l } } })} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {sub === "flow" && (
         <div className="fa-rise space-y-5">
@@ -349,142 +554,6 @@ export default function FinanceScreen() {
               </div>
             </Card>
           </div>
-        </div>
-      )}
-
-      {sub === "assets" && (
-        <div className="fa-rise space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <Card className="p-4">
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Total activos</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100"><AnimatedMoney value={derived.totalAssets} hide={hide} currency={cur} /></div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Patrimonio total</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-amber-400"><AnimatedMoney value={derived.totalCapital} hide={hide} currency={cur} /></div>
-            </Card>
-          </div>
-          {state.assets.length === 0 ? (
-            <EmptyState Icon={Layers} title="Sin activos registrados"
-              hint="Cargá bienes como un auto, propiedad o inversión para ver tu patrimonio real."
-              action={<Button variant="bronze" Icon={Plus} onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form" } })}>Agregar activo</Button>}
-            />
-          ) : (
-            <div>
-              <SectionTitle action={
-                <Button variant="bronze" size="sm" Icon={Plus} onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form" } })}>Nuevo</Button>
-              }>Mis activos</SectionTitle>
-              <div className="space-y-2">
-                {state.assets.map((asset) => (
-                  <AssetCard key={asset.id} asset={asset}
-                    onOpen={(a) => dispatch({ type: "OPEN_MODAL", payload: { type: "asset-form", payload: { editingAsset: a } } })} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {sub === "projection" && (
-        <div className="fa-rise space-y-5">
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="p-4">
-              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10"><TrendingUp className="h-3.5 w-3.5 text-amber-400" /></div>
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Tasa efectiva anual</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-amber-400">{(projCalc.tea * 100).toFixed(1)}%</div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">{(projCalc.rate * 100).toFixed(1)}% × {projCalc.cyclesPerYear.toFixed(1)} ciclos</div>
-              <div className="mt-1 text-[10px] text-zinc-600">Mediana <span className="text-zinc-400 tabular-nums">{derived.medianRate.toFixed(1)}%</span></div>
-            </Card>
-            <Card className="p-4">
-              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10"><Banknote className="h-3.5 w-3.5 text-emerald-400" /></div>
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia por ciclo</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-400"><AnimatedMoney value={derived.nextProfitTotal} hide={hide} currency={cur} /></div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">cada ~{Math.round(projCalc.days)} días</div>
-            </Card>
-            <Card className="p-4">
-              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-800/70"><Clock className="h-3.5 w-3.5 text-zinc-400" /></div>
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Duplicación</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-100">
-                {projCalc.doublingYears != null ? `${projCalc.doublingYears.toFixed(1)} años` : "—"}
-              </div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">reinvirtiendo todo</div>
-            </Card>
-          </div>
-          <Card className="p-5">
-            <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-amber-500/80">
-              <Target className="h-3 w-3" />
-              Proyección por ciclos de préstamo
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {projCalc.cyclePoints.map((p) => (
-                <div key={p.n} className="rounded-xl border border-zinc-800/70 bg-zinc-950/60 p-3">
-                  <div className="text-[11px] font-medium text-zinc-300">{p.label}</div>
-                  <div className="mt-0.5 text-[10px] text-zinc-600">{p.sublabel}</div>
-                  <div className="mt-2 text-base font-semibold tabular-nums text-zinc-100"><Money value={p.total} hide={hide} currency={cur} /></div>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <span className="text-[11px] font-medium tabular-nums text-emerald-400">+<Money value={p.profit} hide={hide} currency={cur} /></span>
-                    <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 tabular-nums">+{p.pct.toFixed(1)}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-          <Card className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-zinc-500">ROI histórico mensual</div>
-                <div className="mt-0.5 text-xs text-zinc-600">Interés devengado vs capital desplegado</div>
-              </div>
-              <Badge tone="neutral"><TrendingUp className="h-3 w-3" />{BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</Badge>
-            </div>
-            {derived.months.every((m) => m.roi === 0) ? (
-              <div className="flex h-32 items-center justify-center text-xs text-zinc-600">Aún no hay suficiente historial</div>
-            ) : (
-              <ChartContainer className="h-44 min-w-0">
-                {({ width, height }) => (
-                  <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 8, left: 0, bottom: 0 }} barCategoryGap="26%">
-                    <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                    <YAxis hide domain={[0, "auto"]} />
-                    <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }} content={<RoiTooltip />} />
-                    <Bar dataKey="roi" fill={CHART_COLORS.gainStroke as string} radius={[4, 4, 0, 0]}>
-                      <LabelList content={makeBarLabel({ kind: "percent" })} />
-                    </Bar>
-                  </BarChart>
-                )}
-              </ChartContainer>
-            )}
-          </Card>
-          <Card className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ganancia acumulada proyectada</div>
-                <div className="mt-0.5 text-xs text-zinc-600">Devengado a la fecha + 24 meses de reinversión</div>
-              </div>
-              <Badge tone="bronze"><RefreshCw className="h-3 w-3" />Interés compuesto</Badge>
-            </div>
-            <ChartContainer className="h-56 min-w-0">
-              {({ width, height }) => (
-                <AreaChart width={width} height={height} data={projCalc.profitSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="gainFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART_COLORS.gain as string} stopOpacity={0.5} />
-                      <stop offset="100%" stopColor={CHART_COLORS.gain as string} stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} interval={0} />
-                  <YAxis hide domain={[0, "auto"]} />
-                  <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeDasharray: "3 3" }}
-                    content={<ProjectionTooltip hide={hide} currency={cur} />} />
-                  <Area type="monotone" name="Ganancia" dataKey="ganancia"
-                    stroke={CHART_COLORS.gainStroke as string} strokeWidth={2.5} fill="url(#gainFill)" dot={{ r: 0 }}
-                    activeDot={{ r: 4, fill: CHART_COLORS.gainStroke as string, stroke: "#0a0a0b", strokeWidth: 2 }} />
-                </AreaChart>
-              )}
-            </ChartContainer>
-          </Card>
-          <PortfolioAnalytics />
         </div>
       )}
     </div>

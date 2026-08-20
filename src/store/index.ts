@@ -20,6 +20,7 @@ export const initialState: AppState = {
   history: [],
   assets: [],
   cars: [],
+  liabilities: [],
   settings: {
     currency: "$", cashOnHand: 0, hideBalances: false, userName: "", theme: "dark",
     defaultRate: 8, defaultDays: 30, mpBalance: 0, telegramChatId: "",
@@ -43,6 +44,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         history: action.payload.history ?? state.history,
         assets: action.payload.assets ?? state.assets,
         cars: Array.isArray(action.payload.cars) ? action.payload.cars : state.cars,
+        liabilities: Array.isArray(action.payload.liabilities) ? action.payload.liabilities : state.liabilities,
         settings: { ...state.settings, ...(action.payload.settings || {}) },
       };
     case "SET_TAB":
@@ -239,6 +241,17 @@ export function reducer(state: AppState, action: AppAction): AppState {
       };
     case "DELETE_CAR":
       return { ...state, cars: state.cars.filter((c) => c.id !== action.payload) };
+    case "ADD_LIABILITY":
+      return { ...state, liabilities: [action.payload, ...state.liabilities] };
+    case "UPDATE_LIABILITY":
+      return {
+        ...state,
+        liabilities: state.liabilities.map((l) =>
+          l.id === action.payload.id ? { ...l, ...action.payload } : l
+        ),
+      };
+    case "DELETE_LIABILITY":
+      return { ...state, liabilities: state.liabilities.filter((l) => l.id !== action.payload) };
     default:
       return state;
   }
@@ -349,8 +362,14 @@ export function useDerived(state: AppState): Derived {
       .reduce((a, l) => a + myShare(l) * Number(l.amount), 0);
     const available = Number(state.settings.cashOnHand || 0);
     const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
+    // Deudas propias (ej: plata que le debo a mi papá): lo adeudado es el monto original
+    // menos lo ya pagado, nunca negativo. Sólo resta del capital total, no afecta el flujo.
+    const totalLiabilities = state.liabilities.reduce((a, l) => {
+      const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+      return a + Math.max(0, Number(l.amount || 0) - paid);
+    }, 0);
     const workingCapital = available + capitalInvested;
-    const totalCapital = workingCapital + totalAssets;
+    const totalCapital = workingCapital + totalAssets - totalLiabilities;
 
     const todayStr = todayISO();
     const thisMonth = monthKey(todayStr);
@@ -484,7 +503,7 @@ export function useDerived(state: AppState): Derived {
     return {
       capitalInvested, expectedProfitTotal, nextProfitTotal, totalExpectedProfit, accumulatedProfit,
       totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
-      workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
+      totalLiabilities, workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
       fixedIncomeThisMonth,
       upcomingDue, dueTodayTomorrow,
       expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
@@ -492,7 +511,7 @@ export function useDerived(state: AppState): Derived {
       projections, projectionSeries, paidOnTimeCount,
       collectabilityRate, avgDaysLate, cashFlow30d,
     };
-  }, [loanGroups, loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets]);
+  }, [loanGroups, loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
 
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
@@ -539,6 +558,10 @@ export function useDerived(state: AppState): Derived {
     });
     const today = todayISO();
     const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
+    const totalLiabilities = state.liabilities.reduce((a, l) => {
+      const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+      return a + Math.max(0, Number(l.amount || 0) - paid);
+    }, 0);
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
       const monthEnd = new Date(yr, mo, 0).toISOString().slice(0, 10);
@@ -559,9 +582,10 @@ export function useDerived(state: AppState): Derived {
       const capitalAtMonth = loansResolved
         .reduce((acc, l) => acc + myShare(l) * loanCapitalAt(l, cutoff), 0);
       m.capitalInvested = capitalAtMonth;
-      // Capital total de la curva: efectivo + invertido + activos (igual que totalCapital
-      // del header). Los activos se suman a todos los meses (no tienen histórico por fecha).
-      m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth + totalAssets;
+      // Capital total de la curva: efectivo + invertido + activos - pasivos (igual que
+      // totalCapital del header). Activos y pasivos se aplican a todos los meses por igual
+      // (no tienen histórico por fecha).
+      m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth + totalAssets - totalLiabilities;
       // ROI del mes: interés devengado (lo acumulado por vencimientos) sobre el capital
       // desplegado, tomado como base. Refleja el rendimiento real, se cobre o no.
       m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
@@ -569,7 +593,7 @@ export function useDerived(state: AppState): Derived {
       m.monthGain = m.accrued + m.salary;
     });
     return { months };
-  }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets]);
+  }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
 
   // Stage 5: client stats
   const clientStats = useMemo(() =>

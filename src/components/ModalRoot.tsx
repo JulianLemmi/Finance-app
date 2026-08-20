@@ -7,6 +7,7 @@ import ClientFormSheet from "../features/clients/ClientFormSheet.jsx";
 import ClientDetailSheet from "../features/clients/ClientDetailSheet.jsx";
 import TransactionSheet from "../sheets/TransactionSheet.jsx";
 import AssetSheet from "../features/assets/AssetSheet.jsx";
+import LiabilitySheet from "../features/liabilities/LiabilitySheet.jsx";
 
 export default function ModalRoot() {
   const { state, dispatch } = useApp();
@@ -34,5 +35,7 @@ export default function ModalRoot() {
   if (m.type === "tx-form") return <TransactionSheet open onClose={close} />;
   if (m.type === "asset-form")
     return <AssetSheet open onClose={close} editingAsset={m.payload?.editingAsset} />;
+  if (m.type === "liability-form")
+    return <LiabilitySheet open onClose={close} editingLiability={m.payload?.editingLiability} />;
   return null;
 }

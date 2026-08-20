@@ -1,5 +1,6 @@
-// Análisis avanzado de cartera: tasa de cobrabilidad, mapa de vencimientos (30 días)
-// y gráfico de flujo de caja proyectado. Se renderiza dentro de FinanceScreen.
+// Análisis avanzado de cartera: tasa de cobrabilidad y gráfico de flujo de caja
+// proyectado. Se renderiza dentro de FinanceScreen → Proyección. El mapa de
+// vencimientos (30 días) se extrajo como `VencimientosHeatmap` y vive en HomeScreen.
 import { useMemo, useState, useRef, useEffect } from "react";
 import { CheckCircle2, Clock, TrendingDown, CalendarDays, BarChart2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -137,7 +138,7 @@ interface HeatmapCell {
   count: number;
 }
 
-function VencimientosHeatmap() {
+export function VencimientosHeatmap() {
   const { derived, state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
@@ -274,7 +275,6 @@ export default function PortfolioAnalytics() {
     <div className="space-y-4">
       <SectionTitle>Análisis de cartera</SectionTitle>
       <CollectabilitySection />
-      <VencimientosHeatmap />
       <CashFlowChart />
     </div>
   );

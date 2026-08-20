@@ -234,7 +234,13 @@ export default function ProfileScreen() {
     setImportPreview(null);
   };
   const onReset = () => {
-    dispatch({ type: "HYDRATE", payload: { loans: [], clients: [], expenses: [], income: [], history: [], assets: [], settings: initialState.settings } });
+    dispatch({
+      type: "HYDRATE",
+      payload: {
+        loans: [], clients: [], expenses: [], income: [], history: [],
+        assets: [], cars: [], liabilities: [], settings: initialState.settings,
+      },
+    });
     setConfirmReset(false);
   };
 
