@@ -6,7 +6,7 @@ import {
   User as UserIcon, Tag, Banknote, TrendingUp, Calendar, Clock, Hash,
   CalendarClock, Shield, FileText, HelpCircle, Users, Car as CarIcon,
 } from "lucide-react";
-import { uid, todayISO, addDays, formatMoney, formatDate } from "../../lib/utils.js";
+import { uid, todayISO, addDays, addCalendarMonths, formatMoney, formatDate } from "../../lib/utils.js";
 import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
 import { validateLoan, expectedProfit } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
@@ -56,7 +56,9 @@ function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
     id: "", clientId: "", clientName: "", alias: "", amount: "",
     interestRate: String(rate), interestMode: "percent", fixedInterest: "",
     startDate: start, paymentType,
-    customDays: days, dueDate: addDays(start, days), guarantyType: "cash",
+    customDays: days,
+    dueDate: paymentType === "30" ? addCalendarMonths(start, 1) : addDays(start, days),
+    guarantyType: "cash",
     guarantyDetail: "", status: "active", notes: "", payments: [],
     compoundInterest: false, noDueDate: false,
     sharedWith: "", myPercent: "",
@@ -87,6 +89,9 @@ export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSh
 
   const recalcDueDate = (startDate: string, paymentType: PaymentType, customDays: string | number): string => {
     if (!startDate || startDate.length < 10) return "";
+    // "30 días" vence el mismo día del mes siguiente (calendario), no a los 30*24h
+    // exactos: así un préstamo del 20 vence siempre el 20, tenga el mes 28, 30 o 31 días.
+    if (paymentType === "30") return addCalendarMonths(startDate, 1);
     const days =
       paymentType === "custom"
         ? Number(customDays) || 30

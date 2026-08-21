@@ -1,10 +1,11 @@
 /**
  * loanMath.ts — port de la lógica de cálculo del frontend.
  *
- * MANTENER EN SYNC con src/lib/utils.js (getLoanCycleDays, getNextRenewalDate)
- * y src/lib/calcs.js (remainingDebt con compounding). Si tocás alguna fórmula
- * en el frontend, replicala acá o las notificaciones van a divergir de lo que
- * el usuario ve en pantalla.
+ * MANTENER EN SYNC con src/lib/utils.js (getLoanCycleDays, addCalendarMonths,
+ * loanPeriodDate, loanElapsedPeriods, getNextRenewalDate) y src/lib/calcs.js
+ * (remainingDebt con compounding). Si tocás alguna fórmula en el frontend,
+ * replicala acá o las notificaciones van a divergir de lo que el usuario ve
+ * en pantalla.
  *
  * (El ideal sería un módulo compartido único, pero Supabase Edge Functions
  * solo bundlea archivos dentro de la carpeta de la function — no podemos
@@ -59,13 +60,41 @@ export function getLoanCycleDays(loan: Loan): number {
   return Math.max(1, span || 30);
 }
 
+/** Mirror of src/lib/utils.js addCalendarMonths. */
+export function addCalendarMonths(iso: string, months: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  const day = d.getUTCDate();
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth() + months;
+  const lastDayOfTargetMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const result = new Date(Date.UTC(y, m, Math.min(day, lastDayOfTargetMonth)));
+  return result.toISOString().slice(0, 10);
+}
+
+/** Mirror of src/lib/utils.js loanPeriodDate. "30 días" avanza por meses calendario
+ *  preservando el día del mes (vence siempre el mismo día); el resto, por días fijos. */
+export function loanPeriodDate(loan: Loan, anchor: string, n: number): string {
+  if (loan.paymentType === "30") return addCalendarMonths(anchor, n);
+  return addDays(anchor, n * getLoanCycleDays(loan));
+}
+
+/** Mirror of src/lib/utils.js loanElapsedPeriods. */
+export function loanElapsedPeriods(loan: Loan, anchor: string, asOf: string): number {
+  if (!anchor || !asOf || asOf <= anchor) return 0;
+  if (loan.paymentType === "30") {
+    let n = 0;
+    for (; n < 1200 && loanPeriodDate(loan, anchor, n + 1) <= asOf; n++);
+    return n;
+  }
+  const term = getLoanCycleDays(loan);
+  return Math.max(0, Math.floor(daysBetween(anchor, asOf) / term));
+}
+
 /** Mirror of src/lib/utils.js getNextRenewalDate. */
 export function getNextRenewalDate(loan: Loan, today: string): string | null {
   if (!loan.dueDate) return null;
-  const term = getLoanCycleDays(loan);
-  const overdueDays = Math.max(0, daysBetween(loan.dueDate, today));
-  const periods = overdueDays > 0 ? Math.floor(overdueDays / term) : 0;
-  return addDays(loan.dueDate, (periods + 1) * term);
+  const periods = loanElapsedPeriods(loan, loan.dueDate, today);
+  return loanPeriodDate(loan, loan.dueDate, periods + 1);
 }
 
 /** Interés que se agrega en un período dado. Fijo: constante (fixedInterest). */
@@ -87,21 +116,21 @@ export function paidAmount(loan: Loan): number {
   return (loan.payments || []).reduce((a, p) => a + Number(p?.amount ?? 0), 0);
 }
 
-type OverdueMeta = { daysOverdue: number; termDays: number; overduePeriods: number; rate: number };
+type OverdueMeta = { daysOverdue: number; overduePeriods: number; rate: number };
 
 function getOverdueMeta(loan: Loan, today: string): OverdueMeta | null {
   if (!loan.dueDate) return null;
   const daysOverdue = daysBetween(loan.dueDate, today);
   if (daysOverdue <= 0) return null;
-  const termDays = Math.max(1, getLoanCycleDays(loan));
-  const overduePeriods = termDays > 0 ? Math.floor(daysOverdue / termDays) : 0;
-  return { daysOverdue, termDays, overduePeriods, rate: Number(loan.interestRate ?? 0) / 100 };
+  const overduePeriods = loanElapsedPeriods(loan, loan.dueDate, today);
+  return { daysOverdue, overduePeriods, rate: Number(loan.interestRate ?? 0) / 100 };
 }
 
-function resolvePaymentPos(p: Payment, overduePeriods: number, termDays: number, dueDate: string): number {
+function resolvePaymentPos(p: Payment, overduePeriods: number, loan: Loan): number {
   if (typeof p.timelinePos === "number") return p.timelinePos;
+  if (!loan.dueDate) return 0;
   for (let i = 1; i <= overduePeriods; i++) {
-    if ((p.date ?? "") < addDays(dueDate, i * termDays)) return i - 1;
+    if ((p.date ?? "") < loanPeriodDate(loan, loan.dueDate, i)) return i - 1;
   }
   return overduePeriods;
 }
@@ -115,8 +144,8 @@ export function remainingDebt(loan: Loan, today: string): number {
     return Math.max(0, expectedReturn(loan) - paidAmount(loan));
   }
 
-  const { overduePeriods, termDays } = meta;
-  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, termDays, loan.dueDate!);
+  const { overduePeriods } = meta;
+  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
 
   let balance = expectedReturn(loan);
   payments.filter((p) => getPos(p) === 0).forEach((p) => {

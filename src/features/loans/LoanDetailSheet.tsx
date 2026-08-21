@@ -6,7 +6,7 @@ import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
   MessageSquare, Plus, X, Users, Car as CarIcon,
 } from "lucide-react";
-import { todayISO, addDays, formatDate, formatShortDate, daysBetween, getNextRenewalDate, formatInterest, myShare, formatMoney } from "../../lib/utils.js";
+import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, loanElapsedPeriods, formatInterest, myShare, formatMoney } from "../../lib/utils.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
@@ -60,7 +60,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
   if (!loan) return null;
 
-  const loanTermDays = Math.max(1, daysBetween(loan.startDate, loan.dueDate) || 30);
+  // Mismo cálculo que usan `getNextRenewalDate`, `remainingDebt` y el resto de la app
+  // (prioriza paymentType/customDays sobre la distancia cruda entre fechas): si acá se
+  // calculara distinto, la línea de tiempo mostraría vencimientos que no coinciden con
+  // el mapa de vencimientos ni con "Próximos vencimientos" de Inicio.
+  const loanTermDays = getLoanCycleDays(loan);
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
@@ -69,7 +73,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   // Próximo vencimiento: en los vencidos es el próximo re-vencimiento futuro, no la
   // fecha original ya pasada. En los activos el próximo vencimiento es su propio dueDate.
   const nextDueDate = loan._status === "overdue" ? getNextRenewalDate(loan) : loan.dueDate;
-  const currentCompoundPeriods = daysOverdue > 0 ? Math.floor(daysOverdue / loanTermDays) : 0;
+  const currentCompoundPeriods = daysOverdue > 0 ? loanElapsedPeriods(loan, loan.dueDate, todayISO()) : 0;
   const monthsOverdue = Math.floor(daysOverdue / 30);
   const extraDaysOverdue = daysOverdue % 30;
   const overdueLabel =
@@ -94,7 +98,9 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
     if (!Number.isFinite(rate) || rate < 0) return;
     if (!Number.isFinite(days) || days <= 0) return;
 
-    const newDue = addDays(todayISO(), days);
+    // "30 días" refinancia con vencimiento al mismo día del mes siguiente (ver
+    // addCalendarMonths); el resto de los plazos son una cantidad fija de días.
+    const newDue = days === 30 ? addCalendarMonths(todayISO(), 1) : addDays(todayISO(), days);
     dispatch({
       type: "UPDATE_LOAN",
       payload: {
@@ -424,7 +430,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
             </div>
           )}
 
-          <LoanTimeline loan={loan} currentCompoundPeriods={currentCompoundPeriods} loanTermDays={loanTermDays} />
+          <LoanTimeline loan={loan} currentCompoundPeriods={currentCompoundPeriods} />
 
           <LoanChain
             chain={loanChain}

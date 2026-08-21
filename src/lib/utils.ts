@@ -83,7 +83,7 @@ export const formatShortDate = (iso: string): string => {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 };
 
-type LoanCycleInput = Pick<Loan, "paymentType" | "customDays" | "startDate" | "dueDate">;
+export type LoanCycleInput = Pick<Loan, "paymentType" | "customDays" | "startDate" | "dueDate">;
 
 export function getLoanCycleDays(loan: LoanCycleInput): number {
   if (loan?.paymentType === "15") return 15;
@@ -94,11 +94,45 @@ export function getLoanCycleDays(loan: LoanCycleInput): number {
   return Math.max(1, span || 30);
 }
 
-export function getNextRenewalDate(loan: LoanCycleInput): string {
+// Agrega `months` meses calendario a una fecha ISO, preservando el día del mes; si el mes
+// destino tiene menos días, cae en su último día (ej. 31/01 + 1 mes → 28 o 29/02).
+export function addCalendarMonths(iso: string, months: number): string {
+  if (!iso || iso.length < 10) return iso || "";
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d.getTime())) return iso;
+  const day = d.getDate();
+  const targetMonth = d.getMonth() + Number(months || 0);
+  const lastDayOfTargetMonth = new Date(d.getFullYear(), targetMonth + 1, 0).getDate();
+  const result = new Date(d.getFullYear(), targetMonth, Math.min(day, lastDayOfTargetMonth));
+  return result.toISOString().slice(0, 10);
+}
+
+// Fecha del período N desde `anchor` (dueDate o startDate; N=0 → el propio anchor).
+// "30 días" avanza por meses calendario preservando el día del mes — vence siempre el
+// mismo día, sin importar si el mes tiene 28, 30 o 31 días. "15 días" y "personalizado"
+// avanzan una cantidad fija de días.
+export function loanPeriodDate(loan: LoanCycleInput, anchor: string, n: number): string {
+  if (loan?.paymentType === "30") return addCalendarMonths(anchor, n);
+  return addDays(anchor, n * getLoanCycleDays(loan));
+}
+
+// Cantidad de períodos completos transcurridos entre `anchor` y `asOf` (0 si `asOf` no
+// pasó el anchor todavía). Usa el mismo criterio "mismo día del mes" que loanPeriodDate.
+export function loanElapsedPeriods(loan: LoanCycleInput, anchor: string, asOf: string): number {
+  if (!anchor || !asOf || asOf <= anchor) return 0;
+  if (loan?.paymentType === "30") {
+    let n = 0;
+    for (; n < 1200 && loanPeriodDate(loan, anchor, n + 1) <= asOf; n++);
+    return n;
+  }
   const term = getLoanCycleDays(loan);
-  const overdueDays = Math.max(0, daysBetween(loan.dueDate ?? "", todayISO()));
-  const periods = overdueDays > 0 ? Math.floor(overdueDays / term) : 0;
-  return addDays(loan.dueDate ?? "", (periods + 1) * term);
+  return Math.max(0, Math.floor(daysBetween(anchor, asOf) / term));
+}
+
+export function getNextRenewalDate(loan: LoanCycleInput): string {
+  if (!loan.dueDate) return "";
+  const periods = loanElapsedPeriods(loan, loan.dueDate, todayISO());
+  return loanPeriodDate(loan, loan.dueDate, periods + 1);
 }
 
 export const getMonthLabel = (iso: string): string => {

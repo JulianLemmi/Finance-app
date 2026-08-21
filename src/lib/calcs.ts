@@ -1,10 +1,9 @@
-import { PAYMENT_TYPES, CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, addDays, todayDate, getLoanCycleDays } from "./utils.js";
+import { CALC, BUSINESS_RULES } from "./constants.js";
+import { daysBetween, parseISO, todayDate, loanPeriodDate, loanElapsedPeriods } from "./utils.js";
 import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 interface OverdueMeta {
   daysOverdue: number;
-  termDays: number;
   overduePeriods: number;
   rate: number;
 }
@@ -29,9 +28,9 @@ function getOverdueMeta(loan: Loan): OverdueMeta | null {
   if (!loan.dueDate) return null;
   const daysOverdue = daysBetween(loan.dueDate, todayDate());
   if (daysOverdue <= 0) return null;
-  const termDays = Math.max(1, getLoanCycleDays(loan));
-  const overduePeriods = termDays > 0 ? Math.floor(daysOverdue / termDays) : 0;
-  return { daysOverdue, termDays, overduePeriods, rate: Number(loan.interestRate) / 100 };
+  const today = todayDate().toISOString().slice(0, 10);
+  const overduePeriods = loanElapsedPeriods(loan, loan.dueDate, today);
+  return { daysOverdue, overduePeriods, rate: Number(loan.interestRate) / 100 };
 }
 
 export function loanIntegrityErrors(loan: Loan): string[] {
@@ -55,12 +54,12 @@ export function loanIntegrityErrors(loan: Loan): string[] {
 export function resolvePaymentPos(
   p: Payment,
   overduePeriods: number,
-  termDays: number,
-  dueDate: string
+  loan: Loan
 ): number {
   if (typeof p.timelinePos === "number") return p.timelinePos;
+  if (!loan.dueDate) return 0;
   for (let i = 1; i <= overduePeriods; i++) {
-    if (p.date < addDays(dueDate, i * termDays)) return i - 1;
+    if (p.date < loanPeriodDate(loan, loan.dueDate, i)) return i - 1;
   }
   return overduePeriods;
 }
@@ -69,12 +68,8 @@ export function compoundReturn(loan: Loan): number {
   const base = Number(loan.amount);
 
   if (loan.noDueDate) {
-    const termDays =
-      loan.paymentType === "custom"
-        ? Number(loan.customDays) || 30
-        : Number(PAYMENT_TYPES[loan.paymentType]?.days) || 30;
-    const daysElapsed = Math.max(0, daysBetween(loan.startDate, todayDate()));
-    const periods = Math.floor(daysElapsed / termDays) + 1;
+    const today = todayDate().toISOString().slice(0, 10);
+    const periods = loanElapsedPeriods(loan, loan.startDate, today) + 1;
     if (loan.interestMode === "fixed") {
       return base + Number(loan.fixedInterest || 0) * periods;
     }
@@ -103,8 +98,8 @@ export function remainingDebt(loan: Loan): number {
     return Math.max(0, expectedReturn(loan) - paidAmount(loan));
   }
 
-  const { overduePeriods, termDays } = meta;
-  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, termDays, loan.dueDate);
+  const { overduePeriods } = meta;
+  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
 
   let balance = expectedReturn(loan);
   payments.filter((p) => getPos(p) === 0).forEach((p) => {
@@ -131,9 +126,7 @@ export function remainingDebtAt(loan: Loan, asOf: string): number {
 
   // Sin vencimiento: compone un período por cada ciclo transcurrido desde el inicio.
   if (loan.noDueDate) {
-    const termDays = Math.max(1, getLoanCycleDays(loan));
-    const daysElapsed = Math.max(0, daysBetween(loan.startDate, asOf));
-    const periods = Math.floor(daysElapsed / termDays) + 1;
+    const periods = loanElapsedPeriods(loan, loan.startDate, asOf) + 1;
     if (loan.interestMode === "fixed") {
       return Math.max(0, base + Number(loan.fixedInterest || 0) * periods - paidUpTo);
     }
@@ -143,13 +136,11 @@ export function remainingDebtAt(loan: Loan, asOf: string): number {
 
   if (!loan.dueDate) return Math.max(0, expectedReturn(loan) - paidUpTo);
 
-  const daysOverdue = daysBetween(loan.dueDate, asOf);
-  const termDays = Math.max(1, getLoanCycleDays(loan));
-  const overduePeriods = daysOverdue > 0 ? Math.floor(daysOverdue / termDays) : 0;
+  const overduePeriods = loanElapsedPeriods(loan, loan.dueDate, asOf);
 
   if (overduePeriods === 0) return Math.max(0, expectedReturn(loan) - paidUpTo);
 
-  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, termDays, loan.dueDate);
+  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
   let balance = expectedReturn(loan);
   paymentsUpTo.filter((p) => getPos(p) === 0).forEach((p) => {
     balance = Math.max(0, balance - Number(p.amount));
@@ -198,13 +189,12 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
   const closed = loan.status === "paid" || loan.status === "refinanced";
   const horizon = closed ? (lastPayment || loan.dueDate || today) : today;
-  const term = Math.max(1, getLoanCycleDays(loan));
 
   if (loan.noDueDate) {
     if (!loan.startDate) return events;
     let balance = base;
     for (let i = 1; ; i++) {
-      const date = addDays(loan.startDate, i * term);
+      const date = loanPeriodDate(loan, loan.startDate, i);
       if (date > horizon) break;
       const interest = periodInterest(loan, balance);
       events.push({ date, amount: interest });
@@ -218,7 +208,7 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   events.push({ date: loan.dueDate, amount: contracted });
   let balance = base + contracted;
   for (let i = 1; ; i++) {
-    const date = addDays(loan.dueDate, i * term);
+    const date = loanPeriodDate(loan, loan.dueDate, i);
     if (date > horizon) break;
     const interest = periodInterest(loan, balance);
     events.push({ date, amount: interest });
@@ -237,34 +227,37 @@ export function upcomingInterest(loan: Loan, until: string): number {
   if (!(base > 0) || !(contracted > 0)) return 0;
   const today = todayDate().toISOString().slice(0, 10);
   if (until <= today) return 0;
-  const term = Math.max(1, getLoanCycleDays(loan));
 
-  let nextDate: string;
+  let anchor: string;
+  let periodIndex: number; // próximo evento a devengar: anchor + (periodIndex+1) períodos
   let balance: number;
   if (loan.noDueDate) {
     if (!loan.startDate) return 0;
-    const periodsDone = Math.floor(Math.max(0, daysBetween(loan.startDate, today)) / term);
-    nextDate = addDays(loan.startDate, (periodsDone + 1) * term);
+    anchor = loan.startDate;
+    periodIndex = loanElapsedPeriods(loan, anchor, today);
     balance = remainingDebtAt(loan, today);
   } else {
     if (!loan.dueDate) return 0;
+    anchor = loan.dueDate;
     if (loan.dueDate > today) {
-      // Todavía no venció: el próximo vencimiento es el original (interés contratado).
-      nextDate = loan.dueDate;
+      // Todavía no venció: el próximo vencimiento es el original (interés contratado),
+      // que es el período 0 (loanPeriodDate(anchor, 0) === anchor).
+      periodIndex = -1;
       balance = base;
     } else {
-      const overduePeriods = Math.floor(Math.max(0, daysBetween(loan.dueDate, today)) / term);
-      nextDate = addDays(loan.dueDate, (overduePeriods + 1) * term);
+      periodIndex = loanElapsedPeriods(loan, anchor, today);
       balance = remainingDebtAt(loan, today);
     }
   }
 
+  let nextDate = loanPeriodDate(loan, anchor, periodIndex + 1);
   let total = 0;
   for (let guard = 0; nextDate <= until && guard < 64; guard++) {
     const interest = periodInterest(loan, balance);
     total += interest;
     balance += interest;
-    nextDate = addDays(nextDate, term);
+    periodIndex++;
+    nextDate = loanPeriodDate(loan, anchor, periodIndex + 1);
   }
   return total;
 }
@@ -386,19 +379,15 @@ export function compoundPeriods(loan: Loan): CompoundPeriod[] {
   const periods: CompoundPeriod[] = [];
 
   if (loan.noDueDate) {
-    const termDays =
-      loan.paymentType === "custom"
-        ? Number(loan.customDays) || 30
-        : Number(PAYMENT_TYPES[loan.paymentType]?.days) || 30;
-    const daysElapsed = Math.max(0, daysBetween(loan.startDate, todayDate()));
-    const numPeriods = Math.floor(daysElapsed / termDays) + 1;
+    const today = todayDate().toISOString().slice(0, 10);
+    const numPeriods = loanElapsedPeriods(loan, loan.startDate, today) + 1;
     let balance = base;
     for (let i = 0; i < numPeriods; i++) {
       const added = periodInterest(loan, balance);
       const current = balance + added;
       periods.push({
         period: i + 1,
-        date: addDays(loan.startDate, (i + 1) * termDays),
+        date: loanPeriodDate(loan, loan.startDate, i + 1),
         total: current,
         added,
         isCurrent: i === numPeriods - 1,
@@ -412,14 +401,14 @@ export function compoundPeriods(loan: Loan): CompoundPeriod[] {
   const meta = getOverdueMeta(loan);
   if (!meta || meta.overduePeriods === 0) return [];
 
-  const { overduePeriods: numOverduePeriods, termDays: loanTermDays } = meta;
+  const { overduePeriods: numOverduePeriods } = meta;
   let balance = base;
   for (let i = 0; i <= numOverduePeriods; i++) {
     const added = periodInterest(loan, balance);
     const current = balance + added;
     periods.push({
       period: i + 1,
-      date: i === 0 ? loan.dueDate : addDays(loan.dueDate, i * loanTermDays),
+      date: loanPeriodDate(loan, loan.dueDate, i),
       total: current,
       added,
       isCurrent: i === numOverduePeriods,

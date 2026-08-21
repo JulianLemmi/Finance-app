@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown,
 } from "lucide-react";
-import { addDays, formatDate, formatInterest } from "../../lib/utils.js";
+import { formatDate, formatInterest, loanPeriodDate } from "../../lib/utils.js";
 import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
@@ -14,7 +14,6 @@ import type { ResolvedLoan } from "../../types";
 interface LoanTimelineProps {
   loan: ResolvedLoan;
   currentCompoundPeriods: number;
-  loanTermDays: number;
 }
 
 // ── Local event union ─────────────────────────────────────────────────────────
@@ -27,7 +26,7 @@ type PaymentEvent = {
 };
 type TimelineEvent = StartEvent | DueEvent | MoraEvent | PaymentEvent;
 
-export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDays }: LoanTimelineProps) {
+export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimelineProps) {
   const { state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
@@ -37,7 +36,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
 
     const payments = loan.payments || [];
     const getPos = (p: typeof payments[number]) =>
-      resolvePaymentPos(p, currentCompoundPeriods, loanTermDays, loan.dueDate);
+      resolvePaymentPos(p, currentCompoundPeriods, loan);
 
     let balance = expectedReturn(loan);
     payments.filter((p) => getPos(p) === 0).forEach((p) => {
@@ -52,7 +51,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
       result.push({
         type: "mora",
         period: i,
-        date: addDays(loan.dueDate, i * loanTermDays),
+        date: loanPeriodDate(loan, loan.dueDate, i),
         total: afterMora,
         added,
         isCurrent: i === currentCompoundPeriods,
@@ -63,7 +62,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
       });
     }
     return result;
-  }, [loan, loanTermDays, currentCompoundPeriods]);
+  }, [loan, currentCompoundPeriods]);
 
   const allTimelineEvents = useMemo<TimelineEvent[]>(() => {
     const totalInterestAccrued = Math.max(0, loan._compoundReturn - Number(loan.amount));
@@ -95,7 +94,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
     events.sort((a, b) => {
       const getSortKey = (ev: TimelineEvent): number => {
         if (ev.type === "payment" && ev.timelinePos > 0) {
-          return dateMs(addDays(loan.dueDate, ev.timelinePos * loanTermDays)) + 500;
+          return dateMs(loanPeriodDate(loan, loan.dueDate, ev.timelinePos)) + 500;
         }
         const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, payment: 30 };
         return dateMs(ev.date) + (tieBreak[ev.type] ?? 40);
@@ -103,11 +102,11 @@ export default function LoanTimeline({ loan, currentCompoundPeriods, loanTermDay
       return getSortKey(a) - getSortKey(b);
     });
     return events;
-  }, [loan, overdueTimelinePeriods, loanTermDays]);
+  }, [loan, overdueTimelinePeriods]);
 
   const nextOverdueDate =
     loan._status === "overdue" && loan.dueDate
-      ? addDays(loan.dueDate, (currentCompoundPeriods + 1) * loanTermDays)
+      ? loanPeriodDate(loan, loan.dueDate, currentCompoundPeriods + 1)
       : null;
   const nextOverdueAdded = nextOverdueDate ? loan._nextProfit : 0;
 
