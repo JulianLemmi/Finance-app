@@ -160,10 +160,12 @@ export function remainingDebt(loan: Loan, today: string): number {
   return Math.max(0, balance);
 }
 
+// Mismo criterio que src/lib/calcs.js isOverdue: el préstamo pasa a "overdue" desde el
+// propio día del vencimiento (no recién al día siguiente).
 export function resolveStatus(loan: Loan, today: string): string {
   if (loan.status === "paid" || loan.status === "refinanced") return loan.status;
   if (remainingDebt(loan, today) <= PAID_THRESHOLD) return "paid";
-  if (loan.dueDate && loan.dueDate < today) return "overdue";
+  if (loan.dueDate && loan.dueDate <= today) return "overdue";
   return "active";
 }
 

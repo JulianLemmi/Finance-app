@@ -29,6 +29,7 @@ import {
   Loan,
   getNextRenewalDate,
   resolveStatus,
+  loanElapsedPeriods,
   daysBetween,
   addDays,
   todayISOInTz,
@@ -61,14 +62,18 @@ function buildDigest(loans: Loan[], today: string) {
     if (status !== "active" && status !== "overdue") continue;
     if (!l.dueDate) continue; // préstamos sin vencimiento no aplican
 
-    const nextDue = status === "overdue" ? getNextRenewalDate(l, today) : l.dueDate;
+    // Un préstamo pasa a "overdue" el mismo día de su vencimiento (ver isOverdue en
+    // utils.js), pero ese día su propio dueDate sigue siendo lo relevante — recién
+    // renueva de verdad cuando pasó al menos un ciclo completo sin pagar.
+    const overduePeriods = status === "overdue" ? loanElapsedPeriods(l, l.dueDate, today) : 0;
+    const nextDue = overduePeriods > 0 ? getNextRenewalDate(l, today) : l.dueDate;
     if (!nextDue || nextDue < today || nextDue > horizon) continue;
 
     items.push({
       name: l.clientName ?? "Sin nombre",
       date: nextDue,
       days: daysBetween(today, nextDue),
-      renewal: status === "overdue",
+      renewal: overduePeriods > 0,
     });
   }
 

@@ -171,6 +171,13 @@ export function VencimientosHeatmap() {
       if (i !== undefined) entries[i].dueLoans.push({ loan: l, gain: Number(l._profit) || 0, isRenewal: false });
     }
     for (const l of derived.overdueLoans) {
+      // Día 0 de atraso: el préstamo pasa a "vencido" el mismo día de su vencimiento
+      // (ver isOverdue), pero ese día sigue siendo su propio dueDate, no un re-vencimiento
+      // futuro — sin este chequeo desaparecería de la celda de "hoy" en el mapa.
+      const dueTodayIdx = idx.get(l.dueDate);
+      if (dueTodayIdx !== undefined) {
+        entries[dueTodayIdx].dueLoans.push({ loan: l, gain: Number(l._profit) || 0, isRenewal: false });
+      }
       const next = getNextRenewalDate(l);
       const i = idx.get(next);
       if (i !== undefined) {

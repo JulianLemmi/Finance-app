@@ -294,12 +294,15 @@ export function loanProgress(loan: Loan): number {
   return Math.min(1, Math.max(0, paid / total));
 }
 
+// El interés del vencimiento se considera devengado desde el arranque del día en que
+// vence (no recién al día siguiente): un préstamo que vence hoy y sigue impago ya cuenta
+// como atrasado hoy mismo, no mañana.
 export function isOverdue(loan: Loan, today = todayDate()): boolean {
   if (loan.status === "paid" || loan.status === "refinanced") return false;
   if (loan.noDueDate) return false;
   const due = parseISO(loan.dueDate);
   if (!due) return false;
-  return due.getTime() < today.getTime();
+  return due.getTime() <= today.getTime();
 }
 
 export function daysUntilDue(loan: Loan): number | null {
