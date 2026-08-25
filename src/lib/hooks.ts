@@ -17,8 +17,11 @@ export function useStorageSync(key: string, value: unknown, enabled: boolean, de
   }, [key, value, enabled, delayMs]);
 }
 
+interface PointerPos { clientX: number; clientY: number }
+
 export interface LongPressHandlers {
-  onPointerDown: () => void;
+  onPointerDown: (e: PointerPos) => void;
+  onPointerMove: (e: PointerPos) => void;
   onPointerUp: () => void;
   onPointerLeave: () => void;
   onPointerCancel: () => void;
@@ -26,34 +29,64 @@ export interface LongPressHandlers {
   onClick: () => void;
 }
 
+export interface LongPressOptions {
+  /** Cuánto hay que sostener para disparar la acción. */
+  delayMs?: number;
+  /** Recién a partir de acá se muestra el feedback visual (`pressing`). Un toque corto
+   *  o el arranque de un scroll terminan antes, así que nunca lo llegan a ver. */
+  feedbackAfterMs?: number;
+  /** Si el puntero se desplaza más que esto, se asume scroll y se cancela el gesto. */
+  moveTolerancePx?: number;
+}
+
 // Gesto de "mantener apretado" vía Pointer Events, que unifica mouse y touch (funciona
 // igual en mobile y en PC sin código separado por plataforma). Si el puntero se suelta
-// antes de `delayMs`, dispara `onClick` normal en su lugar; `pressing` sirve para mostrar
-// feedback visual mientras se mantiene apretado (ver .fa-longpress-fill en GlobalStyles).
+// antes de `delayMs`, dispara `onClick` normal en su lugar.
+//
+// Dos defensas contra el scroll en mobile, donde el dedo inevitablemente pasa por encima
+// de las cards: se cancela apenas el puntero se desplaza (`moveTolerancePx`) y el feedback
+// visual no aparece hasta `feedbackAfterMs`. Sin ambas, deslizar para scrollear hacía
+// parpadear "Archivando..." en cada card que el dedo tocaba al pasar.
 export function useLongPress(
   onLongPress: () => void,
   onClick?: () => void,
-  delayMs = 550
-): { pressing: boolean; handlers: LongPressHandlers } {
+  options: LongPressOptions = {}
+): { pressing: boolean; progressMs: number; handlers: LongPressHandlers } {
+  const { delayMs = 2000, feedbackAfterMs = 350, moveTolerancePx = 12 } = options;
   const [pressing, setPressing] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feedbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
+  const originRef = useRef<{ x: number; y: number } | null>(null);
 
   const clear = useCallback(() => {
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (holdRef.current) { clearTimeout(holdRef.current); holdRef.current = null; }
+    if (feedbackRef.current) { clearTimeout(feedbackRef.current); feedbackRef.current = null; }
+    originRef.current = null;
     setPressing(false);
   }, []);
 
-  const onPointerDown = useCallback(() => {
+  // Los timers no deben sobrevivir al desmontaje (ej. archivar saca la card de la lista).
+  useEffect(() => clear, [clear]);
+
+  const onPointerDown = useCallback((e: PointerPos) => {
     firedRef.current = false;
     clear();
-    setPressing(true);
-    timerRef.current = setTimeout(() => {
+    originRef.current = { x: e.clientX, y: e.clientY };
+    feedbackRef.current = setTimeout(() => setPressing(true), feedbackAfterMs);
+    holdRef.current = setTimeout(() => {
       firedRef.current = true;
-      setPressing(false);
+      clear();
       onLongPress();
     }, delayMs);
-  }, [clear, onLongPress, delayMs]);
+  }, [clear, onLongPress, delayMs, feedbackAfterMs]);
+
+  const onPointerMove = useCallback((e: PointerPos) => {
+    const origin = originRef.current;
+    if (!origin) return;
+    if (Math.abs(e.clientX - origin.x) > moveTolerancePx
+      || Math.abs(e.clientY - origin.y) > moveTolerancePx) clear();
+  }, [clear, moveTolerancePx]);
 
   const handleClick = useCallback(() => {
     if (firedRef.current) { firedRef.current = false; return; }
@@ -62,8 +95,11 @@ export function useLongPress(
 
   return {
     pressing,
+    // Lo que dura la barra de progreso: desde que aparece el feedback hasta que dispara.
+    progressMs: Math.max(0, delayMs - feedbackAfterMs),
     handlers: {
       onPointerDown,
+      onPointerMove,
       onPointerUp: clear,
       onPointerLeave: clear,
       onPointerCancel: clear,

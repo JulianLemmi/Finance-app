@@ -47,10 +47,11 @@ export default function GlobalStyles() {
       }
       .fa-ring { animation: fa-ring 2.4s ease-in-out infinite; transform-origin: 50% 2px; }
 
-      /* Barra de progreso de "mantener apretado" (archivar préstamo). La duración debe
-         calzar con el delay del long-press en useLongPress (lib/hooks.ts). */
+      /* Barra de progreso de "mantener apretado" (archivar préstamo). La duración la pone
+         el componente con animationDuration, a partir del progressMs de useLongPress
+         (lib/hooks.ts), para que la barra termine justo cuando dispara la acción. */
       @keyframes fa-longpress-fill { from { transform: scaleX(0) } to { transform: scaleX(1) } }
-      .fa-longpress-fill { transform-origin: left; animation: fa-longpress-fill 550ms linear forwards; }
+      .fa-longpress-fill { transform-origin: left; animation: fa-longpress-fill 1650ms linear forwards; }
 
       /* ─────────────────────── Aurora ring (borde vivo) ───────────────────── */
       @property --fa-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }

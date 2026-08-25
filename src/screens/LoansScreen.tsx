@@ -30,7 +30,7 @@ function LoanCard({ loan, onOpen, onToggleArchive, archived }: LoanCardProps) {
   // En préstamos compartidos, la próxima ganancia mostrada es mi parte, no el total.
   const nextChargeAmount = ongoing ? loan._nextProfit * myShare(loan) : 0;
 
-  const { pressing, handlers } = useLongPress(
+  const { pressing, progressMs, handlers } = useLongPress(
     () => { navigator.vibrate?.(15); onToggleArchive(loan.id); },
     () => onOpen(loan.id)
   );
@@ -55,7 +55,8 @@ function LoanCard({ loan, onOpen, onToggleArchive, archived }: LoanCardProps) {
         // pointer-events-none es obligatorio: si el overlay recibe eventos, al insertarse
         // bajo el cursor dispara pointerleave en la card y cancela el propio long-press.
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 overflow-hidden bg-zinc-950/90 text-amber-200">
-          <span className="fa-longpress-fill absolute inset-0 bg-amber-900/40" />
+          <span className="fa-longpress-fill absolute inset-0 bg-amber-900/40"
+            style={{ animationDuration: `${progressMs}ms` }} />
           {archived ? <ArchiveRestore className="relative h-4 w-4" /> : <Archive className="relative h-4 w-4" />}
           <span className="relative text-xs font-medium">{archived ? "Restaurando..." : "Archivando..."}</span>
         </div>
