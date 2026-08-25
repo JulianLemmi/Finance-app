@@ -1,5 +1,5 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, loanPeriodDate, loanElapsedPeriods, myShare } from "./utils.js";
+import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare } from "./utils.js";
 import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 interface OverdueMeta {
@@ -28,7 +28,7 @@ function getOverdueMeta(loan: Loan): OverdueMeta | null {
   if (!loan.dueDate) return null;
   const daysOverdue = daysBetween(loan.dueDate, todayDate());
   if (daysOverdue <= 0) return null;
-  const today = todayDate().toISOString().slice(0, 10);
+  const today = todayISO();
   const overduePeriods = loanElapsedPeriods(loan, loan.dueDate, today);
   return { daysOverdue, overduePeriods, rate: Number(loan.interestRate) / 100 };
 }
@@ -68,7 +68,7 @@ export function compoundReturn(loan: Loan): number {
   const base = Number(loan.amount);
 
   if (loan.noDueDate) {
-    const today = todayDate().toISOString().slice(0, 10);
+    const today = todayISO();
     const periods = loanElapsedPeriods(loan, loan.startDate, today) + 1;
     if (loan.interestMode === "fixed") {
       return base + Number(loan.fixedInterest || 0) * periods;
@@ -170,14 +170,17 @@ export function remainingDebtAt(loan: Loan, asOf: string): number {
 export function loanCapitalAt(loan: Loan, asOf: string): number {
   if (loan.status === "refinanced") return 0;
   if (loan.startDate && loan.startDate > asOf) return 0;
+  // A hoy la clasificación tiene que ser EXACTAMENTE la del header (`resolveStatus`), o la
+  // curva del gráfico no cierra con la card de capital invertido: un préstamo marcado como
+  // pagado queda fuera del header, pero su deuda recalculada podía volver a crecer con los
+  // re-vencimientos y colarse en la curva. Para fechas pasadas alcanza con la deuda y el
+  // vencimiento de ese momento (un préstamo cobrado ayer sí desplegaba capital antes).
+  const status = asOf >= todayISO() ? resolveStatus(loan) : null;
+  if (status === "paid" || status === "refinanced") return 0;
   const remaining = remainingDebtAt(loan, asOf);
   if (remaining <= CALC.PAID_THRESHOLD) return 0;
-  // Clasificación "vencido": a hoy usamos resolveStatus (respeta el criterio de "sigue
-  // activo si el interés está al día") para que la suma coincida con capitalInvested;
-  // para fechas pasadas alcanza con la fecha de vencimiento.
-  const today = todayDate().toISOString().slice(0, 10);
-  const overdueAt = asOf >= today
-    ? resolveStatus(loan) === "overdue"
+  const overdueAt = status
+    ? status === "overdue"
     : !loan.noDueDate && !!loan.dueDate && loan.dueDate < asOf;
   return overdueAt ? remaining : Math.min(remaining, Number(loan.amount));
 }
@@ -194,7 +197,7 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   const contracted = expectedProfit(loan);
   if (!(base > 0) || !(contracted > 0)) return events;
 
-  const today = todayDate().toISOString().slice(0, 10);
+  const today = todayISO();
   const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
   const closed = loan.status === "paid" || loan.status === "refinanced";
   const horizon = closed ? (lastPayment || loan.dueDate || today) : today;
@@ -242,7 +245,7 @@ export function upcomingInterest(loan: Loan, until: string): number {
   const base = Number(loan.amount);
   const contracted = expectedProfit(loan);
   if (!(base > 0) || !(contracted > 0)) return 0;
-  const today = todayDate().toISOString().slice(0, 10);
+  const today = todayISO();
   if (until <= today) return 0;
 
   let anchor: string;

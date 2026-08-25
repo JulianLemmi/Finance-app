@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Reporte de cobertura de tests (npm run test:coverage)
+coverage
+
 # Env files (las claves van como Environment Variables en el hosting)
 .env
 .env.*

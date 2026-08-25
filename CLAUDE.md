@@ -12,6 +12,7 @@ App mobile-first en español para gestión personal de préstamos, clientes, gas
 - Supabase (`@supabase/supabase-js`) — auth + key-value storage + storage bucket de fotos
 - Recharts (gráficos), lucide-react (iconos)
 - ESLint 10 (flat config)
+- Vitest + @testing-library/react (jsdom) — tests de las fórmulas financieras
 - **TypeScript strict** — migración completa; toda la codebase es `.ts`/`.tsx` excepto `constants.js`
 
 ## Scripts
@@ -19,6 +20,8 @@ App mobile-first en español para gestión personal de préstamos, clientes, gas
 npm run dev        # Vite dev server — http://localhost:5173
 npm run build      # build de producción a dist/
 npm run lint       # ESLint
+npm test           # tests (vitest run)
+npm run test:watch # tests en watch mientras desarrollás
 npm run preview    # preview del build
 npx tsc --noEmit   # chequeo de tipos sin emitir (pasa limpio)
 ```
@@ -109,6 +112,20 @@ src/
 │   └── constants.js          # STORAGE_KEYS, LOAN_STATUSES, EXPENSE_CATEGORIES, etc.
 └── store/index.ts            # reducer + AppContext + useDerived
 ```
+
+### Tests (`npm test`)
+Dos suites, ~106 tests, corren en ~3 s:
+- `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
+- `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
+
+**Correr `npm test` después de tocar cualquier fórmula de `calcs.ts`, `utils.ts` o `useDerived`.** Todo lo que afirman es plata que el usuario ve: ante una falla, la sospecha default es la fórmula, no el test.
+
+Dos cosas que la suite cuida especialmente:
+- **El reloj está congelado** (`vi.setSystemTime`) y la zona fijada a Argentina en `vitest.config.ts`. Sin eso los tests pasarían o fallarían según el día y la máquina.
+- **Un gráfico y la card de al lado tienen que dar el mismo número** (ej. `months[último].capitalInvested === capitalInvested`). Varios bugs históricos fueron exactamente esa divergencia.
+
+### Fechas: nunca usar `toISOString()` para armar un YYYY-MM-DD
+Convierte a UTC y devuelve otro día según la zona y la hora. Usar `toISODate(date)` de `utils.ts`, que formatea en hora **local**. Con `toISOString()`, en Argentina `todayISO()` ya era "mañana" a partir de las 21:00 (y quedaba en desacuerdo con `todayDate()`), y en zonas UTC+ `addDays(d, 1)` ni siquiera avanzaba el día.
 
 ### Cálculos de negocio
 `src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`, `validateLoan`, `calcProjection`. Reglas duras en `BUSINESS_RULES` (constants.js).

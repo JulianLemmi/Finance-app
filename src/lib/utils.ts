@@ -21,14 +21,21 @@ export const todayDate = (): Date => {
   return d;
 };
 
-export const todayISO = (): string => new Date().toISOString().slice(0, 10);
+// Formatea una fecha como YYYY-MM-DD en hora LOCAL. Nunca usar `toISOString()` para esto:
+// convierte a UTC y devuelve otro día según la zona y la hora — en Argentina (UTC-3)
+// `new Date().toISOString()` ya es "mañana" a partir de las 21:00, y en zonas UTC+ una
+// fecha local a medianoche retrocede al día anterior.
+export const toISODate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export const todayISO = (): string => toISODate(new Date());
 
 export const addDays = (isoDate: string, days: number): string => {
   if (!isoDate || isoDate.length < 10) return isoDate || "";
   const d = new Date(isoDate + "T00:00:00");
   if (isNaN(d.getTime())) return isoDate;
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return toISODate(d);
 };
 
 export const parseISO = (iso: string | null | undefined): Date | null => {
@@ -104,7 +111,7 @@ export function addCalendarMonths(iso: string, months: number): string {
   const targetMonth = d.getMonth() + Number(months || 0);
   const lastDayOfTargetMonth = new Date(d.getFullYear(), targetMonth + 1, 0).getDate();
   const result = new Date(d.getFullYear(), targetMonth, Math.min(day, lastDayOfTargetMonth));
-  return result.toISOString().slice(0, 10);
+  return toISODate(result);
 }
 
 // Fecha del período N desde `anchor` (dueDate o startDate; N=0 → el propio anchor).

@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare } from "../lib/utils.js";
+import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -528,7 +528,9 @@ export function useDerived(state: AppState): Derived {
     }, 0);
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
-      const monthEnd = new Date(yr, mo, 0).toISOString().slice(0, 10);
+      // toISODate y no toISOString: el último día del mes se construye en hora local y
+      // convertirlo a UTC lo correría un día en zonas UTC+.
+      const monthEnd = toISODate(new Date(yr, mo, 0));
       // Para el mes en curso no proyectamos a fin de mes: cortamos en hoy, así el
       // último punto coincide con el capital invertido actual del header.
       const cutoff = monthEnd > today ? today : monthEnd;
