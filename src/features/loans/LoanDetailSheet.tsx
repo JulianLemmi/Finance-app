@@ -286,7 +286,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Capital inicial", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
-              { label: "Próx. ganancia", value: <Money value={loan._nextProfit} hide={hide} currency={cur} />, cls: "text-emerald-400" },
+              { label: "Próx. ganancia", value: <Money value={loan._nextProfit * myShare(loan)} hide={hide} currency={cur} />, cls: "text-emerald-400" },
               { label: "Interés", value: formatInterest(loan, cur), cls: "text-zinc-100" },
               { label: "Vence", value: formatDate(nextDueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
             ].map(({ label, value, cls }) => (

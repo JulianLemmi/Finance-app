@@ -33,8 +33,12 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
 
   const paid = client._loans.filter((l) => l._status === "paid");
   const openLoans = client._loans.filter((l) => l._status === "active" || l._status === "overdue");
+  // El préstamo se cerró en término si su ÚLTIMO pago por fecha entró antes del
+  // vencimiento. Hay que ordenar: el array guarda los pagos en el orden en que se
+  // cargaron, así que `slice(-1)` devolvía el último tecleado, no el más reciente
+  // (mismo criterio que `paidOnTimeCount` en useDerived).
   const onTime = paid.filter((l) => {
-    const last = (l.payments || []).slice(-1)[0];
+    const last = [...(l.payments || [])].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-1)[0];
     return last && last.date <= l.dueDate;
   }).length;
   const punctuality = paid.length ? Math.round((onTime / paid.length) * 100) : null;

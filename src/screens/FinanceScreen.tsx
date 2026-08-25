@@ -211,8 +211,11 @@ export default function FinanceScreen() {
       workingCapital: derived.workingCapital,
       avgRate: derived.avgRate,
       accumulatedProfit: accruedToDate,
+      // Plazo mediano (no promedio): un solo préstamo a 365 días no debe distorsionar
+      // el ciclo con el que se calculan la tasa efectiva anual y la duplicación.
+      cycleDays: derived.medianDays,
     }),
-    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate, accruedToDate]
+    [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate, derived.medianDays, accruedToDate]
   );
 
   const SUB_VIEWS: { v: SubView; l: string }[] = [
@@ -548,7 +551,9 @@ export default function FinanceScreen() {
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ahorro acumulado</div>
+              {/* Suma sólo la ventana del gráfico; el acumulado de todo el historial es
+                  el "Balance" de la pestaña Movimientos. */}
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Ahorro {BUSINESS_RULES.CHART_HISTORY_MONTHS} meses</div>
               <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100">
                 <AnimatedMoney value={cumulativeSaving} hide={hide} currency={cur} />
               </div>

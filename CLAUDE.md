@@ -111,16 +111,33 @@ src/
 ```
 
 ### Cálculos de negocio
-`src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`, `validateLoan`, `compoundPeriods`, `calcProjection`. Reglas duras en `BUSINESS_RULES` (constants.js).
+`src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`, `validateLoan`, `calcProjection`. Reglas duras en `BUSINESS_RULES` (constants.js).
+
+**Fechas de ciclo** (`src/lib/utils.ts`) — usar SIEMPRE estos helpers, nunca aritmética de días a mano:
+- `loanPeriodDate(loan, anchor, n)` — fecha del período n. En `paymentType: "30"` avanza por **meses calendario** (vence siempre el mismo día del mes, con clamp a fin de mes vía `addCalendarMonths`); en "15"/"custom" suma días fijos.
+- `loanElapsedPeriods(loan, anchor, asOf)` — períodos completos transcurridos (inverso de `loanPeriodDate`). Define cuántos ciclos de mora se cobraron, así que afecta plata, no sólo la fecha mostrada.
+- `getNextRenewalDate(loan)` / `getLoanCycleDays(loan)`.
+
+Un préstamo pasa a `overdue` **el mismo día de su vencimiento** (`isOverdue` compara con `<=`), no al día siguiente. Ojo al escribir etiquetas: chequear `_daysUntilDue === 0` ("Vence hoy") antes que el estado, o sale "Atrasado 0d".
+
+La **deuda cobra el interés del ciclo por adelantado** (al prestar $100k al 10% ya se deben $110k) mientras que el **devengado** (`interestAccruals`) lo reconoce al cerrar cada período. Ese desfasaje de un ciclo es intencional y consistente en todos los tipos de préstamo — no es un bug.
 
 Modelo de devengado/proyección para los gráficos (mismo archivo):
 - `remainingDebtAt(loan, asOf)` — deuda (principal + interés capitalizado por vencimientos/re-vencimientos) a una fecha dada. Con `asOf = hoy` coincide con `remainingDebt`.
 - `loanCapitalAt(loan, asOf)` — capital desplegado a una fecha, con la misma clasificación que `capitalInvested` (vencidos: deuda completa; activos: principal acotado). Alimenta la curva "Evolución del capital".
-- `interestAccruals(loan)` — eventos de interés devengado por vencimiento, lo paguen o no (hasta hoy o el cierre). Base del ROI histórico y del gráfico "Mes actual" (`months[].accrued`).
+- `interestAccruals(loan)` — eventos de interés devengado por vencimiento, lo paguen o no (hasta hoy o el cierre). Base del ROI histórico y del gráfico "Mes actual" (`months[].accrued`). Si el préstamo se canceló **antes** de su vencimiento, el interés contratado se devenga en la fecha de cierre (si no, la ganancia de los pagos anticipados desaparecía del ROI).
 - `upcomingInterest(loan, until)` — interés a cobrar entre hoy y `until`; proyecta el crecimiento del capital (usado en la proyección "En 30d" de la card de capital).
 
+Todo agregado global se prorratea por `myShare(loan)` (préstamos compartidos). Los campos `_*` de `ResolvedLoan` quedan **brutos** para la UI del detalle; el share se aplica en `useDerived`, en `calcProjection` y en cualquier importe de ganancia que se muestre por préstamo.
+
 ### Sueldo fijo virtual (`settings.fixedIncomeAmount` / `fixedIncomeDay`)
-Ingreso fijo mensual **virtual**: helpers `salaryForMonth` / `totalSalary` en `store/index.ts`. Se suma al ingreso de cada mes (desde la primera actividad registrada, sólo si la fecha de cobro ya pasó) y por eso aparece en: `months[].income` (gráfico "Mes actual", balance/ahorro mensual), `totalIncome` (cards Ingresos/Balance de Finanzas) y `fixedIncomeThisMonth` (sumado a "Ganancia mensual" del inicio). **No** crea transacción (`state.income`), **no** afecta `cashOnHand`/capital, y **no** entra en las métricas de interés de préstamos (`nextProfitTotal` "Ganancia por cobrar", ROI, `expectedMonthlyProfit`).
+Ingreso fijo mensual **virtual**: helpers `salaryForMonth` / `totalSalary` en `store/index.ts`. Se suma al ingreso de cada mes (desde la primera actividad registrada, sólo si la fecha de cobro ya pasó) y por eso aparece en: `months[].income` (gráfico "Mes actual", balance/ahorro mensual), `totalIncome` (cards Ingresos/Balance de Finanzas) y `fixedIncomeThisMonth` (sumado a "Ganancia mensual" del inicio). **No** crea transacción (`state.income`), **no** afecta `cashOnHand`/capital, y **no** entra en las métricas de interés de préstamos (`nextProfitTotal` "Ganancia por cobrar", ROI).
+
+### Pasivos (`state.liabilities`)
+Deudas propias (ej: plata que le debo a mi papá) con sus pagos. Se cargan en Finanzas → Pasivos. Sólo **restan de `totalCapital`** (y de la curva "Evolución del capital"); no tocan el flujo de ingresos/gastos. Como el capital puede quedar negativo, los gráficos que lo muestran no pueden fijar el piso del eje en 0.
+
+### Archivado de préstamos (`loan.archived`)
+Manteniendo apretada una card en Préstamos se archiva/restaura (ver `useLongPress` en `lib/hooks.ts`, funciona con mouse y touch). Sólo **oculta del listado** — el préstamo sigue contando en todas las métricas de Inicio/Finanzas. Si un overlay de feedback tapa el elemento durante el gesto, necesita `pointer-events-none` o cancela el propio long-press.
 
 ### Edge functions (`supabase/functions/` — Deno)
 - `telegram-bot` — webhook + comandos `/resumen /vencimientos /gasto /ingreso /chatid`

@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown,
 } from "lucide-react";
-import { formatDate, formatInterest, loanPeriodDate } from "../../lib/utils.js";
+import { formatDate, formatInterest, loanPeriodDate, myShare } from "../../lib/utils.js";
 import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
@@ -43,6 +43,10 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       balance = Math.max(0, balance - Number(p.amount));
     });
 
+    // `total` es el saldo de deuda real (ambos socios) tras capitalizar la mora — se
+    // muestra completo, igual que `_remaining`. `added` es la ganancia de ese cargo, y
+    // ahí sí se muestra mi parte.
+    const share = myShare(loan);
     const result: MoraEvent[] = [];
     for (let i = 1; i <= currentCompoundPeriods; i++) {
       const prevBalance = Math.max(0, balance);
@@ -53,7 +57,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         period: i,
         date: loanPeriodDate(loan, loan.dueDate, i),
         total: afterMora,
-        added,
+        added: added * share,
         isCurrent: i === currentCompoundPeriods,
       });
       balance = afterMora;
@@ -108,7 +112,8 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     loan._status === "overdue" && loan.dueDate
       ? loanPeriodDate(loan, loan.dueDate, currentCompoundPeriods + 1)
       : null;
-  const nextOverdueAdded = nextOverdueDate ? loan._nextProfit : 0;
+  // En préstamos compartidos, la próxima ganancia proyectada es mi parte, no el total.
+  const nextOverdueAdded = nextOverdueDate ? loan._nextProfit * myShare(loan) : 0;
 
   const movePayment = (paymentId: string, direction: "up" | "down") => {
     const payment = (loan.payments || []).find((p) => p.id === paymentId);
@@ -172,7 +177,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                       <Money value={loan._return} hide={hide} currency={cur} />
                     </div>
                     <div className="text-[11px] text-emerald-400/80 tabular-nums">
-                      +<Money value={loan._profit} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
+                      +<Money value={loan._profit * myShare(loan)} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
                     </div>
                   </div>
                 </div>

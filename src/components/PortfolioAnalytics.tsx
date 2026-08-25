@@ -5,7 +5,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { CheckCircle2, Clock, TrendingDown, CalendarDays, BarChart2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useApp } from "../store/index.js";
-import { formatShortDate, todayISO, addDays, getNextRenewalDate } from "../lib/utils.js";
+import { formatShortDate, todayISO, addDays, getNextRenewalDate, myShare } from "../lib/utils.js";
 import { CHART_COLORS } from "../lib/constants.js";
 import { Card, SectionTitle, Money, ChartContainer, ChartTooltip, StatCard } from "./ui.jsx";
 import type { ResolvedLoan } from "../types";
@@ -67,13 +67,22 @@ function CashFlowChart() {
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
   const hasData = derived.cashFlow30d.some((d) => d.expected > 0);
+  // Total de la ventana, calculado sobre las mismas barras del gráfico para que no puedan
+  // divergir. Cuenta cada préstamo una sola vez (ver cashFlow30d en useDerived).
+  const total = derived.cashFlow30d.reduce((a, d) => a + d.expected, 0);
+  const count = derived.cashFlow30d.reduce((a, d) => a + d.count, 0);
 
   return (
     <Card className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="text-[11px] uppercase tracking-wider text-zinc-500">Flujo de caja proyectado</div>
-          <div className="mt-0.5 text-xs text-zinc-600">Próximos 30 días · por vencimiento</div>
+          <div className="mt-0.5 text-lg font-semibold tracking-tight text-white">
+            <Money value={total} hide={hide} currency={cur} />
+          </div>
+          <div className="mt-0.5 text-xs text-zinc-600">
+            Próximos 30 días · {count} vencimiento{count === 1 ? "" : "s"}
+          </div>
         </div>
         <div className="flex items-center gap-1.5 rounded-full border border-zinc-800/60 bg-zinc-900/40 px-2.5 py-1 text-[10px] text-zinc-400">
           <BarChart2 className="h-3 w-3" />
@@ -166,9 +175,10 @@ export function VencimientosHeatmap() {
     });
     const idx = new Map(entries.map((e, i) => [e.date, i]));
 
+    // En préstamos compartidos, la ganancia que muestra el mapa es mi parte, no el total.
     for (const l of derived.activeLoans) {
       const i = idx.get(l.dueDate);
-      if (i !== undefined) entries[i].dueLoans.push({ loan: l, gain: Number(l._profit) || 0, isRenewal: false });
+      if (i !== undefined) entries[i].dueLoans.push({ loan: l, gain: (Number(l._profit) || 0) * myShare(l), isRenewal: false });
     }
     for (const l of derived.overdueLoans) {
       // Día 0 de atraso: el préstamo pasa a "vencido" el mismo día de su vencimiento
@@ -176,12 +186,13 @@ export function VencimientosHeatmap() {
       // futuro — sin este chequeo desaparecería de la celda de "hoy" en el mapa.
       const dueTodayIdx = idx.get(l.dueDate);
       if (dueTodayIdx !== undefined) {
-        entries[dueTodayIdx].dueLoans.push({ loan: l, gain: Number(l._profit) || 0, isRenewal: false });
+        entries[dueTodayIdx].dueLoans.push({ loan: l, gain: (Number(l._profit) || 0) * myShare(l), isRenewal: false });
       }
       const next = getNextRenewalDate(l);
       const i = idx.get(next);
       if (i !== undefined) {
-        const periodicGain = l._nextProfit;
+        // En préstamos compartidos, la ganancia proyectada del re-vencimiento es mi parte.
+        const periodicGain = l._nextProfit * myShare(l);
         entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(periodicGain) ? periodicGain : 0, isRenewal: true });
       }
     }

@@ -349,7 +349,9 @@ export default function HomeScreen() {
                 <BarChart width={width} height={height} data={derived.months} margin={{ top: 20, right: 4, left: 0, bottom: 0 }} barCategoryGap="26%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                  <YAxis hide domain={[0, "auto"]} />
+                  {/* El capital puede ser negativo si los pasivos superan al patrimonio,
+                      así que el piso del eje acompaña al mínimo en vez de recortar en 0. */}
+                  <YAxis hide domain={[(min: number) => Math.min(0, min), "auto"]} />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
                   <Bar name="Capital" dataKey="capital" fill={CHART_COLORS.capitalStroke as string} radius={[4, 4, 0, 0]}>
@@ -453,9 +455,12 @@ export default function HomeScreen() {
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-zinc-100">{l.clientName}</div>
                           <div className="mt-0.5 text-[11px] text-zinc-500">
-                            {l._status === "overdue"
+                            {/* "Vence hoy" va primero: un préstamo pasa a atrasado el mismo
+                                día de su vencimiento, y decir "Atrasado 0d" confunde. */}
+                            {l._daysUntilDue === 0
+                              ? `Vence hoy · ${formatShortDate(l.dueDate)}`
+                              : l._status === "overdue"
                               ? `Atrasado ${Math.abs(l._daysUntilDue ?? 0)}d · ${formatShortDate(l.dueDate)}`
-                              : l._daysUntilDue === 0 ? `Vence hoy · ${formatShortDate(l.dueDate)}`
                               : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
                           </div>
                           <div className="mt-0.5 text-[10px] text-zinc-600">↻ {formatShortDate(getNextRenewalDate(l))}</div>

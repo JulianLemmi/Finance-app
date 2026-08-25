@@ -1,5 +1,5 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, loanPeriodDate, loanElapsedPeriods } from "./utils.js";
+import { daysBetween, parseISO, todayDate, loanPeriodDate, loanElapsedPeriods, myShare } from "./utils.js";
 import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 interface OverdueMeta {
@@ -92,6 +92,15 @@ export function paidAmount(loan: Loan): number {
 
 export function remainingDebt(loan: Loan): number {
   const payments = loan.payments || [];
+
+  // Sin vencimiento: la deuda capitaliza un período por cada ciclo transcurrido desde el
+  // inicio. Sin esta rama, `getOverdueMeta` devuelve null (no hay dueDate) y la deuda
+  // quedaría congelada en un solo período, contradiciendo a `compoundReturn`,
+  // `remainingDebtAt` y la curva de capital de los gráficos.
+  if (loan.noDueDate) {
+    return Math.max(0, compoundReturn(loan) - paidAmount(loan));
+  }
+
   const meta = getOverdueMeta(loan);
 
   if (!meta || meta.overduePeriods === 0) {
@@ -203,7 +212,15 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
     return events;
   }
 
-  if (!loan.dueDate || loan.dueDate > horizon) return events;
+  if (!loan.dueDate) return events;
+  if (loan.dueDate > horizon) {
+    // Cerrado antes de su vencimiento: el interés contratado se cobró igual (el cliente
+    // paga capital + interés aunque cancele antes), así que se devenga en la fecha de
+    // cierre. Sin esto la ganancia de un préstamo pagado anticipadamente desaparecía del
+    // ROI histórico y de "Ganancia acumulada proyectada".
+    if (closed && lastPayment) events.push({ date: lastPayment, amount: contracted });
+    return events;
+  }
   // Vencimiento original: interés contratado.
   events.push({ date: loan.dueDate, amount: contracted });
   let balance = base + contracted;
@@ -274,6 +291,9 @@ export function upcomingInterest(loan: Loan, until: string): number {
 export function nextPeriodInterest(loan: Loan): number {
   const status = resolveStatus(loan);
   if (status === "paid" || status === "refinanced") return 0;
+  // Sin vencimiento: la deuda capitaliza cada ciclo, así que el próximo interés se cobra
+  // sobre la deuda actual (igual que un vencido), no sobre el capital original.
+  if (loan.noDueDate) return periodInterest(loan, remainingDebt(loan));
   if (status === "overdue") return periodInterest(loan, remainingDebt(loan));
   const amount = Number(loan.amount);
   const contractedInterest = expectedProfit(loan);
@@ -368,59 +388,6 @@ export function validateLoan(form: LoanFormData): LoanValidationErrors {
   return errors;
 }
 
-// ── Compound periods breakdown ────────────────────────────────────────────────
-export interface CompoundPeriod {
-  period: number;
-  date: string;
-  total: number;
-  added: number;
-  isCurrent: boolean;
-}
-
-export function compoundPeriods(loan: Loan): CompoundPeriod[] {
-  const base = Number(loan.amount);
-  const periods: CompoundPeriod[] = [];
-
-  if (loan.noDueDate) {
-    const today = todayDate().toISOString().slice(0, 10);
-    const numPeriods = loanElapsedPeriods(loan, loan.startDate, today) + 1;
-    let balance = base;
-    for (let i = 0; i < numPeriods; i++) {
-      const added = periodInterest(loan, balance);
-      const current = balance + added;
-      periods.push({
-        period: i + 1,
-        date: loanPeriodDate(loan, loan.startDate, i + 1),
-        total: current,
-        added,
-        isCurrent: i === numPeriods - 1,
-      });
-      balance = current;
-    }
-    return periods;
-  }
-
-  if (!loan.compoundInterest || !loan.dueDate) return [];
-  const meta = getOverdueMeta(loan);
-  if (!meta || meta.overduePeriods === 0) return [];
-
-  const { overduePeriods: numOverduePeriods } = meta;
-  let balance = base;
-  for (let i = 0; i <= numOverduePeriods; i++) {
-    const added = periodInterest(loan, balance);
-    const current = balance + added;
-    periods.push({
-      period: i + 1,
-      date: loanPeriodDate(loan, loan.dueDate, i),
-      total: current,
-      added,
-      isCurrent: i === numOverduePeriods,
-    });
-    balance = current;
-  }
-  return periods;
-}
-
 // ── Projection calculation ────────────────────────────────────────────────────
 export interface CyclePoint {
   n: number;
@@ -456,6 +423,7 @@ export function calcProjection({
   workingCapital = 0,
   avgRate = 0,
   accumulatedProfit = 0,
+  cycleDays = BUSINESS_RULES.DEFAULT_LOAN_DAYS,
 }: {
   activeLoans?: ResolvedLoan[];
   overdueLoans?: ResolvedLoan[];
@@ -464,9 +432,16 @@ export function calcProjection({
   /** Interés ya acumulado por vencimientos a la fecha. La ganancia acumulada proyectada
    *  arranca desde acá (mes 0) en vez de cero, para reflejar lo ya devengado. */
   accumulatedProfit?: number;
+  /** Largo del ciclo de la cartera en días (plazo mediano de los préstamos activos).
+   *  Antes estaba fijo en 30, así que una cartera quincenal mostraba "cada ~30 días" y
+   *  subestimaba la tasa efectiva anual y la duplicación. */
+  cycleDays?: number;
 }): CalcProjectionResult {
   const deployedLoans = [...activeLoans, ...overdueLoans];
-  const deployedBase = deployedLoans.reduce((a, l) => a + (l._remaining ?? Number(l.amount)), 0);
+  // Prorrateado por mi parte: la proyección es sobre MI capital, no sobre la deuda total
+  // del cliente. Sin esto un préstamo compartido al 50% inflaba la base (y con ella la
+  // ganancia por ciclo y toda la curva) con la mitad que le corresponde al socio.
+  const deployedBase = deployedLoans.reduce((a, l) => a + myShare(l) * (l._remaining ?? Number(l.amount)), 0);
   const base = Math.max(0, deployedBase || workingCapital);
 
   // Tasa promedio simple de TODOS los préstamos desplegados (activos + atrasados),
@@ -475,7 +450,7 @@ export function calcProjection({
     deployedLoans.length > 0
       ? deployedLoans.reduce((a, l) => a + Number(l.interestRate), 0) / deployedLoans.length / 100
       : avgRate / 100;
-  const days = 30;
+  const days = Math.max(1, cycleDays);
   const cyclesPerYear = 365 / days;
   const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
   const doublingYears = rate > 0 ? (Math.log(2) / Math.log(1 + rate)) * (days / 365) : null;

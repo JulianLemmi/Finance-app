@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, stripComputed, myShare } from "../lib/utils.js";
+import { uid, todayISO, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -352,11 +352,9 @@ export function useDerived(state: AppState): Derived {
     );
     // Ganancia que se cobraría en el próximo período de cada préstamo (lo que muestra cada card).
     const nextProfitTotal = deployed.reduce((a, l) => a + myShare(l) * l._nextProfit, 0);
-    const totalExpectedProfit = loansResolved.reduce((a, l) => a + myShare(l) * l._profit, 0);
     const accumulatedProfit = paidLoans.reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0);
     const incomeTransactions = state.income.reduce((a, t) => a + Number(t.amount), 0);
     const totalExpense = state.expenses.reduce((a, t) => a + Number(t.amount), 0);
-    const collected = loansResolved.reduce((a, l) => a + myShare(l) * l._paid, 0);
     const totalDisbursed = loansResolved
       .filter((l) => !l.refinancedFromId)
       .reduce((a, l) => a + myShare(l) * Number(l.amount), 0);
@@ -403,27 +401,6 @@ export function useDerived(state: AppState): Derived {
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue >= 0 && l._daysUntilDue <= 1)
       .sort((a, b) => (a._daysUntilDue as number) - (b._daysUntilDue as number));
 
-    const horizon = addDays(todayStr, 30);
-    const overdueRenewalsInWindow = overdueLoans
-      .filter((l) => {
-        const next = getNextRenewalDate(l);
-        return next && next <= horizon;
-      })
-      .reduce((a, l) => a + myShare(l) * l._remaining, 0);
-    const expectedInflow30d =
-      activeLoans
-        .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30)
-        .reduce((a, l) => a + myShare(l) * l._remaining, 0) + overdueRenewalsInWindow;
-
-    const expectedMonthlyProfit = activeLoans
-      .filter((l) => l._daysUntilDue !== null && l._daysUntilDue <= 30 && l._daysUntilDue >= 0)
-      .reduce((a, l) => {
-        const profitRatio = l._return > 0 ? l._profit / l._return : 0;
-        return a + myShare(l) * l._remaining * profitRatio;
-      }, 0);
-
-    const monthlyReturnPct = totalCapital > 0 ? (expectedMonthlyProfit / totalCapital) * 100 : 0;
-
     type ExpCatKey = keyof typeof EXPENSE_CATEGORIES;
     const expenseByCategory = (Object.keys(EXPENSE_CATEGORIES) as ExpCatKey[])
       .map((k) => ({
@@ -444,37 +421,13 @@ export function useDerived(state: AppState): Derived {
     };
 
     const rates = activeLoans.map((l) => Number(l.interestRate)).filter(Number.isFinite);
-    const terms = activeLoans.map((l) =>
-      Math.max(1, daysBetween(l.startDate, l.dueDate) || BUSINESS_RULES.DEFAULT_LOAN_DAYS)
-    );
+    // Plazo del ciclo, no la distancia cruda entre fechas: un préstamo "30 días" que cae
+    // en un mes de 31 debe contar 30 (mismo criterio que getNextRenewalDate y la mora).
+    const terms = activeLoans.map((l) => Math.max(1, getLoanCycleDays(l) || BUSINESS_RULES.DEFAULT_LOAN_DAYS));
 
     const avgRate = rates.length ? rates.reduce((a, r) => a + r, 0) / rates.length : 0;
     const medianRate = median(rates);
-    const avgDays = terms.length
-      ? terms.reduce((a, t) => a + t, 0) / terms.length
-      : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
     const medianDays = terms.length ? median(terms) : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
-
-    const reinvestmentFactor = (m: number) => {
-      const cycles = avgDays > 0 ? (m * 30) / avgDays : 0;
-      return Math.pow(1 + avgRate / 100, cycles);
-    };
-    const baseCapital = Math.max(0, totalCapital);
-    const now = new Date();
-    const projections = {
-      m1: baseCapital * reinvestmentFactor(1),
-      m3: baseCapital * reinvestmentFactor(3),
-      m6: baseCapital * reinvestmentFactor(6),
-      y1: baseCapital * reinvestmentFactor(12),
-    };
-    const projectionSeries = Array.from({ length: 13 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      return {
-        key: d.toISOString().slice(0, 7),
-        label: d.toLocaleDateString("es-AR", { month: "short" }),
-        value: baseCapital * reinvestmentFactor(i),
-      };
-    });
 
     const paidOnTimeCount = paidLoans.filter((l) => {
       const sorted = [...(l.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -488,27 +441,38 @@ export function useDerived(state: AppState): Derived {
           overdueLoans.length
         : 0;
 
+    // Flujo de caja de los próximos 30 días. Cada préstamo aporta su deuda en UNA sola
+    // fecha (sumarla en dos días distintos contaría la misma plata dos veces): los activos
+    // en su vencimiento; los atrasados en su próximo re-vencimiento, salvo que venzan hoy
+    // mismo (día 0 de atraso), en cuyo caso se cobra hoy. Sin incluir los re-vencimientos
+    // este gráfico contradecía al mapa de vencimientos, que sí los muestra.
     const cashFlow30d = Array.from({ length: 30 }, (_, i) => {
       const dateStr = addDays(todayStr, i);
-      const dueLoans = deployed.filter((l) => l.dueDate === dateStr);
       return {
         day: i,
         date: dateStr,
-        expected: dueLoans.reduce((a, l) => a + myShare(l) * l._remaining, 0),
-        count: dueLoans.length,
+        expected: 0,
+        count: 0,
         label: i === 0 ? "Hoy" : i % 7 === 0 ? `+${i}d` : "",
       };
     });
+    const cashFlowIdx = new Map(cashFlow30d.map((d, i) => [d.date, i]));
+    const addInflow = (dateStr: string, loan: ResolvedLoan) => {
+      const i = cashFlowIdx.get(dateStr);
+      if (i === undefined) return;
+      cashFlow30d[i].expected += myShare(loan) * loan._remaining;
+      cashFlow30d[i].count += 1;
+    };
+    activeLoans.forEach((l) => addInflow(l.dueDate, l));
+    overdueLoans.forEach((l) => addInflow(l.dueDate === todayStr ? l.dueDate : getNextRenewalDate(l), l));
 
     return {
-      capitalInvested, expectedProfitTotal, nextProfitTotal, totalExpectedProfit, accumulatedProfit,
-      totalIncome, totalExpense, collected, totalDisbursed, available, totalAssets,
+      capitalInvested, expectedProfitTotal, nextProfitTotal, accumulatedProfit,
+      totalIncome, totalExpense, totalDisbursed, available, totalAssets,
       totalLiabilities, workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
       fixedIncomeThisMonth,
-      upcomingDue, dueTodayTomorrow,
-      expectedInflow30d, expectedMonthlyProfit, monthlyReturnPct, expenseByCategory,
-      avgRate, avgDays, medianRate, medianDays,
-      projections, projectionSeries, paidOnTimeCount,
+      upcomingDue, dueTodayTomorrow, expenseByCategory,
+      avgRate, medianRate, medianDays, paidOnTimeCount,
       collectabilityRate, avgDaysLate, cashFlow30d,
     };
   }, [loanGroups, loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);

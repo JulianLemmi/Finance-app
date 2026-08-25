@@ -89,6 +89,10 @@ export interface Loan {
   refinancedFromId?: string;
   notes: string;
   photos?: Photo[];
+  /** Archivado por el usuario para sacarlo del listado de Préstamos (mantenido apretado
+   *  sobre la card). No afecta ningún cálculo: sigue contando en Finanzas/Inicio como
+   *  fuente de datos, sólo desaparece de la vista principal. Se restaura desde Historial. */
+  archived?: boolean;
   createdAt: number;
 }
 
@@ -318,19 +322,6 @@ export interface ExpenseByCategoryItem {
   value: number;
 }
 
-export interface Projections {
-  m1: number;
-  m3: number;
-  m6: number;
-  y1: number;
-}
-
-export interface ProjectionSeriesPoint {
-  key: string;
-  label: string;
-  value: number;
-}
-
 export interface CashFlowPoint {
   day: number;
   date: ISODate;
@@ -367,11 +358,9 @@ export interface Derived {
   capitalInvested: number;
   expectedProfitTotal: number;
   nextProfitTotal: number;
-  totalExpectedProfit: number;
   accumulatedProfit: number;
   totalIncome: number;
   totalExpense: number;
-  collected: number;
   totalDisbursed: number;
   available: number;
   totalAssets: number;
@@ -385,16 +374,12 @@ export interface Derived {
   fixedIncomeThisMonth: number;
   upcomingDue: ResolvedLoan[];
   dueTodayTomorrow: ResolvedLoan[];
-  expectedInflow30d: number;
-  expectedMonthlyProfit: number;
-  monthlyReturnPct: number;
   expenseByCategory: ExpenseByCategoryItem[];
+  /** Tasa promedio de los préstamos activos; alimenta la proyección cuando no hay capital desplegado. */
   avgRate: number;
-  avgDays: number;
   medianRate: number;
+  /** Plazo mediano de los préstamos activos: el ciclo con el que se proyecta (TEA, duplicación). */
   medianDays: number;
-  projections: Projections;
-  projectionSeries: ProjectionSeriesPoint[];
   paidOnTimeCount: number;
   collectabilityRate: number | null;
   avgDaysLate: number;
