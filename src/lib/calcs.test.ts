@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import {
   remainingDebt, remainingDebtAt, loanCapitalAt, interestAccruals, upcomingInterest,
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
-  paidAmount, calcProjection, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
+  paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
@@ -429,6 +429,64 @@ describe("proyección (calcProjection)", () => {
 
   it("con tasa 0 no calcula duplicación", () => {
     expect(calcProjection({ workingCapital: 500000, avgRate: 0 }).doublingYears).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("proyección a N meses (projectHorizon)", () => {
+  it("un mes de una cartera mensual es un solo ciclo", () => {
+    const p = projectHorizon(100000, 0.1, 30, 1);
+    expect(p.cycles).toBeCloseTo(DAYS_PER_MONTH / 30, 3); // ~1,01
+    expect(p.total).toBeCloseTo(100000 * Math.pow(1.1, p.cycles), 2);
+  });
+
+  it("una cartera quincenal mete el doble de ciclos en el mismo plazo", () => {
+    expect(projectHorizon(100000, 0.1, 15, 6).cycles)
+      .toBeCloseTo(projectHorizon(100000, 0.1, 30, 6).cycles * 2, 5);
+  });
+
+  it("a 12 meses coincide con los ciclos por año de calcProjection", () => {
+    // Si no cerraran, el cuadro de "12 meses" y la tasa efectiva anual contarían
+    // distinta cantidad de ciclos para la misma ventana.
+    const p = calcProjection({ workingCapital: 100000, avgRate: 10, cycleDays: 30 });
+    expect(projectHorizon(p.base, p.rate, p.days, 12).cycles).toBeCloseTo(p.cyclesPerYear, 5);
+  });
+
+  it("a 12 meses la ganancia es la tasa efectiva anual", () => {
+    const p = calcProjection({ workingCapital: 100000, avgRate: 10, cycleDays: 30 });
+    expect(projectHorizon(p.base, p.rate, p.days, 12).pct / 100).toBeCloseTo(p.tea, 5);
+  });
+
+  it("la ganancia es el total menos el capital de partida", () => {
+    const p = projectHorizon(554510, 0.1, 30, 6);
+    expect(p.profit).toBeCloseTo(p.total - 554510, 2);
+    expect(p.pct).toBeCloseTo((p.total / 554510 - 1) * 100, 5);
+  });
+
+  it("crece de forma monótona mes a mes", () => {
+    let previo = 0;
+    for (let m = 1; m <= 12; m++) {
+      const p = projectHorizon(100000, 0.1, 30, m);
+      expect(p.total).toBeGreaterThan(previo);
+      previo = p.total;
+    }
+  });
+
+  it("con tasa 0 el capital no se mueve", () => {
+    const p = projectHorizon(100000, 0, 30, 12);
+    expect(p.total).toBeCloseTo(100000, 2);
+    expect(p.profit).toBeCloseTo(0, 2);
+  });
+
+  it("sin capital desplegado no inventa ganancia", () => {
+    expect(projectHorizon(0, 0.1, 30, 12).total).toBe(0);
+    expect(projectHorizon(0, 0.1, 30, 12).profit).toBe(0);
+  });
+
+  it("no produce NaN con un ciclo inválido", () => {
+    for (const dias of [0, -5, NaN]) {
+      expect(Number.isFinite(projectHorizon(100000, 0.1, dias, 6).total)).toBe(true);
+    }
   });
 });
 

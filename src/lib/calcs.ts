@@ -392,6 +392,16 @@ export function validateLoan(form: LoanFormData): LoanValidationErrors {
 }
 
 // ── Projection calculation ────────────────────────────────────────────────────
+
+/** Días por mes de las proyecciones: 365/12. Con 30 exactos, 12 meses no daban los mismos
+ *  ciclos que `cyclesPerYear` (365/días) y las cifras no cerraban entre sí. */
+export const DAYS_PER_MONTH = 365 / 12;
+
+/** Largo de ciclo utilizable. `Math.max(1, x)` no alcanza: con NaN devuelve NaN y todo el
+ *  cálculo se propaga como NaN a la pantalla. */
+const safeCycleDays = (days: number): number =>
+  Number.isFinite(days) && days > 0 ? days : BUSINESS_RULES.DEFAULT_LOAN_DAYS;
+
 export interface CyclePoint {
   n: number;
   label: string;
@@ -399,6 +409,31 @@ export interface CyclePoint {
   total: number;
   profit: number;
   pct: number;
+}
+
+export interface HorizonPoint {
+  months: number;
+  /** Ciclos que entran en la ventana. Puede ser fraccionario: con ciclo de 15 días, en
+   *  un mes entran ~2,03. */
+  cycles: number;
+  total: number;
+  profit: number;
+  pct: number;
+}
+
+/** Capital proyectado a `months` meses reinvirtiendo capital + interés en cada ciclo.
+ *  Es la misma fórmula que `cyclePoints`, expresada en meses en vez de ciclos. */
+export function projectHorizon(
+  base: number,
+  ratePerCycle: number,
+  cycleDays: number,
+  months: number
+): HorizonPoint {
+  const days = safeCycleDays(cycleDays);
+  const cycles = (months * DAYS_PER_MONTH) / days;
+  const factor = Math.pow(1 + ratePerCycle, cycles);
+  const total = base * factor;
+  return { months, cycles, total, profit: total - base, pct: (factor - 1) * 100 };
 }
 
 export interface ProfitSeriesPoint {
@@ -453,7 +488,7 @@ export function calcProjection({
     deployedLoans.length > 0
       ? deployedLoans.reduce((a, l) => a + Number(l.interestRate), 0) / deployedLoans.length / 100
       : avgRate / 100;
-  const days = Math.max(1, cycleDays);
+  const days = safeCycleDays(cycleDays);
   const cyclesPerYear = 365 / days;
   const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
   const doublingYears = rate > 0 ? (Math.log(2) / Math.log(1 + rate)) * (days / 365) : null;
@@ -483,7 +518,7 @@ export function calcProjection({
   });
 
   const profitSeries: ProfitSeriesPoint[] = Array.from({ length: 25 }, (_, i) => {
-    const cycles = (i * 30) / days;
+    const cycles = (i * DAYS_PER_MONTH) / days;
     const total = base * Math.pow(1 + rate, cycles);
     return {
       mes: i,

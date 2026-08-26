@@ -4,10 +4,12 @@ import { useState, useMemo } from "react";
 import {
   Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon,
   Target, TrendingUp, Banknote, RefreshCw, Clock, Layers, HandCoins,
+  CalendarRange, HelpCircle, X,
 } from "lucide-react";
 import { formatShortDate } from "../lib/utils.js";
+import { useLongPress } from "../lib/hooks.js";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
-import { calcProjection, interestAccruals } from "../lib/calcs.js";
+import { calcProjection, projectHorizon, interestAccruals } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer, makeBarLabel,
@@ -172,11 +174,176 @@ function LiabilityCard({ liability, onOpen }: LiabilityCardProps) {
   );
 }
 
+/** Ciclos legibles: entero si es exacto, con un decimal si la ventana los parte. */
+const fmtCycles = (n: number) =>
+  (Number.isInteger(n) ? String(n) : n.toFixed(1)).replace(".", ",");
+
+interface ProjectionBoxProps {
+  title: string;
+  subtitle: string;
+  total: number;
+  profit: number;
+  pct: number;
+  highlight?: boolean;
+  onExplain: () => void;
+}
+
+// Cuadro de proyección. Mantenerlo apretado 2s abre la explicación del cálculo (mismo
+// gesto que archivar en Préstamos, ver useLongPress).
+function ProjectionBox({ title, subtitle, total, profit, pct, highlight, onExplain }: ProjectionBoxProps) {
+  const { state } = useApp();
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
+  const { pressing, progressMs, handlers } = useLongPress(() => {
+    navigator.vibrate?.(15);
+    onExplain();
+  });
+
+  return (
+    <button {...handlers}
+      className={`relative w-full select-none overflow-hidden rounded-xl border p-3 text-left transition-colors ${
+        highlight
+          ? "border-amber-800/50 bg-amber-950/20 hover:border-amber-700/60"
+          : "border-zinc-800/70 bg-zinc-950/60 hover:border-zinc-700/70"
+      }`}>
+      {pressing && (
+        // pointer-events-none: si el overlay captura el puntero, dispara pointerleave en
+        // el botón y cancela el propio long-press.
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-1.5 overflow-hidden bg-zinc-950/90 text-amber-200">
+          <span className="fa-longpress-fill absolute inset-0 bg-amber-900/40"
+            style={{ animationDuration: `${progressMs}ms` }} />
+          <HelpCircle className="relative h-3.5 w-3.5" />
+          <span className="relative text-[11px] font-medium">Explicando...</span>
+        </div>
+      )}
+      <div className="text-[11px] font-medium text-zinc-300">{title}</div>
+      <div className="mt-0.5 text-[10px] text-zinc-600">{subtitle}</div>
+      <div className="mt-2 text-base font-semibold tabular-nums text-zinc-100">
+        <Money value={total} hide={hide} currency={cur} />
+      </div>
+      <div className="mt-1 flex items-center gap-1.5">
+        <span className="text-[11px] font-medium tabular-nums text-emerald-400">
+          +<Money value={profit} hide={hide} currency={cur} />
+        </span>
+        <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 tabular-nums">
+          +{pct.toFixed(1)}%
+        </span>
+      </div>
+    </button>
+  );
+}
+
+interface ExplainData {
+  title: string;
+  cycles: number;
+  total: number;
+  profit: number;
+  pct: number;
+}
+
+// Desglose paso a paso de cómo se llega al número proyectado. La idea es que se entienda
+// sin saber de interés compuesto: de dónde sale el punto de partida, qué se repite cada
+// ciclo, cuántas veces, y qué supone el cálculo.
+function ProjectionExplainer({ data, base, rate, cycleDays, onClose }: {
+  data: ExplainData; base: number; rate: number; cycleDays: number; onClose: () => void;
+}) {
+  const { state } = useApp();
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
+  const factor = (1 + rate).toFixed(3).replace(".", ",");
+
+  const pasos = [
+    {
+      n: 1,
+      titulo: "De cuánto partís",
+      valor: <Money value={base} hide={hide} currency={cur} />,
+      texto: "Es la deuda que hoy tenés en la calle, sumando préstamos activos y atrasados. En los compartidos entra sólo tu parte.",
+    },
+    {
+      n: 2,
+      titulo: "Cuánto rinde cada ciclo",
+      valor: `${(rate * 100).toFixed(1)}% cada ~${Math.round(cycleDays)} días`,
+      texto: "Es la tasa promedio de esos mismos préstamos. Un ciclo es el plazo típico de tu cartera.",
+    },
+    {
+      n: 3,
+      titulo: "Cuántas veces se repite",
+      valor: `${fmtCycles(data.cycles)} ciclo${data.cycles === 1 ? "" : "s"}`,
+      texto: "Cada vez que cobrás, volvés a prestar el capital junto con el interés. Por eso el interés del ciclo siguiente se calcula sobre un monto más grande.",
+    },
+    {
+      n: 4,
+      titulo: "La cuenta",
+      valor: (
+        <span className="tabular-nums">
+          <Money value={base} hide={hide} currency={cur} /> × {factor}
+          <sup>{fmtCycles(data.cycles)}</sup> = <Money value={data.total} hide={hide} currency={cur} />
+        </span>
+      ),
+      texto: `El capital se multiplica por ${factor} en cada uno de los ${fmtCycles(data.cycles)} ciclos.`,
+    },
+    {
+      n: 5,
+      titulo: "La ganancia",
+      valor: (
+        <span className="text-emerald-400">
+          +<Money value={data.profit} hide={hide} currency={cur} /> ({data.pct.toFixed(1)}%)
+        </span>
+      ),
+      texto: "Es lo proyectado menos el capital del que partiste.",
+    },
+  ];
+
+  return (
+    <div className="fa-rise mt-4 rounded-2xl border border-amber-900/30 bg-amber-950/10 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-amber-400/90">
+            <HelpCircle className="h-3 w-3" />
+            Cómo se llega a {data.title}
+          </div>
+          <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-100">
+            <Money value={data.total} hide={hide} currency={cur} />
+          </div>
+        </div>
+        <button onClick={onClose} aria-label="Cerrar explicación"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <ol className="space-y-2.5">
+        {pasos.map((p) => (
+          <li key={p.n} className="flex gap-3">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-900/40 text-[10px] font-semibold text-amber-300">
+              {p.n}
+            </span>
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">{p.titulo}</div>
+              <div className="mt-0.5 text-sm font-medium text-zinc-100">{p.valor}</div>
+              <div className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{p.texto}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-4 rounded-xl border border-zinc-800/60 bg-zinc-950/50 px-3 py-2.5 text-[11px] leading-relaxed text-zinc-500">
+        <span className="font-medium text-zinc-400">Ojo:</span> es un escenario ideal, no una
+        previsión. Supone que cobrás todo en fecha, que volvés a prestar el 100% cada vez y
+        que la tasa se mantiene. Si un cliente no paga o dejás plata quieta, el número real
+        va a ser menor.
+      </div>
+    </div>
+  );
+}
+
 type SubView = "projection" | "assets" | "liabilities" | "flow" | "categories";
 
 export default function FinanceScreen() {
   const { state, dispatch, derived } = useApp();
   const [sub, setSub] = useState<SubView>("projection");
+  const [projMonths, setProjMonths] = useState(6);
+  const [explain, setExplain] = useState<ExplainData | null>(null);
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
@@ -218,6 +385,13 @@ export default function FinanceScreen() {
     [derived.activeLoans, derived.overdueLoans, derived.workingCapital, derived.avgRate, derived.medianDays, accruedToDate]
   );
 
+  // Proyección al plazo elegido con el selector de meses. Misma fórmula que los 4 cuadros
+  // fijos, sólo que el horizonte lo pone el usuario.
+  const horizonPoint = useMemo(
+    () => projectHorizon(projCalc.base, projCalc.rate, projCalc.days, projMonths),
+    [projCalc.base, projCalc.rate, projCalc.days, projMonths]
+  );
+
   const SUB_VIEWS: { v: SubView; l: string }[] = [
     { v: "projection", l: "Proyección" },
     { v: "assets", l: "Activos" },
@@ -253,7 +427,9 @@ export default function FinanceScreen() {
         />
         {SUB_VIEWS.map((s) => (
           <button key={s.v} onClick={() => setSub(s.v)}
-            className={`relative z-10 rounded-xl px-1.5 py-2 text-xs font-medium transition-colors duration-200 ${
+            // text-[10px] en mobile: con 5 pestañas y 12px, "Movimientos" y "Categorías"
+            // se tocaban en pantallas de 390px.
+            className={`relative z-10 truncate rounded-xl px-0.5 py-2 text-[10px] font-medium transition-colors duration-200 sm:px-3 sm:text-xs ${
               sub === s.v ? "text-white" : "text-zinc-400 hover:text-zinc-200"
             }`}>
             {s.l}
@@ -287,23 +463,62 @@ export default function FinanceScreen() {
             </Card>
           </div>
           <Card className="p-5">
-            <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-amber-500/80">
+            <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wider text-amber-500/80">
               <Target className="h-3 w-3" />
               Proyección por ciclos de préstamo
             </div>
+            <div className="mb-4 text-[11px] text-zinc-600">
+              Mantené apretado un cuadro para ver de dónde sale el número.
+            </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {projCalc.cyclePoints.map((p) => (
-                <div key={p.n} className="rounded-xl border border-zinc-800/70 bg-zinc-950/60 p-3">
-                  <div className="text-[11px] font-medium text-zinc-300">{p.label}</div>
-                  <div className="mt-0.5 text-[10px] text-zinc-600">{p.sublabel}</div>
-                  <div className="mt-2 text-base font-semibold tabular-nums text-zinc-100"><Money value={p.total} hide={hide} currency={cur} /></div>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <span className="text-[11px] font-medium tabular-nums text-emerald-400">+<Money value={p.profit} hide={hide} currency={cur} /></span>
-                    <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 tabular-nums">+{p.pct.toFixed(1)}%</span>
-                  </div>
-                </div>
+                <ProjectionBox key={p.n} title={p.label} subtitle={p.sublabel}
+                  total={p.total} profit={p.profit} pct={p.pct}
+                  onExplain={() => setExplain({ title: p.label, cycles: p.n, total: p.total, profit: p.profit, pct: p.pct })} />
               ))}
             </div>
+
+            {/* Horizonte a elección: 1 a 12 meses */}
+            <div className="mt-5 border-t border-zinc-800/70 pt-4">
+              <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+                <CalendarRange className="h-3 w-3" />
+                Elegí el plazo
+              </div>
+              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+                  const activo = m === projMonths;
+                  return (
+                    <button key={m} onClick={() => setProjMonths(m)}
+                      aria-pressed={activo}
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-xs font-medium tabular-nums transition-all ${
+                        activo
+                          ? "border-amber-700/60 bg-amber-900/30 text-amber-200"
+                          : "border-zinc-800/70 bg-zinc-900/60 text-zinc-400 hover:bg-zinc-900"
+                      }`}>
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3">
+                <ProjectionBox
+                  title={`${projMonths} ${projMonths === 1 ? "mes" : "meses"}`}
+                  subtitle={`${fmtCycles(horizonPoint.cycles)} ciclo${horizonPoint.cycles === 1 ? "" : "s"} de ~${Math.round(projCalc.days)} días`}
+                  total={horizonPoint.total} profit={horizonPoint.profit} pct={horizonPoint.pct}
+                  highlight
+                  onExplain={() => setExplain({
+                    title: `${projMonths} ${projMonths === 1 ? "mes" : "meses"}`,
+                    cycles: horizonPoint.cycles, total: horizonPoint.total,
+                    profit: horizonPoint.profit, pct: horizonPoint.pct,
+                  })}
+                />
+              </div>
+            </div>
+
+            {explain && (
+              <ProjectionExplainer data={explain} base={projCalc.base} rate={projCalc.rate}
+                cycleDays={projCalc.days} onClose={() => setExplain(null)} />
+            )}
           </Card>
           <Card className="p-5">
             <div className="mb-3 flex items-center justify-between">

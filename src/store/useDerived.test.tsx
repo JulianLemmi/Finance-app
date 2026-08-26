@@ -56,7 +56,8 @@ const derive = (s: AppState = estado): Derived => renderHook(() => useDerived(s)
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("identidades del capital", () => {
-  const d = derive();
+  let d: Derived;
+  beforeAll(() => { d = derive(); });
 
   it("capital total = efectivo + invertido + activos − pasivos", () => {
     expect(d.totalCapital).toBeCloseTo(d.available + d.capitalInvested + d.totalAssets - d.totalLiabilities, 2);
@@ -83,15 +84,16 @@ describe("identidades del capital", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("la curva del gráfico cierra con las cards", () => {
-  const d = derive();
-  const ultimo = d.months[d.months.length - 1];
+  let d: Derived;
+  beforeAll(() => { d = derive(); });
+  const ultimo = () => d.months[d.months.length - 1];
 
   it('el último punto de "Capital invertido" es el capital invertido actual', () => {
-    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+    expect(ultimo().capitalInvested).toBeCloseTo(d.capitalInvested, 2);
   });
 
   it('el último punto de "Evolución del capital" es el capital total actual', () => {
-    expect(ultimo.capital).toBeCloseTo(d.totalCapital, 2);
+    expect(ultimo().capital).toBeCloseTo(d.totalCapital, 2);
   });
 
   it("ningún mes produce NaN", () => {
@@ -116,7 +118,8 @@ describe("la curva del gráfico cierra con las cards", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("estados de la cartera", () => {
-  const d = derive();
+  let d: Derived;
+  beforeAll(() => { d = derive(); });
 
   it("los grupos particionan la cartera sin solaparse ni perder préstamos", () => {
     const suma = d.activeLoans.length + d.overdueLoans.length + d.paidLoans.length + d.refinancedLoans.length;
@@ -145,7 +148,8 @@ describe("estados de la cartera", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("flujo de caja a 30 días", () => {
-  const d = derive();
+  let d: Derived;
+  beforeAll(() => { d = derive(); });
   const enVentana = (fecha: string) => fecha >= HOY && fecha <= addDays(HOY, 29);
 
   it("incluye los re-vencimientos de los atrasados", () => {
@@ -187,7 +191,8 @@ describe("flujo de caja a 30 días", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("préstamos compartidos en los agregados", () => {
-  const d = derive();
+  let d: Derived;
+  beforeAll(() => { d = derive(); });
 
   it("la card muestra la deuda bruta del cliente", () => {
     const compartido = d.loansResolved.find((l) => l.id === "compartido")!;
@@ -217,7 +222,8 @@ describe("préstamos compartidos en los agregados", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("ingresos, gastos y devengado", () => {
-  const d = derive();
+  let d: Derived;
+  beforeAll(() => { d = derive(); });
 
   it("suma las transacciones cargadas", () => {
     expect(d.totalIncome).toBeCloseTo(5000, 2);
