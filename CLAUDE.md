@@ -114,15 +114,18 @@ src/
 ```
 
 ### Tests (`npm test`)
-Dos suites, ~106 tests, corren en ~3 s:
+Cuatro suites, ~293 tests, corren en ~3 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
+- `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
+- `src/lib/useLongPress.test.tsx` — el gesto de archivar, sobre todo que no se dispare al scrollear.
 
 **Correr `npm test` después de tocar cualquier fórmula de `calcs.ts`, `utils.ts` o `useDerived`.** Todo lo que afirman es plata que el usuario ve: ante una falla, la sospecha default es la fórmula, no el test.
 
-Dos cosas que la suite cuida especialmente:
-- **El reloj está congelado** (`vi.setSystemTime`) y la zona fijada a Argentina en `vitest.config.ts`. Sin eso los tests pasarían o fallarían según el día y la máquina.
+Tres cosas que la suite cuida especialmente:
+- **El reloj está congelado** (`vi.setSystemTime`) y la zona fijada a Argentina en `vitest.config.ts`. Sin eso los tests pasarían o fallarían según el día y la máquina. Ojo: el cuerpo de un `describe` corre **antes** que `beforeAll`, así que todo lo que dependa de "hoy" tiene que calcularse dentro de un `it` o un `beforeAll`.
 - **Un gráfico y la card de al lado tienen que dar el mismo número** (ej. `months[último].capitalInvested === capitalInvested`). Varios bugs históricos fueron exactamente esa divergencia.
+- **La notificación y la pantalla tienen que decir la misma fecha.** Ver la nota sobre `loanMath.ts` más abajo.
 
 ### Fechas: nunca usar `toISOString()` para armar un YYYY-MM-DD
 Convierte a UTC y devuelve otro día según la zona y la hora. Usar `toISODate(date)` de `utils.ts`, que formatea en hora **local**. Con `toISOString()`, en Argentina `todayISO()` ya era "mañana" a partir de las 21:00 (y quedaba en desacuerdo con `todayDate()`), y en zonas UTC+ `addDays(d, 1)` ni siquiera avanzaba el día.
@@ -180,6 +183,7 @@ Manteniendo apretada una card en Préstamos se archiva/restaura (ver `useLongPre
 - **`useDerived` memoiza pesado**: usar para todo cálculo derivado, nunca recalcular en componentes.
 - **Campos `_*` son computed-only**: solo existen en `ResolvedLoan`/`ResolvedClient`. Nunca persistir ni despachar.
 - **`constants.js` queda como JS**: tiene icons de Lucide como valores; TypeScript infiere sus tipos correctamente con `allowJs: true`.
-- **`supabase/functions/_shared/loanMath.ts` duplica los cálculos del frontend**: las edge functions no pueden importar desde `src/` (Deno solo bundlea dentro de la carpeta de la function). Si cambiás una fórmula en `lib/calcs.ts` o `lib/utils.ts`, replicala ahí o las notificaciones divergen de lo que ve el usuario.
+- **`supabase/functions/_shared/loanMath.ts` duplica los cálculos del frontend**: las edge functions no pueden importar desde `src/` (Deno solo bundlea dentro de la carpeta de la function). Si cambiás una fórmula en `lib/calcs.ts` o `lib/utils.ts`, replicala ahí o las notificaciones divergen de lo que ve el usuario. `src/lib/notificaciones.test.ts` compara las dos implementaciones sobre la misma cartera y falla ante cualquier desvío — es la red que atrapa el olvido.
+- **La lógica del digest vive en `_shared/digest.ts`, no en `daily-digest/index.ts`**: `index.ts` importa módulos remotos de Deno y no se puede cargar desde los tests, así que todo lo que decida qué fecha se anuncia va en el shared.
 - **PWA service worker**: `vite-plugin-pwa` con `registerType: autoUpdate`; importa `public/push-handler.js` para los push. Runtime caching solo para la API de bluelytics.
 - **`npx tsc --noEmit` debe pasar siempre**: correrlo antes de commitear cambios de tipos.

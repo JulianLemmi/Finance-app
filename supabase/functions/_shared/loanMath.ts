@@ -28,6 +28,8 @@ export type Loan = {
   fixedInterest?: number;
   startDate?: string;
   dueDate?: string;
+  /** Préstamo sin fecha de vencimiento: capitaliza un ciclo tras otro desde el inicio. */
+  noDueDate?: boolean;
   status?: string;
   paymentType?: string;
   customDays?: number;
@@ -135,9 +137,25 @@ function resolvePaymentPos(p: Payment, overduePeriods: number, loan: Loan): numb
   return overduePeriods;
 }
 
+/** Mirror of src/lib/calcs.js compoundReturn para préstamos sin vencimiento: capitaliza un
+ *  período por cada ciclo transcurrido desde el inicio, más el ciclo en curso. */
+function noDueDateBalance(loan: Loan, today: string): number {
+  const base = Number(loan.amount ?? 0);
+  const periods = loanElapsedPeriods(loan, loan.startDate ?? "", today) + 1;
+  if (loan.interestMode === "fixed") return base + Number(loan.fixedInterest ?? 0) * periods;
+  return base * Math.pow(1 + Number(loan.interestRate ?? 0) / 100, periods);
+}
+
 /** Mirror of src/lib/calcs.js remainingDebt — includes compounding for overdue periods. */
 export function remainingDebt(loan: Loan, today: string): number {
   const payments = loan.payments || [];
+
+  // Sin vencimiento no hay dueDate, así que getOverdueMeta devuelve null y la deuda
+  // quedaría congelada en un solo período (mismo bug que tenía el frontend).
+  if (loan.noDueDate) {
+    return Math.max(0, noDueDateBalance(loan, today) - paidAmount(loan));
+  }
+
   const meta = getOverdueMeta(loan, today);
 
   if (!meta || meta.overduePeriods === 0) {
@@ -160,13 +178,18 @@ export function remainingDebt(loan: Loan, today: string): number {
   return Math.max(0, balance);
 }
 
-// Mismo criterio que src/lib/calcs.js isOverdue: el préstamo pasa a "overdue" desde el
-// propio día del vencimiento (no recién al día siguiente).
+/** Mirror of src/lib/calcs.js resolveStatus. Pasa a "overdue" desde el propio día del
+ *  vencimiento (no al día siguiente), y un vencido vuelve a "active" si los pagos dejaron
+ *  la deuda en ≤ el capital prestado — o sea, si el interés acumulado quedó cubierto.
+ *  Sin esa última regla el digest trataba como atrasado a un cliente que paga los
+ *  intereses al día y le anunciaba la fecha del re-vencimiento en vez de su vencimiento. */
 export function resolveStatus(loan: Loan, today: string): string {
   if (loan.status === "paid" || loan.status === "refinanced") return loan.status;
-  if (remainingDebt(loan, today) <= PAID_THRESHOLD) return "paid";
-  if (loan.dueDate && loan.dueDate <= today) return "overdue";
-  return "active";
+  const remaining = remainingDebt(loan, today);
+  if (remaining <= PAID_THRESHOLD) return "paid";
+  if (loan.noDueDate || !loan.dueDate || loan.dueDate > today) return "active";
+  if (remaining <= Number(loan.amount ?? 0)) return "active";
+  return "overdue";
 }
 
 /** Today as YYYY-MM-DD in a given tz offset (hours from UTC). Default: Argentina (-3). */
