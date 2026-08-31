@@ -45,6 +45,10 @@ interface LoanFormSheetProps {
   open: boolean;
   onClose: () => void;
   editingLoan?: Loan | null;
+  /** Refinanciación: pre-carga el form con los datos del préstamo padre (sin pagos,
+   *  adelantos ni cobros de estacionamiento) y al guardar marca el padre como
+   *  "refinanciado" y crea uno nuevo con `refinancedFromId` apuntando al padre. */
+  refinancingFrom?: Loan | null;
 }
 
 function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
@@ -66,7 +70,7 @@ function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
   };
 }
 
-export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSheetProps) {
+export default function LoanFormSheet({ open, onClose, editingLoan, refinancingFrom }: LoanFormSheetProps) {
   const { state, dispatch } = useApp();
   // Ref para no resetear el form si los defaults cambian mientras el sheet está abierto.
   const settingsRef = useRef(state.settings);
@@ -75,14 +79,53 @@ export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSh
   const [form, setForm] = useState<LoanFormState>(() => emptyLoan(state.settings));
 
   useEffect(() => {
-    if (open) {
-      setForm(
-        editingLoan
-          ? { ...emptyLoan(settingsRef.current), ...editingLoan }
-          : emptyLoan(settingsRef.current)
-      );
+    if (!open) return;
+    const base = emptyLoan(settingsRef.current);
+    if (editingLoan) {
+      setForm({ ...base, ...editingLoan });
+      return;
     }
-  }, [open, editingLoan]);
+    if (refinancingFrom) {
+      // Refinanciación: heredamos todos los términos del padre (garantía, tasa/modo,
+      // compartido, estacionamiento) pero arrancamos limpio de historial (sin pagos,
+      // adelantos ni cobros) y con inicio hoy → dueDate recalculado.
+      const start = todayISO();
+      const paymentType = refinancingFrom.paymentType;
+      const customDays = refinancingFrom.customDays ?? base.customDays;
+      const dueDate = refinancingFrom.noDueDate
+        ? ""
+        : paymentType === "30"
+          ? addCalendarMonths(start, 1)
+          : paymentType === "15"
+            ? addDays(start, 15)
+            : addDays(start, Number(customDays) || 30);
+      setForm({
+        ...base,
+        clientId: refinancingFrom.clientId,
+        clientName: refinancingFrom.clientName,
+        alias: refinancingFrom.alias ?? "",
+        amount: String(Math.round((refinancingFrom as Loan & { _remaining?: number })._remaining ?? refinancingFrom.amount)),
+        interestRate: String(refinancingFrom.interestRate),
+        interestMode: refinancingFrom.interestMode ?? "percent",
+        fixedInterest: refinancingFrom.fixedInterest ? String(refinancingFrom.fixedInterest) : "",
+        startDate: start,
+        paymentType,
+        customDays,
+        dueDate,
+        guarantyType: refinancingFrom.guarantyType,
+        guarantyDetail: refinancingFrom.guarantyDetail,
+        compoundInterest: refinancingFrom.compoundInterest,
+        noDueDate: refinancingFrom.noDueDate,
+        sharedWith: refinancingFrom.sharedWith ?? "",
+        myPercent: refinancingFrom.myPercent ? String(refinancingFrom.myPercent) : "",
+        parkingFee: refinancingFrom.parkingFee ? String(refinancingFrom.parkingFee) : "",
+        parkingRecipient: refinancingFrom.parkingRecipient ?? "",
+        notes: `Refinanciación del préstamo previo (${refinancingFrom.dueDate || refinancingFrom.startDate}).`,
+      });
+      return;
+    }
+    setForm(base);
+  }, [open, editingLoan, refinancingFrom]);
 
   const updateField = (k: keyof LoanFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -159,18 +202,46 @@ export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSh
       myPercent: form.sharedWith.trim() && Number.isFinite(myPercent) && myPercent > 0 && myPercent < 100 ? myPercent : undefined,
       parkingFee: Number.isFinite(parkingFee) && parkingFee > 0 ? parkingFee : undefined,
       parkingRecipient: parkingFee > 0 ? form.parkingRecipient.trim() || undefined : undefined,
+      // Los adelantos son propios del préstamo: no se heredan a la refinanciación.
+      advancedAt: undefined,
+      // Ídem: la refinanciación arranca sin cobros de estacionamiento heredados.
+      parkingPayments: [],
       createdAt: form.createdAt || Date.now(),
     };
-    if (editingLoan) dispatch({ type: "UPDATE_LOAN", payload });
-    else dispatch({ type: "ADD_LOAN", payload });
+    if (refinancingFrom) {
+      // Marca el padre como refinanciado y crea uno nuevo apuntando a él.
+      dispatch({
+        type: "UPDATE_LOAN",
+        payload: {
+          id: refinancingFrom.id,
+          status: "refinanced",
+          notes: (refinancingFrom.notes || "") + `\n[${todayISO()}] Refinanciado.`,
+        },
+      });
+      dispatch({
+        type: "ADD_LOAN",
+        payload: { ...payload, refinancedFromId: refinancingFrom.id, status: "active", payments: [] },
+      });
+    } else if (editingLoan) {
+      dispatch({ type: "UPDATE_LOAN", payload });
+    } else {
+      dispatch({ type: "ADD_LOAN", payload });
+    }
     onClose();
   };
+
+  const mode: "edit" | "refinance" | "create" = editingLoan ? "edit" : refinancingFrom ? "refinance" : "create";
+  const title = mode === "edit" ? "Editar préstamo" : mode === "refinance" ? "Refinanciar préstamo" : "Nuevo préstamo";
+  const subtitle = mode === "refinance"
+    ? `Términos pre-cargados de ${refinancingFrom?.clientName ?? "el préstamo previo"} — modificá lo que haga falta`
+    : "Capturá los términos y la garantía";
+  const submitLabel = mode === "edit" ? "Guardar cambios" : mode === "refinance" ? "Confirmar refinanciación" : "Crear préstamo";
 
   return (
     <Sheet
       open={open} onClose={onClose}
-      title={editingLoan ? "Editar préstamo" : "Nuevo préstamo"}
-      subtitle="Capturá los términos y la garantía"
+      title={title}
+      subtitle={subtitle}
       size="lg"
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -183,7 +254,7 @@ export default function LoanFormSheet({ open, onClose, editingLoan }: LoanFormSh
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancelar</Button>
             <Button variant="bronze" onClick={onSubmit} disabled={!canSubmit}>
-              {editingLoan ? "Guardar cambios" : "Crear préstamo"}
+              {submitLabel}
             </Button>
           </div>
         </div>

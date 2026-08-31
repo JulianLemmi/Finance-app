@@ -29,12 +29,6 @@ interface LoanDetailSheetProps {
   loanId: string;
 }
 
-interface RefinanceFormState {
-  amount: string;
-  rate: string;
-  days: string;
-}
-
 export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailSheetProps) {
   const { state, dispatch, derived, userId } = useApp();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -43,7 +37,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   const [extendOpen, setExtendOpen] = useState(false);
   const [extendDays, setExtendDays] = useState("15");
   const [refinanceOpen, setRefinanceOpen] = useState(false);
-  const [refinanceForm, setRefinanceForm] = useState<RefinanceFormState>({ amount: "", rate: "", days: "30" });
 
   const [contactNote, setContactNote] = useState("");
   const [contactDate, setContactDate] = useState(() => todayISO());
@@ -87,49 +80,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
     monthsOverdue > 0
       ? `${monthsOverdue} ${monthsOverdue === 1 ? "mes" : "meses"}${extraDaysOverdue > 0 ? ` ${extraDaysOverdue}d` : ""}`
       : `${daysOverdue}d`;
-
-  const openRefinance = () => {
-    setRefinanceForm({
-      amount: String(Math.round(loan._remaining)),
-      rate: String(loan.interestRate),
-      days: "30",
-    });
-    setRefinanceOpen(true);
-  };
-
-  const onConfirmRefinance = () => {
-    const amount = Number(refinanceForm.amount);
-    const rate = Number(refinanceForm.rate);
-    const days = Number(refinanceForm.days);
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    if (!Number.isFinite(rate) || rate < 0) return;
-    if (!Number.isFinite(days) || days <= 0) return;
-
-    // "30 días" refinancia con vencimiento al mismo día del mes siguiente (ver
-    // addCalendarMonths); el resto de los plazos son una cantidad fija de días.
-    const newDue = days === 30 ? addCalendarMonths(todayISO(), 1) : addDays(todayISO(), days);
-    dispatch({
-      type: "UPDATE_LOAN",
-      payload: {
-        id: loan.id, status: "refinanced",
-        notes: (loan.notes || "") + `\n[${todayISO()}] Refinanciado a ${days} días desde ${loan.dueDate}.`,
-      },
-    });
-    dispatch({
-      type: "ADD_LOAN",
-      payload: {
-        ...loan, id: uid("loan"), refinancedFromId: loan.id,
-        startDate: todayISO(), dueDate: newDue,
-        paymentType: days === 15 ? "15" : days === 30 ? "30" : "custom",
-        customDays: days,
-        payments: [], status: "active", amount, interestRate: rate,
-        notes: `Refinanciación del préstamo previo (${formatDate(loan.dueDate)}).`,
-        createdAt: Date.now(),
-      },
-    });
-    setRefinanceOpen(false);
-    onClose();
-  };
 
   const onExtendConfirm = () => {
     const days = Number(extendDays);
@@ -230,7 +180,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               <Button variant="secondary" Icon={RefreshCw} onClick={() => { setExtendDays("15"); setExtendOpen(true); }}>
                 Extender
               </Button>
-              <Button variant="secondary" Icon={Layers} onClick={openRefinance}
+              <Button variant="secondary" Icon={Layers} onClick={() => setRefinanceOpen(true)}
                 disabled={loan._status === "paid" || loan._status === "refinanced"}>
                 Refinanciar
               </Button>
@@ -586,67 +536,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
       <PaymentSheet open={paymentOpen} onClose={() => setPaymentOpen(false)} loan={loan} />
       <LoanFormSheet open={editOpen} onClose={() => setEditOpen(false)} editingLoan={editOpen ? loan : null} />
-
-      <Sheet open={refinanceOpen} onClose={() => setRefinanceOpen(false)}
-        title="Refinanciar préstamo"
-        subtitle={`Términos iniciales pre-cargados de ${loan.clientName}`}
-        footer={
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-zinc-500">
-              Nueva ganancia{" "}
-              <span className="font-medium text-emerald-400 tabular-nums">
-                <Money value={(Number(refinanceForm.amount || 0) * Number(refinanceForm.rate || 0)) / 100} hide={hide} currency={cur} />
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => setRefinanceOpen(false)}>Cancelar</Button>
-              <Button variant="bronze" onClick={onConfirmRefinance}
-                disabled={
-                  !(Number(refinanceForm.amount) > 0) ||
-                  !(Number(refinanceForm.rate) >= 0) ||
-                  !(Number(refinanceForm.days) > 0)
-                }>
-                Confirmar refinanciación
-              </Button>
-            </div>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-amber-900/30 bg-amber-950/15 p-4 text-xs text-amber-200/80">
-            El préstamo original se marca como <span className="font-medium text-amber-200">refinanciado</span> y se
-            crea uno nuevo con los términos que ajustes acá.
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Nuevo monto" type="number" inputMode="decimal" Icon={Banknote}
-              value={refinanceForm.amount}
-              onChange={(e) => setRefinanceForm((f) => ({ ...f, amount: e.target.value }))} />
-            <Input label="Tasa de interés (%)" type="number" inputMode="decimal" Icon={TrendingUp}
-              value={refinanceForm.rate}
-              onChange={(e) => setRefinanceForm((f) => ({ ...f, rate: e.target.value }))} />
-          </div>
-          <Input label="Plazo (días)" type="number" inputMode="numeric" Icon={Calendar}
-            value={refinanceForm.days}
-            onChange={(e) => setRefinanceForm((f) => ({ ...f, days: e.target.value }))} />
-          <div className="grid grid-cols-3 gap-2">
-            {[15, 30, 60].map((d) => (
-              <button key={d} type="button"
-                onClick={() => setRefinanceForm((f) => ({ ...f, days: String(d) }))}
-                className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 transition-colors hover:bg-zinc-800">
-                {d} días
-              </button>
-            ))}
-          </div>
-          {Number(refinanceForm.days) > 0 && (
-            <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/50 p-4 text-sm text-zinc-400">
-              Nuevo vencimiento:{" "}
-              <span className="font-medium text-zinc-100">
-                {formatDate(addDays(todayISO(), Number(refinanceForm.days)))}
-              </span>
-            </div>
-          )}
-        </div>
-      </Sheet>
+      <LoanFormSheet
+        open={refinanceOpen}
+        onClose={() => { setRefinanceOpen(false); onClose(); }}
+        refinancingFrom={refinanceOpen ? loan : null}
+      />
 
       <Sheet open={extendOpen} onClose={() => setExtendOpen(false)}
         title="Extender préstamo" subtitle={`Vence el ${formatDate(loan.dueDate)}`}
