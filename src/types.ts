@@ -89,6 +89,11 @@ export interface Loan {
   refinancedFromId?: string;
   notes: string;
   photos?: Photo[];
+  /** Fechas ISO en las que el usuario adelantó manualmente un ciclo de mora (ej: el cliente
+   *  quiere pagar por adelantado un vencimiento futuro). Cada entrada suma un ciclo de
+   *  capitalización a la deuda y corre `getNextRenewalDate` un ciclo hacia adelante,
+   *  como si el vencimiento hubiera caído en esa fecha. Vacío/ausente = comportamiento normal. */
+  advancedAt?: ISODate[];
   /** Archivado por el usuario para sacarlo del listado de Préstamos (mantenido apretado
    *  sobre la card). No afecta ningún cálculo: sigue contando en Finanzas/Inicio como
    *  fuente de datos, sólo desaparece de la vista principal. Se restaura desde Historial. */
@@ -282,6 +287,8 @@ export type AppAction =
   | { type: "ADD_CONTACT"; payload: { loanId: string; contact: Contact } }
   | { type: "DELETE_CONTACT"; payload: { loanId: string; contactId: string } }
   | { type: "ADD_PAYMENT"; payload: { loanId: string; payment: Payment } }
+  | { type: "ADVANCE_CYCLE"; payload: { loanId: string; date: ISODate } }
+  | { type: "UNDO_ADVANCE_CYCLE"; payload: { loanId: string } }
   | { type: "ADD_PARKING_PAYMENT"; payload: { loanId: string; payment: Payment } }
   | { type: "DELETE_PARKING_PAYMENT"; payload: { loanId: string; paymentId: string } }
   | {

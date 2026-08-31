@@ -142,6 +142,34 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
       };
     }
+    case "ADVANCE_CYCLE": {
+      const { loanId, date } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          const advancedAt = [...(l.advancedAt || []), date];
+          const next: Loan = { ...l, advancedAt };
+          next.status = resolveStatus(next);
+          return next;
+        }),
+      };
+    }
+    case "UNDO_ADVANCE_CYCLE": {
+      const { loanId } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          const arr = l.advancedAt || [];
+          if (arr.length === 0) return l;
+          const advancedAt = arr.slice(0, -1);
+          const next: Loan = { ...l, advancedAt };
+          next.status = resolveStatus(next);
+          return next;
+        }),
+      };
+    }
     case "ADD_PARKING_PAYMENT": {
       const { loanId, payment } = action.payload;
       const amount = Number(payment?.amount);

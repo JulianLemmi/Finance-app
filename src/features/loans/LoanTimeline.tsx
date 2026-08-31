@@ -3,9 +3,9 @@
 // períodos de mora usando los controles ▲▼ (reordena timelinePos).
 import { useMemo } from "react";
 import {
-  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown,
+  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
 } from "lucide-react";
-import { formatDate, formatInterest, loanPeriodDate, myShare } from "../../lib/utils.js";
+import { formatDate, formatInterest, loanPeriodDate, myShare, advancedCycles } from "../../lib/utils.js";
 import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
@@ -19,7 +19,7 @@ interface LoanTimelineProps {
 // ── Local event union ─────────────────────────────────────────────────────────
 type StartEvent  = { type: "start"; date: string };
 type DueEvent    = { type: "due"; date: string };
-type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean };
+type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; interestInPayment: number; totalInterestAccrued: number;
@@ -32,7 +32,9 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
   const cur = state.settings.currency;
 
   const overdueTimelinePeriods = useMemo<MoraEvent[]>(() => {
-    if (loan._status !== "overdue" || !loan.dueDate || currentCompoundPeriods === 0) return [];
+    if (!loan.dueDate || currentCompoundPeriods === 0) return [];
+    // Sin re-vencimientos ni adelantos no hay eventos de mora que dibujar.
+    if (loan._status !== "overdue" && advancedCycles(loan) === 0) return [];
 
     const payments = loan.payments || [];
     const getPos = (p: typeof payments[number]) =>
@@ -43,6 +45,11 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       balance = Math.max(0, balance - Number(p.amount));
     });
 
+    // Los primeros ciclos son "mora natural" (fecha calculada por vencimiento). Los últimos
+    // `advCycles` son adelantos manuales, con la fecha real en que se hicieron.
+    const advDates = [...(loan.advancedAt || [])].sort();
+    const naturalCycles = currentCompoundPeriods - advDates.length;
+
     // `total` es el saldo de deuda real (ambos socios) tras capitalizar la mora — se
     // muestra completo, igual que `_remaining`. `added` es la ganancia de ese cargo, y
     // ahí sí se muestra mi parte.
@@ -52,13 +59,16 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       const prevBalance = Math.max(0, balance);
       const added = periodInterest(loan, prevBalance);
       const afterMora = prevBalance + added;
+      const isAdvanced = i > naturalCycles;
+      const advIndex = i - naturalCycles - 1;
       result.push({
         type: "mora",
         period: i,
-        date: loanPeriodDate(loan, loan.dueDate, i),
+        date: isAdvanced ? (advDates[advIndex] || loanPeriodDate(loan, loan.dueDate, i)) : loanPeriodDate(loan, loan.dueDate, i),
         total: afterMora,
         added: added * share,
         isCurrent: i === currentCompoundPeriods,
+        isAdvanced,
       });
       balance = afterMora;
       payments.filter((p) => getPos(p) === i).forEach((p) => {
@@ -184,31 +194,40 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
               </div>
             );
 
-            if (ev.type === "mora") return (
-              <div key={`mora-${ev.period}`} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${ev.isCurrent ? "bg-rose-950/20 ring-1 ring-rose-900/40" : "hover:bg-zinc-900/40"}`}>
-                <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-rose-700/70 ${ev.isCurrent ? "bg-rose-900/60" : "bg-rose-950/60"}`}>
-                  <div className={`h-2 w-2 rounded-full bg-rose-500 ${ev.isCurrent ? "animate-pulse" : ""}`} />
-                </div>
-                <div className="flex flex-1 items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-rose-400">
-                      <AlertTriangle className="h-3 w-3" />
-                      Cargo por mora {ev.period}
-                      {ev.isCurrent && <Badge tone="danger">Actual</Badge>}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
+            if (ev.type === "mora") {
+              const adv = ev.isAdvanced;
+              return (
+                <div key={`mora-${ev.period}`} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${
+                  ev.isCurrent ? (adv ? "bg-purple-950/20 ring-1 ring-purple-900/40" : "bg-rose-950/20 ring-1 ring-rose-900/40") : "hover:bg-zinc-900/40"
+                }`}>
+                  <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${
+                    adv ? "border-purple-700/70" : "border-rose-700/70"
+                  } ${
+                    ev.isCurrent ? (adv ? "bg-purple-900/60" : "bg-rose-900/60") : (adv ? "bg-purple-950/60" : "bg-rose-950/60")
+                  }`}>
+                    <div className={`h-2 w-2 rounded-full ${adv ? "bg-purple-500" : "bg-rose-500"} ${ev.isCurrent ? "animate-pulse" : ""}`} />
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold tabular-nums text-rose-200">
-                      <Money value={ev.total} hide={hide} currency={cur} />
+                  <div className="flex flex-1 items-center justify-between">
+                    <div>
+                      <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${adv ? "text-purple-300" : "text-rose-400"}`}>
+                        {adv ? <FastForward className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                        {adv ? `Ciclo adelantado ${ev.period}` : `Cargo por mora ${ev.period}`}
+                        {ev.isCurrent && <Badge tone={adv ? "purple" : "danger"}>Actual</Badge>}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
                     </div>
-                    <div className="text-[11px] text-rose-400 tabular-nums font-medium">
-                      +<Money value={ev.added} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
+                    <div className="text-right">
+                      <div className={`text-sm font-semibold tabular-nums ${adv ? "text-purple-200" : "text-rose-200"}`}>
+                        <Money value={ev.total} hide={hide} currency={cur} />
+                      </div>
+                      <div className={`text-[11px] tabular-nums font-medium ${adv ? "text-purple-300" : "text-rose-400"}`}>
+                        +<Money value={ev.added} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
+              );
+            }
 
             if (ev.type === "payment") {
               const canMoveDown = currentCompoundPeriods > 0 && ev.timelinePos < currentCompoundPeriods;

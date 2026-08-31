@@ -30,6 +30,9 @@ export type Loan = {
   dueDate?: string;
   /** Préstamo sin fecha de vencimiento: capitaliza un ciclo tras otro desde el inicio. */
   noDueDate?: boolean;
+  /** Fechas de adelantos manuales de ciclo. Cada entrada suma un ciclo de capitalización
+   *  a la deuda y corre el próximo vencimiento un ciclo hacia adelante. */
+  advancedAt?: string[];
   status?: string;
   paymentType?: string;
   customDays?: number;
@@ -92,10 +95,15 @@ export function loanElapsedPeriods(loan: Loan, anchor: string, asOf: string): nu
   return Math.max(0, Math.floor(daysBetween(anchor, asOf) / term));
 }
 
-/** Mirror of src/lib/utils.js getNextRenewalDate. */
+/** Cantidad de ciclos adelantados manualmente. */
+function advancedCycles(loan: Loan): number {
+  return (loan.advancedAt || []).length;
+}
+
+/** Mirror of src/lib/utils.js getNextRenewalDate. Suma los ciclos adelantados. */
 export function getNextRenewalDate(loan: Loan, today: string): string | null {
   if (!loan.dueDate) return null;
-  const periods = loanElapsedPeriods(loan, loan.dueDate, today);
+  const periods = loanElapsedPeriods(loan, loan.dueDate, today) + advancedCycles(loan);
   return loanPeriodDate(loan, loan.dueDate, periods + 1);
 }
 
@@ -122,10 +130,12 @@ type OverdueMeta = { daysOverdue: number; overduePeriods: number; rate: number }
 
 function getOverdueMeta(loan: Loan, today: string): OverdueMeta | null {
   if (!loan.dueDate) return null;
+  const advCycles = advancedCycles(loan);
   const daysOverdue = daysBetween(loan.dueDate, today);
-  if (daysOverdue <= 0) return null;
-  const overduePeriods = loanElapsedPeriods(loan, loan.dueDate, today);
-  return { daysOverdue, overduePeriods, rate: Number(loan.interestRate ?? 0) / 100 };
+  const naturalPeriods = daysOverdue > 0 ? loanElapsedPeriods(loan, loan.dueDate, today) : 0;
+  const overduePeriods = naturalPeriods + advCycles;
+  if (overduePeriods === 0) return null;
+  return { daysOverdue: Math.max(0, daysOverdue), overduePeriods, rate: Number(loan.interestRate ?? 0) / 100 };
 }
 
 function resolvePaymentPos(p: Payment, overduePeriods: number, loan: Loan): number {
@@ -141,7 +151,7 @@ function resolvePaymentPos(p: Payment, overduePeriods: number, loan: Loan): numb
  *  período por cada ciclo transcurrido desde el inicio, más el ciclo en curso. */
 function noDueDateBalance(loan: Loan, today: string): number {
   const base = Number(loan.amount ?? 0);
-  const periods = loanElapsedPeriods(loan, loan.startDate ?? "", today) + 1;
+  const periods = loanElapsedPeriods(loan, loan.startDate ?? "", today) + 1 + advancedCycles(loan);
   if (loan.interestMode === "fixed") return base + Number(loan.fixedInterest ?? 0) * periods;
   return base * Math.pow(1 + Number(loan.interestRate ?? 0) / 100, periods);
 }

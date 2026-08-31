@@ -136,9 +136,21 @@ export function loanElapsedPeriods(loan: LoanCycleInput, anchor: string, asOf: s
   return Math.max(0, Math.floor(daysBetween(anchor, asOf) / term));
 }
 
-export function getNextRenewalDate(loan: LoanCycleInput): string {
+/** Cantidad de ciclos que el usuario adelantó manualmente (sin llegar el vencimiento).
+ *  Cada adelanto corre el próximo vencimiento un ciclo hacia adelante. */
+export function advancedCycles(loan: Pick<Loan, "advancedAt">): number {
+  return (loan.advancedAt || []).length;
+}
+
+/** Cantidad de adelantos manuales hechos hasta `asOf` (inclusive). Sirve para reconstruir
+ *  la deuda a fechas pasadas sin contar adelantos futuros. */
+export function advancedCyclesUpTo(loan: Pick<Loan, "advancedAt">, asOf: string): number {
+  return (loan.advancedAt || []).filter((d) => d <= asOf).length;
+}
+
+export function getNextRenewalDate(loan: LoanCycleInput & Pick<Loan, "advancedAt">): string {
   if (!loan.dueDate) return "";
-  const periods = loanElapsedPeriods(loan, loan.dueDate, todayISO());
+  const periods = loanElapsedPeriods(loan, loan.dueDate, todayISO()) + advancedCycles(loan);
   return loanPeriodDate(loan, loan.dueDate, periods + 1);
 }
 

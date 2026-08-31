@@ -4,9 +4,10 @@
 import { useState, useMemo } from "react";
 import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
-  MessageSquare, Plus, X, Users, Car as CarIcon,
+  MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2,
 } from "lucide-react";
-import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, loanElapsedPeriods, formatInterest, myShare, formatMoney } from "../../lib/utils.js";
+import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, loanElapsedPeriods, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
+import { nextPeriodInterest } from "../../lib/calcs.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
@@ -53,6 +54,9 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   const [parkingNote, setParkingNote] = useState("");
   const [showParkingForm, setShowParkingForm] = useState(false);
 
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [advanceDate, setAdvanceDate] = useState(() => todayISO());
+
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
     [derived.loansResolved, loanId]
@@ -70,10 +74,13 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
   const daysOverdue =
     loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, todayISO())) : 0;
-  // Próximo vencimiento: en los vencidos es el próximo re-vencimiento futuro, no la
-  // fecha original ya pasada. En los activos el próximo vencimiento es su propio dueDate.
-  const nextDueDate = loan._status === "overdue" ? getNextRenewalDate(loan) : loan.dueDate;
-  const currentCompoundPeriods = daysOverdue > 0 ? loanElapsedPeriods(loan, loan.dueDate, todayISO()) : 0;
+  const advCycles = advancedCycles(loan);
+  // Próximo vencimiento: en los vencidos y en los que tienen adelantos manuales el próximo
+  // se corre según ciclos ya devengados; en los activos sin adelantos es el propio dueDate.
+  const nextDueDate = (loan._status === "overdue" || advCycles > 0) ? getNextRenewalDate(loan) : loan.dueDate;
+  // Ciclos ya capitalizados (los naturales por vencimiento + los adelantados a mano):
+  // define cuántas filas de "mora" se ven en la timeline.
+  const currentCompoundPeriods = (daysOverdue > 0 ? loanElapsedPeriods(loan, loan.dueDate, todayISO()) : 0) + advCycles;
   const monthsOverdue = Math.floor(daysOverdue / 30);
   const extraDaysOverdue = daysOverdue % 30;
   const overdueLabel =
@@ -129,6 +136,17 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
     if (!Number.isFinite(days) || days <= 0) return;
     dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, dueDate: addDays(loan.dueDate, days) } });
     setExtendOpen(false);
+  };
+
+  const onAdvanceConfirm = () => {
+    if (!advanceDate) return;
+    dispatch({ type: "ADVANCE_CYCLE", payload: { loanId: loan.id, date: advanceDate } });
+    setAdvanceOpen(false);
+    setAdvanceDate(todayISO());
+  };
+
+  const onUndoAdvance = () => {
+    dispatch({ type: "UNDO_ADVANCE_CYCLE", payload: { loanId: loan.id } });
   };
 
   const onDelete = () => {
@@ -204,6 +222,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Button variant="ghost" Icon={Edit2} onClick={() => setEditOpen(true)}>Editar</Button>
             <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" Icon={FastForward}
+                onClick={() => { setAdvanceDate(todayISO()); setAdvanceOpen(true); }}
+                disabled={loan._status === "paid" || loan._status === "refinanced" || loan.noDueDate}>
+                Adelantar
+              </Button>
               <Button variant="secondary" Icon={RefreshCw} onClick={() => { setExtendDays("15"); setExtendOpen(true); }}>
                 Extender
               </Button>
@@ -229,6 +252,12 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
                   <Badge tone="info">
                     <Users className="h-3 w-3" />
                     {loan.sharedWith} · mío {Math.round(myShare(loan) * 100)}%
+                  </Badge>
+                )}
+                {advCycles > 0 && (
+                  <Badge tone="purple">
+                    <FastForward className="h-3 w-3" />
+                    +{advCycles} adelantado{advCycles > 1 ? "s" : ""}
                   </Badge>
                 )}
               </div>
@@ -651,6 +680,80 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
           )}
         </div>
       </Sheet>
+
+      <Sheet open={advanceOpen} onClose={() => setAdvanceOpen(false)}
+        title="Adelantar vencimiento"
+        subtitle={`Devengar el próximo interés de ${loan.clientName} antes de la fecha`}
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-zinc-500">
+              Se sumará{" "}
+              <span className="font-medium text-amber-400 tabular-nums">
+                <Money value={nextPeriodInterest(loan)} hide={hide} currency={cur} />
+              </span>
+              {" "}a la deuda
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setAdvanceOpen(false)}>Cancelar</Button>
+              <Button variant="bronze" Icon={FastForward} onClick={onAdvanceConfirm} disabled={!advanceDate}>
+                Confirmar adelanto
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-purple-900/30 bg-purple-950/15 p-4 text-xs text-purple-200/80">
+            Usalo cuando el cliente quiere pagar un vencimiento antes de que llegue la fecha.
+            Se capitaliza el próximo ciclo como si ya hubiera vencido y el siguiente
+            vencimiento pasa a la fecha posterior.
+          </div>
+          <Input label="Fecha del adelanto" type="date" Icon={Calendar}
+            value={advanceDate} onChange={(e) => setAdvanceDate(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 p-4 text-sm">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Deuda actual</div>
+              <div className="mt-1 font-semibold tabular-nums text-zinc-100">
+                <Money value={loan._remaining} hide={hide} currency={cur} />
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Interés a devengar</div>
+              <div className="mt-1 font-semibold tabular-nums text-amber-400">
+                +<Money value={nextPeriodInterest(loan)} hide={hide} currency={cur} />
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Próximo vencimiento actual</div>
+              <div className="mt-1 font-medium text-zinc-300">{formatDate(nextDueDate)}</div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Pasará a</div>
+              <div className="mt-1 font-medium text-purple-300">
+                {formatDate(loanPeriodDateAfterAdvance(loan, nextDueDate))}
+              </div>
+            </div>
+          </div>
+          {advCycles > 0 && (
+            <button onClick={onUndoAdvance}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2 text-xs text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300">
+              <Undo2 className="h-3.5 w-3.5" />
+              Deshacer último adelanto ({advCycles} en total)
+            </button>
+          )}
+        </div>
+      </Sheet>
     </>
   );
+}
+
+// Fecha del próximo vencimiento si sumáramos un adelanto más. Se calcula avanzando un
+// ciclo desde el próximo actual, respetando `paymentType` (mes calendario para "30").
+function loanPeriodDateAfterAdvance(
+  loan: { paymentType: string; customDays?: number; startDate: string; dueDate: string },
+  nextDueDate: string,
+): string {
+  if (loan.paymentType === "30") return addCalendarMonths(nextDueDate, 1);
+  const term = getLoanCycleDays(loan as never);
+  return addDays(nextDueDate, term);
 }
