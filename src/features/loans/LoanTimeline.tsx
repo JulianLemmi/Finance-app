@@ -1,9 +1,9 @@
 // Línea de tiempo cronológica del préstamo: muestra el inicio, vencimiento,
 // cargos por mora y pagos ordenados por fecha. Permite reubicar pagos entre
 // períodos de mora usando los controles ▲▼ (reordena timelinePos).
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
+  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward, X, Trash2,
 } from "lucide-react";
 import { formatDate, formatInterest, loanPeriodDate, myShare, advancedCycles } from "../../lib/utils.js";
 import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
@@ -19,7 +19,7 @@ interface LoanTimelineProps {
 // ── Local event union ─────────────────────────────────────────────────────────
 type StartEvent  = { type: "start"; date: string };
 type DueEvent    = { type: "due"; date: string };
-type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean };
+type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; interestInPayment: number; totalInterestAccrued: number;
@@ -60,15 +60,16 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       const added = periodInterest(loan, prevBalance);
       const afterMora = prevBalance + added;
       const isAdvanced = i > naturalCycles;
-      const advIndex = i - naturalCycles - 1;
+      const advIdx = i - naturalCycles - 1;
       result.push({
         type: "mora",
         period: i,
-        date: isAdvanced ? (advDates[advIndex] || loanPeriodDate(loan, loan.dueDate, i)) : loanPeriodDate(loan, loan.dueDate, i),
+        date: isAdvanced ? (advDates[advIdx] || loanPeriodDate(loan, loan.dueDate, i)) : loanPeriodDate(loan, loan.dueDate, i),
         total: afterMora,
         added: added * share,
         isCurrent: i === currentCompoundPeriods,
         isAdvanced,
+        advIndex: isAdvanced ? advIdx : undefined,
       });
       balance = afterMora;
       payments.filter((p) => getPos(p) === i).forEach((p) => {
@@ -139,6 +140,47 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
   };
 
+  // Confirmación inline: primer click al botón X guarda el ID, segundo click confirma la
+  // eliminación. Al hacer click en otro botón o refrescar, se limpia. Sin modal para no
+  // sobrecargar la timeline.
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  const deletePayment = (paymentId: string) => {
+    const updated = (loan.payments || []).filter((p) => p.id !== paymentId);
+    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
+    setPendingDelete(null);
+  };
+
+  // Elimina el adelanto en la posición `idx` del array `advancedAt` ordenado por fecha
+  // (mismo orden que se muestra en la timeline). No usa UNDO_ADVANCE_CYCLE (que sólo saca
+  // el último por orden de inserción, no por fecha).
+  const deleteAdvance = (idx: number) => {
+    const sorted = [...(loan.advancedAt || [])].sort();
+    const target = sorted[idx];
+    if (target === undefined) return;
+    // Remueve la primera ocurrencia de `target` en el array original (mantener el resto).
+    const orig = loan.advancedAt || [];
+    const removeAt = orig.indexOf(target);
+    const updated = removeAt >= 0 ? [...orig.slice(0, removeAt), ...orig.slice(removeAt + 1)] : orig;
+    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, advancedAt: updated } });
+    setPendingDelete(null);
+  };
+
+  // Reeditar la fecha de un adelanto: se muestra un input date inline. Al confirmar,
+  // se reemplaza la fecha en el array (el orden final lo define sort() por fecha).
+  const editAdvanceDate = (idx: number, newDate: string) => {
+    if (!newDate) return;
+    const sorted = [...(loan.advancedAt || [])].sort();
+    const target = sorted[idx];
+    if (target === undefined) return;
+    const orig = loan.advancedAt || [];
+    const replaceAt = orig.indexOf(target);
+    const updated = replaceAt >= 0
+      ? [...orig.slice(0, replaceAt), newDate, ...orig.slice(replaceAt + 1)]
+      : orig;
+    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, advancedAt: updated } });
+  };
+
   return (
     <div>
       <SectionTitle>Línea de tiempo</SectionTitle>
@@ -196,8 +238,10 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
 
             if (ev.type === "mora") {
               const adv = ev.isAdvanced;
+              const advId = adv && ev.advIndex !== undefined ? `adv-${ev.advIndex}` : "";
+              const isConfirmingAdvDelete = adv && pendingDelete === advId;
               return (
-                <div key={`mora-${ev.period}`} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ${
+                <div key={`mora-${ev.period}`} className={`group relative flex items-start gap-3 rounded-xl px-3 py-3 ${
                   ev.isCurrent ? (adv ? "bg-purple-950/20 ring-1 ring-purple-900/40" : "bg-rose-950/20 ring-1 ring-rose-900/40") : "hover:bg-zinc-900/40"
                 }`}>
                   <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${
@@ -207,14 +251,26 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                   }`}>
                     <div className={`h-2 w-2 rounded-full ${adv ? "bg-purple-500" : "bg-rose-500"} ${ev.isCurrent ? "animate-pulse" : ""}`} />
                   </div>
-                  <div className="flex flex-1 items-center justify-between">
-                    <div>
+                  <div className="flex flex-1 items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
                       <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${adv ? "text-purple-300" : "text-rose-400"}`}>
                         {adv ? <FastForward className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                         {adv ? `Ciclo adelantado ${ev.period}` : `Cargo por mora ${ev.period}`}
                         {ev.isCurrent && <Badge tone={adv ? "purple" : "danger"}>Actual</Badge>}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        {adv && ev.advIndex !== undefined ? (
+                          <input
+                            type="date"
+                            value={ev.date}
+                            onChange={(e) => editAdvanceDate(ev.advIndex!, e.target.value)}
+                            className="rounded border border-purple-800/40 bg-purple-950/30 px-1.5 py-0.5 text-[11px] text-purple-200 outline-none focus:border-purple-600"
+                            title="Cambiar la fecha del adelanto"
+                          />
+                        ) : (
+                          formatDate(ev.date)
+                        )}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className={`text-sm font-semibold tabular-nums ${adv ? "text-purple-200" : "text-rose-200"}`}>
@@ -224,6 +280,35 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                         +<Money value={ev.added} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
                       </div>
                     </div>
+                    {adv && ev.advIndex !== undefined && (
+                      isConfirmingAdvDelete ? (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            onClick={() => deleteAdvance(ev.advIndex!)}
+                            className="flex items-center gap-1 rounded-md bg-rose-500/20 px-2 py-1 text-[10px] font-medium text-rose-300 hover:bg-rose-500/30"
+                            title="Confirmar eliminación"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Confirmar
+                          </button>
+                          <button
+                            onClick={() => setPendingDelete(null)}
+                            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                            title="Cancelar"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setPendingDelete(advId)}
+                          className="hidden shrink-0 rounded-md p-1 text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-rose-400 group-hover:block"
+                          title="Eliminar adelanto"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
               );
@@ -233,8 +318,10 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
               const canMoveDown = currentCompoundPeriods > 0 && ev.timelinePos < currentCompoundPeriods;
               const canMoveUp = ev.timelinePos > 0;
               const isReordered = ev.timelinePos > 0;
+              const payId = `pay-${ev.id}`;
+              const isConfirmingDelete = pendingDelete === payId;
               return (
-                <div key={ev.id} className={`relative flex items-start gap-3 rounded-xl px-3 py-3 ring-1 ${isReordered ? "bg-amber-950/10 ring-amber-900/30" : "bg-emerald-950/10 ring-emerald-900/30"}`}>
+                <div key={ev.id} className={`group relative flex items-start gap-3 rounded-xl px-3 py-3 ring-1 ${isReordered ? "bg-amber-950/10 ring-amber-900/30" : "bg-emerald-950/10 ring-emerald-900/30"}`}>
                   <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${isReordered ? "border-amber-700/60 bg-amber-950/80" : "border-emerald-700/60 bg-emerald-950/80"}`}>
                     <ArrowDown className={`h-3 w-3 ${isReordered ? "text-amber-400" : "text-emerald-400"}`} />
                   </div>
@@ -253,7 +340,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                         {formatDate(ev.date)}{ev.note ? ` · ${ev.note}` : ""}
                       </div>
                     </div>
-                    {(canMoveUp || canMoveDown) && (
+                    {(canMoveUp || canMoveDown) && !isConfirmingDelete && (
                       <div className="flex shrink-0 flex-col gap-0.5">
                         <button
                           disabled={!canMoveUp}
@@ -284,6 +371,33 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                         </div>
                       )}
                     </div>
+                    {isConfirmingDelete ? (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          onClick={() => deletePayment(ev.id)}
+                          className="flex items-center gap-1 rounded-md bg-rose-500/20 px-2 py-1 text-[10px] font-medium text-rose-300 hover:bg-rose-500/30"
+                          title="Confirmar eliminación"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Confirmar
+                        </button>
+                        <button
+                          onClick={() => setPendingDelete(null)}
+                          className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                          title="Cancelar"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setPendingDelete(payId)}
+                        className="hidden shrink-0 rounded-md p-1 text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-rose-400 group-hover:block"
+                        title="Eliminar pago"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
