@@ -3,7 +3,7 @@
 // períodos de mora usando los controles ▲▼ (reordena timelinePos).
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward, X, Trash2,
+  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward, X, Trash2, CalendarCheck,
 } from "lucide-react";
 import { formatDate, formatInterest, loanPeriodDate, myShare, advancedCycles } from "../../lib/utils.js";
 import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
@@ -19,7 +19,7 @@ interface LoanTimelineProps {
 // ── Local event union ─────────────────────────────────────────────────────────
 type StartEvent  = { type: "start"; date: string };
 type DueEvent    = { type: "due"; date: string };
-type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number };
+type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; isPaid?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; interestInPayment: number; totalInterestAccrued: number;
@@ -61,6 +61,12 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       const afterMora = prevBalance + added;
       const isAdvanced = i > naturalCycles;
       const advIdx = i - naturalCycles - 1;
+      // "Cubierto" = los pagos aplicados a este ciclo cubren al menos el interés agregado.
+      // Un ciclo cubierto se muestra como "Vencimiento" (amarillo), no como mora/adelantado.
+      const paidInCycle = payments
+        .filter((p) => getPos(p) === i)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      const isPaid = added > 0 && paidInCycle + 0.001 >= added;
       result.push({
         type: "mora",
         period: i,
@@ -70,6 +76,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         isCurrent: i === currentCompoundPeriods,
         isAdvanced,
         advIndex: isAdvanced ? advIdx : undefined,
+        isPaid,
       });
       balance = afterMora;
       payments.filter((p) => getPos(p) === i).forEach((p) => {
@@ -238,25 +245,39 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
 
             if (ev.type === "mora") {
               const adv = ev.isAdvanced;
+              const paid = !!ev.isPaid;
               const advId = adv && ev.advIndex !== undefined ? `adv-${ev.advIndex}` : "";
               const isConfirmingAdvDelete = adv && pendingDelete === advId;
+              // Tres estilos: pagado (amarillo/vencimiento cerrado), adelantado no pagado
+              // (morado), mora natural no pagada (rojo). El pagado gana para que sea
+              // trivial contar los vencimientos cerrados en la timeline.
+              const colorRing = paid ? "border-amber-700/60" : (adv ? "border-purple-700/70" : "border-rose-700/70");
+              const colorRingBg = ev.isCurrent
+                ? (paid ? "bg-amber-900/40" : (adv ? "bg-purple-900/60" : "bg-rose-900/60"))
+                : (paid ? "bg-amber-950/60" : (adv ? "bg-purple-950/60" : "bg-rose-950/60"));
+              const colorDot = paid ? "bg-amber-400" : (adv ? "bg-purple-500" : "bg-rose-500");
+              const colorText = paid ? "text-amber-400" : (adv ? "text-purple-300" : "text-rose-400");
+              const colorTotal = paid ? "text-amber-200" : (adv ? "text-purple-200" : "text-rose-200");
+              const colorAdded = paid ? "text-emerald-400/80" : (adv ? "text-purple-300" : "text-rose-400");
+              const rowBg = ev.isCurrent
+                ? (paid ? "bg-amber-950/15 ring-1 ring-amber-900/30" : (adv ? "bg-purple-950/20 ring-1 ring-purple-900/40" : "bg-rose-950/20 ring-1 ring-rose-900/40"))
+                : "hover:bg-zinc-900/40";
+              const Icon = paid ? CalendarCheck : (adv ? FastForward : AlertTriangle);
+              const label = paid
+                ? `Vencimiento ${ev.period}${adv ? " (adelantado)" : ""}`
+                : (adv ? `Ciclo adelantado ${ev.period}` : `Cargo por mora ${ev.period}`);
               return (
-                <div key={`mora-${ev.period}`} className={`group relative flex items-start gap-3 rounded-xl px-3 py-3 ${
-                  ev.isCurrent ? (adv ? "bg-purple-950/20 ring-1 ring-purple-900/40" : "bg-rose-950/20 ring-1 ring-rose-900/40") : "hover:bg-zinc-900/40"
-                }`}>
-                  <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${
-                    adv ? "border-purple-700/70" : "border-rose-700/70"
-                  } ${
-                    ev.isCurrent ? (adv ? "bg-purple-900/60" : "bg-rose-900/60") : (adv ? "bg-purple-950/60" : "bg-rose-950/60")
-                  }`}>
-                    <div className={`h-2 w-2 rounded-full ${adv ? "bg-purple-500" : "bg-rose-500"} ${ev.isCurrent ? "animate-pulse" : ""}`} />
+                <div key={`mora-${ev.period}`} className={`group relative flex items-start gap-3 rounded-xl px-3 py-3 ${rowBg}`}>
+                  <div className={`relative z-10 mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border ${colorRing} ${colorRingBg}`}>
+                    <div className={`h-2 w-2 rounded-full ${colorDot} ${ev.isCurrent && !paid ? "animate-pulse" : ""}`} />
                   </div>
                   <div className="flex flex-1 items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${adv ? "text-purple-300" : "text-rose-400"}`}>
-                        {adv ? <FastForward className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                        {adv ? `Ciclo adelantado ${ev.period}` : `Cargo por mora ${ev.period}`}
-                        {ev.isCurrent && <Badge tone={adv ? "purple" : "danger"}>Actual</Badge>}
+                      <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${colorText}`}>
+                        <Icon className="h-3 w-3" />
+                        {label}
+                        {ev.isCurrent && !paid && <Badge tone={adv ? "purple" : "danger"}>Actual</Badge>}
+                        {paid && <Badge tone="success">Cubierto</Badge>}
                       </div>
                       <div className="mt-0.5 text-[11px] text-zinc-500">
                         {adv && ev.advIndex !== undefined ? (
@@ -264,7 +285,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                             type="date"
                             value={ev.date}
                             onChange={(e) => editAdvanceDate(ev.advIndex!, e.target.value)}
-                            className="rounded border border-purple-800/40 bg-purple-950/30 px-1.5 py-0.5 text-[11px] text-purple-200 outline-none focus:border-purple-600"
+                            className={`rounded border ${paid ? "border-amber-800/40 bg-amber-950/30 text-amber-200" : "border-purple-800/40 bg-purple-950/30 text-purple-200"} px-1.5 py-0.5 text-[11px] outline-none focus:border-purple-600`}
                             title="Cambiar la fecha del adelanto"
                           />
                         ) : (
@@ -273,10 +294,10 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className={`text-sm font-semibold tabular-nums ${adv ? "text-purple-200" : "text-rose-200"}`}>
+                      <div className={`text-sm font-semibold tabular-nums ${colorTotal}`}>
                         <Money value={ev.total} hide={hide} currency={cur} />
                       </div>
-                      <div className={`text-[11px] tabular-nums font-medium ${adv ? "text-purple-300" : "text-rose-400"}`}>
+                      <div className={`text-[11px] tabular-nums font-medium ${colorAdded}`}>
                         +<Money value={ev.added} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
                       </div>
                     </div>
