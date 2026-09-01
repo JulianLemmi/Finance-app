@@ -5,7 +5,6 @@ export { Card, SectionTitle, EmptyState, Skeleton, Money, ProgressBar, StatCard 
 export { DeltaPill } from "./ui/delta.jsx";
 export { AnimatedMoney, useCountUp } from "./ui/animated.jsx";
 export {
-  ChartTooltip, ChartContainer, makeBarLabel,
-  ChartLegend, AreaFill, LineGlow, makeLastValueLabel, makeBarValueLabel,
+  ChartTooltip, ChartContainer, makeBarLabel, ChartLegend, makeBarValueLabel, niceAxisBound,
 } from "./ui/chart.jsx";
 export { Sheet } from "./ui/sheet.jsx";

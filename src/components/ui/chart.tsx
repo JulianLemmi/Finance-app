@@ -119,49 +119,6 @@ export const ChartLegend = ({ items }: { items: LegendItem[] }) => (
   </div>
 );
 
-/**
- * Gradiente vertical para el relleno de un área: del color de la serie a
- * transparente. Va dentro de <defs>. El id tiene que ser único por gráfico.
- */
-export const AreaFill = ({ id, color }: { id: string; color: string }) => (
-  <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0%" stopColor={color} stopOpacity={0.45} />
-    <stop offset="55%" stopColor={color} stopOpacity={0.14} />
-    <stop offset="100%" stopColor={color} stopOpacity={0} />
-  </linearGradient>
-);
-
-/**
- * Halo suave para el trazo de un area. Sigue la estetica de la app (las cards ya
- * llevan glow) sin tocar la legibilidad: difumina el color de la linea, no el dato.
- */
-export const LineGlow = ({ id, color }: { id: string; color: string }) => (
-  <filter id={id} x="-20%" y="-40%" width="140%" height="200%">
-    <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor={color} floodOpacity="0.55" />
-  </filter>
-);
-
-interface LastValueLabelProps {
-  x?: number | string; y?: number | string; index?: number; value?: unknown;
-}
-
-/**
- * Etiqueta solo el ultimo punto de la serie. La alternativa —un numero por punto—
- * es ilegible y ademas redundante con el titular de la card.
- */
-export function makeLastValueLabel({ total, hide = false, color = "#e4e4e7" }:
-  { total: number; hide?: boolean; color?: string }) {
-  return function LastValueLabel({ x, y, index, value }: LastValueLabelProps) {
-    if (index !== total - 1) return null;
-    const nx = Number(x) || 0, ny = Number(y) || 0;
-    return (
-      <text x={nx} y={ny - 10} textAnchor="end" fontSize={10} fontWeight={600} fill={color}>
-        {formatCompact(Number(value) || 0, hide)}
-      </text>
-    );
-  };
-}
-
 interface BarValueLabelProps {
   x?: number | string; y?: number | string;
   width?: number | string; height?: number | string;
@@ -194,4 +151,24 @@ export function makeBarValueLabel({ onlyIndex, hide = false, color = "#e4e4e7" }
       </text>
     );
   };
+}
+
+/**
+ * Redondea un extremo del eje hacia afuera al múltiplo "lindo" más cercano (1/2/5 × 10^k).
+ * Sin esto, un dominio calculado como `dataMax * 1.18` deja ticks como 305 o 695: el eje
+ * queda con números que nadie escribiría a mano.
+ */
+export function niceAxisBound(value: number, dir: "up" | "down"): number {
+  if (!Number.isFinite(value) || value === 0) return 0;
+  const sign = value < 0 ? -1 : 1;
+  const abs = Math.abs(value);
+  const mag = Math.pow(10, Math.floor(Math.log10(abs)));
+  const norm = abs / mag;
+  const steps = [1, 2, 2.5, 5, 10];
+  // Hacia afuera del cero: el borde positivo sube, el negativo baja.
+  const outward = (sign > 0) === (dir === "up");
+  const step = outward
+    ? (steps.find((s) => s >= norm - 1e-9) ?? 10)
+    : ([...steps].reverse().find((s) => s <= norm + 1e-9) ?? 1);
+  return sign * step * mag;
 }

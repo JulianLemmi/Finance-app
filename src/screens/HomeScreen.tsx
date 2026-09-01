@@ -7,18 +7,18 @@ import {
   Briefcase, Activity, CalendarClock, ChevronRight, ChevronDown, CheckCircle2, Search,
   Banknote, Sun,
 } from "lucide-react";
-import { formatShortDate, getNextRenewalDate, addDays, todayISO, formatInterest } from "../lib/utils.js";
+import { formatShortDate, getNextRenewalDate, addDays, todayISO, formatInterest, formatCompact } from "../lib/utils.js";
 import { upcomingInterest } from "../lib/calcs.js";
-import { UI_LIMITS, CHART_COLORS, BUSINESS_RULES } from "../lib/constants.js";
+import { UI_LIMITS, CHART_COLORS, MONTH_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, StatCard, ChartTooltip,
   DeltaPill, Badge, IconButton, ChartContainer,
-  ChartLegend, AreaFill, LineGlow, makeLastValueLabel, makeBarValueLabel,
+  ChartLegend, makeBarLabel, makeBarValueLabel, niceAxisBound,
 } from "../components/ui.jsx";
 import {
-  AreaChart, Area, BarChart, Bar, ComposedChart, Line, Cell, ReferenceLine,
+  BarChart, Bar, ComposedChart, Line, Cell, ReferenceLine,
   XAxis, YAxis, CartesianGrid, Tooltip, LabelList,
 } from "recharts";
 import DolarBlue from "../components/DolarBlue.jsx";
@@ -358,10 +358,9 @@ export default function HomeScreen() {
 
         <DolarBlue />
 
-        {/* Gráficos. Tres formas distintas a propósito: el capital es un nivel que
-            evoluciona (área), el balance es polaridad ingreso/gasto alrededor del cero
-            (barras divergentes) y el invertido se lee contra el capital total (área +
-            referencia). Antes eran tres gráficos de barras casi idénticos. */}
+        {/* Gráficos de barras: un color por mes, el valor escrito encima de cada barra y
+            eje vertical a la vista. El tono es decorativo (los meses ya están rotulados y
+            ordenados en el eje X); lo que se lee es la altura y el número. */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
           <Card className="p-5 lg:col-span-2">
             <div className="mb-4 flex items-start justify-between gap-3">
@@ -383,30 +382,28 @@ export default function HomeScreen() {
                 </span>
               </div>
             </div>
-            <ChartContainer className="h-44 min-w-0">
+            <ChartContainer className="h-52 min-w-0">
               {({ width, height }) => (
-                <AreaChart width={width} height={height} data={derived.months} margin={{ top: 22, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <AreaFill id="fa-capital" color={CHART_COLORS.capitalStroke as string} />
-                    <LineGlow id="fa-capital-glow" color={CHART_COLORS.capitalStroke as string} />
-                  </defs>
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="24%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 12, right: 12 }} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                   {/* El capital puede ser negativo si los pasivos superan al patrimonio,
                       así que el piso del eje acompaña al mínimo en vez de recortar en 0. */}
-                  <YAxis hide domain={[(min: number) => Math.min(0, min), "auto"]} />
-                  <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeWidth: 1 }}
+                  <YAxis
+                    axisLine={false} tickLine={false} width={46}
+                    tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                    tickFormatter={(v: number) => formatCompact(v, hide)}
+                    domain={[(min: number) => Math.min(0, min), "auto"]}
+                  />
+                  <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Area
-                    name="Capital" dataKey="capital" type="monotone"
-                    stroke={CHART_COLORS.capitalStroke as string} strokeWidth={2}
-                    fill="url(#fa-capital)" filter="url(#fa-capital-glow)"
-                    dot={false}
-                    activeDot={{ r: 4, strokeWidth: 2, stroke: "#0a0a0a" }}
-                  >
-                    <LabelList content={makeLastValueLabel({ total: derived.months.length, hide })} />
-                  </Area>
-                </AreaChart>
+                  <Bar name="Capital" dataKey="capital" radius={[6, 6, 0, 0]}>
+                    {derived.months.map((m, i) => (
+                      <Cell key={m.key} fill={MONTH_COLORS[i % MONTH_COLORS.length]} />
+                    ))}
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
+                </BarChart>
               )}
             </ChartContainer>
           </Card>
@@ -428,27 +425,36 @@ export default function HomeScreen() {
             <div className="mb-3 text-[10px] text-zinc-600">
               Neto de {currentMonthLabel} · barra destacada
             </div>
-            <ChartContainer className="h-40 min-w-0">
+            <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 14, right: 4, left: 0, bottom: 0 }} barCategoryGap="22%">
+                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="20%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }} />
                   {/* Con "auto" el dominio calza justo con los datos y la etiqueta del gasto
-                      caia sobre el tick del mes. El aire extra arriba y abajo le deja
-                      lugar al numero sin recortar ninguna barra. */}
-                  <YAxis hide domain={[(min: number) => min * 1.45, (max: number) => max * 1.18]} />
+                      caía sobre el tick del mes. El aire extra le deja lugar al número. */}
+                  <YAxis
+                    axisLine={false} tickLine={false} width={40}
+                    tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                    tickFormatter={(v: number) => formatCompact(v, hide)}
+                    domain={[
+                      (min: number) => niceAxisBound(min * 1.45, "down"),
+                      (max: number) => niceAxisBound(max * 1.18, "up"),
+                    ]}
+                  />
                   <ReferenceLine y={0} stroke={CHART_COLORS.axis as string} strokeWidth={1} />
                   <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                     content={<ChartTooltip hide={hide} currency={cur} absolute />} />
-                  <Bar name="Ingresos" dataKey="monthGain" fill={CHART_COLORS.income as string} radius={[3, 3, 0, 0]}>
+                  {/* Acá el color SÍ significa: verde ingreso, rojo gasto. Por eso estos dos
+                      no usan MONTH_COLORS, y la posición respecto del cero lo refuerza. */}
+                  <Bar name="Ingresos" dataKey="monthGain" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]}>
                     {balanceMonths.map((m, i) => (
-                      <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.45} />
+                      <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.5} />
                     ))}
                     <LabelList content={makeBarValueLabel({ onlyIndex: lastMonthIdx, hide })} />
                   </Bar>
-                  <Bar name="Gastos" dataKey="expenseNeg" fill={CHART_COLORS.expense as string} radius={[0, 0, 3, 3]}>
+                  <Bar name="Gastos" dataKey="expenseNeg" fill={CHART_COLORS.expense as string} radius={[0, 0, 4, 4]}>
                     {balanceMonths.map((m, i) => (
-                      <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.45} />
+                      <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.5} />
                     ))}
                     <LabelList content={makeBarValueLabel({ onlyIndex: lastMonthIdx, hide })} />
                   </Bar>
@@ -464,8 +470,8 @@ export default function HomeScreen() {
           </Card>
         </div>
 
-        {/* Capital invertido, leído contra el capital total: la distancia entre las dos
-            curvas es la plata que quedó sin trabajar. */}
+        {/* Capital invertido, con el capital total como línea de referencia: la distancia
+            entre la línea y las barras es la plata que quedó sin trabajar. */}
         <Card className="p-5">
           <div className="mb-1 flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -482,26 +488,22 @@ export default function HomeScreen() {
               { label: "Capital total", color: CHART_COLORS.reference as string },
             ]} />
           </div>
-          <ChartContainer className="h-44 min-w-0">
+          <ChartContainer className="h-52 min-w-0">
             {({ width, height }) => (
-              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 22, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <AreaFill id="fa-invertido" color={CHART_COLORS.capitalStroke as string} />
-                  <LineGlow id="fa-invertido-glow" color={CHART_COLORS.capitalStroke as string} />
-                </defs>
+              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="24%">
                 <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 12, right: 12 }} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                <YAxis hide domain={[(min: number) => Math.min(0, min), "auto"]} />
-                <Tooltip cursor={{ stroke: CHART_COLORS.cursorLine as string, strokeWidth: 1 }}
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                <YAxis
+                  axisLine={false} tickLine={false} width={46}
+                  tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                  tickFormatter={(v: number) => formatCompact(v, hide)}
+                  domain={[(min: number) => Math.min(0, min), "auto"]}
+                />
+                <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
                   content={<ChartTooltip hide={hide} currency={cur} />} />
-                <Area
-                  name="Invertido" dataKey="capitalInvested" type="monotone"
-                  stroke={CHART_COLORS.capitalStroke as string} strokeWidth={2}
-                  fill="url(#fa-invertido)" filter="url(#fa-invertido-glow)" dot={false}
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#0a0a0a" }}
-                >
-                  <LabelList content={makeLastValueLabel({ total: derived.months.length, hide })} />
-                </Area>
+                <Bar name="Invertido" dataKey="capitalInvested" fill={CHART_COLORS.capitalStroke as string} radius={[6, 6, 0, 0]}>
+                  <LabelList content={makeBarLabel({ hide })} />
+                </Bar>
                 {/* Referencia, no una segunda categoría: por eso va neutra y sin relleno. */}
                 <Line
                   name="Capital total" dataKey="capital" type="monotone"

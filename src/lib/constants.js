@@ -124,11 +124,19 @@ export const CHART_COLORS = {
   // Serie de contexto, no una categoria mas: es la referencia "capital total"
   // detras del invertido. Neutra a proposito, para no competir con los tonos de serie.
   reference: "#52525b",
-  grid: "#1f1f22",
+  grid: "#27272a",
   axis: "#71717a",
   cursor: "#27272a55",
   cursorLine: "#3f3f46",
 };
+
+// Un color por mes para los graficos de barras. Los meses son una categoria ORDENADA y
+// ademas van rotulados en el eje y con su valor encima, asi que el tono es decorativo:
+// la informacion la llevan la altura y la etiqueta. Aun asi el set esta validado (banda
+// de luminosidad del tema oscuro + separacion entre barras contiguas, tambien en
+// daltonismo), y evita a proposito el verde y el rojo, que en esta app significan
+// Ingreso y Gasto.
+export const MONTH_COLORS = ["#0d9488", "#d97706", "#2563eb", "#db2777", "#7c3aed", "#ea580c"];
 
 export const TONES = {
   neutral: "bg-zinc-800/70 text-zinc-300 border-zinc-700/50",
