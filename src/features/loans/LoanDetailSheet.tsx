@@ -602,7 +602,10 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
             Se capitaliza el próximo ciclo como si ya hubiera vencido y el siguiente
             vencimiento pasa a la fecha posterior.
           </div>
-          <Input label="Fecha del adelanto" type="date" Icon={Calendar}
+          {/* Tope en hoy: el adelanto es un hecho ya ocurrido ("el cliente vino a pagar
+              antes"), no una fecha futura. Uno fechado adelante no capitaliza nada
+              todavía y sólo confunde al leer la deuda. */}
+          <Input label="Fecha del adelanto" type="date" Icon={Calendar} max={todayISO()}
             value={advanceDate} onChange={(e) => setAdvanceDate(e.target.value)} />
           <div className="grid grid-cols-2 gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 p-4 text-sm">
             <div>

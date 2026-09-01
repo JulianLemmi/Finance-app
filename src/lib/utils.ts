@@ -137,9 +137,15 @@ export function loanElapsedPeriods(loan: LoanCycleInput, anchor: string, asOf: s
 }
 
 /** Cantidad de ciclos que el usuario adelantó manualmente (sin llegar el vencimiento).
- *  Cada adelanto corre el próximo vencimiento un ciclo hacia adelante. */
+ *  Cada adelanto corre el próximo vencimiento un ciclo hacia adelante.
+ *
+ *  Cuenta sólo los adelantos que YA ocurrieron. Un adelanto es un hecho con fecha —"el
+ *  cliente vino a pagar el vencimiento antes de tiempo"—, así que uno fechado a futuro
+ *  todavía no capitalizó nada. Cuando esto contaba el array entero, la card del header
+ *  sumaba el ciclo adelantado y la curva del gráfico no (reconstruye la deuda con
+ *  advancedCyclesUpTo): la misma plata salía con dos números distintos en pantalla. */
 export function advancedCycles(loan: Pick<Loan, "advancedAt">): number {
-  return (loan.advancedAt || []).length;
+  return advancedCyclesUpTo(loan, todayISO());
 }
 
 /** Cantidad de adelantos manuales hechos hasta `asOf` (inclusive). Sirve para reconstruir

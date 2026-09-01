@@ -513,3 +513,49 @@ describe("validación e integridad", () => {
     expect(loanIntegrityErrors(mk({ amount: 0, clientName: "" }))).toHaveLength(2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Barrido del contrato "remainingDebtAt(l, hoy) === remainingDebt(l)". Los dos caminos
+// alimentan cosas distintas de la pantalla: `remainingDebt` las cards del header y
+// `remainingDebtAt` la curva de los gráficos. Si se separan, la card y el gráfico de al
+// lado muestran números distintos para la misma plata. Se barre una matriz en vez de un
+// caso suelto porque las divergencias aparecen sólo en ciertas combinaciones (un vencido
+// con un adelanto a futuro, por ejemplo, y no su equivalente activo).
+describe("la deuda de hoy coincide por los dos caminos", () => {
+  const variantes: { nombre: string; loan: Loan }[] = [];
+  for (const [venc, dueDate] of [
+    ["activo", addCalendarMonths(HOY, 1)],
+    ["venceHoy", HOY],
+    ["vencido1", addCalendarMonths(HOY, -1)],
+    ["vencido3", addCalendarMonths(HOY, -3)],
+  ] as const) {
+    for (const tipo of ["30", "15", "custom"] as const) {
+      for (const [adel, advancedAt] of [
+        ["sinAdelanto", undefined],
+        ["adelantoPasado", [addDays(HOY, -3)]],
+        ["adelantoHoy", [HOY]],
+        ["adelantoFuturo", [addDays(HOY, 5)]],
+        ["dosAdelantos", [addDays(HOY, -3), addDays(HOY, 5)]],
+      ] as const) {
+        for (const [pag, payments] of [
+          ["sinPagos", []],
+          ["pagoParcial", [{ id: "p", amount: 40000, date: addDays(HOY, -6) }]],
+        ] as const) {
+          variantes.push({
+            nombre: `${venc}/${tipo}/${adel}/${pag}`,
+            loan: mk({
+              startDate: addCalendarMonths(HOY, -4), dueDate, paymentType: tipo,
+              customDays: tipo === "custom" ? 20 : undefined,
+              advancedAt: advancedAt ? [...advancedAt] : undefined,
+              payments: [...payments],
+            }),
+          });
+        }
+      }
+    }
+  }
+
+  it.each(variantes)("$nombre", ({ loan }) => {
+    expect(remainingDebtAt(loan, todayISO())).toBeCloseTo(remainingDebt(loan), 2);
+  });
+});

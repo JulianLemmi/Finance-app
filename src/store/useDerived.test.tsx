@@ -292,3 +292,56 @@ describe("cartera vacía", () => {
     expect(d.months.every((m) => m.roi === 0)).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Adelantos de ciclo (`advancedAt`). La card de capital y el último punto de la curva
+// se calculan por caminos distintos (`remainingDebt` vs `remainingDebtAt`), así que un
+// adelanto tiene que contar igual en los dos o la pantalla se contradice sola.
+describe("adelantos de ciclo", () => {
+  const conAdelanto = (fecha: string): AppState => ({
+    ...estado,
+    loans: [...cartera, mk({
+      id: "adelantado", clientName: "Iris",
+      startDate: addCalendarMonths(HOY, -1), dueDate: addCalendarMonths(HOY, 1),
+      advancedAt: [fecha],
+    })],
+  });
+
+  it("un adelanto con fecha pasada cuadra card y curva", () => {
+    const d = derive(conAdelanto(addDays(HOY, -3)));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+    expect(ultimo.capital).toBeCloseTo(d.totalCapital, 2);
+  });
+
+  it("un adelanto con fecha futura cuadra card y curva", () => {
+    const d = derive(conAdelanto(addDays(HOY, 5)));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+    expect(ultimo.capital).toBeCloseTo(d.totalCapital, 2);
+  });
+
+  // En un prestamo activo las dos ramas acotan el capital a `min(deuda, monto)`, asi que
+  // una diferencia en la deuda queda tapada. En un vencido se usa la deuda entera: ahi es
+  // donde una divergencia entre los dos caminos se vuelve visible en pantalla.
+  const vencidoConAdelanto = (fecha: string): AppState => ({
+    ...estado,
+    loans: [...cartera, mk({
+      id: "vencidoAdelantado", clientName: "Juan",
+      startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      advancedAt: [fecha],
+    })],
+  });
+
+  it("un vencido con adelanto pasado cuadra card y curva", () => {
+    const d = derive(vencidoConAdelanto(addDays(HOY, -3)));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+  });
+
+  it("un vencido con adelanto futuro cuadra card y curva", () => {
+    const d = derive(vencidoConAdelanto(addDays(HOY, 5)));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+  });
+});

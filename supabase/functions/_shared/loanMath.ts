@@ -95,15 +95,17 @@ export function loanElapsedPeriods(loan: Loan, anchor: string, asOf: string): nu
   return Math.max(0, Math.floor(daysBetween(anchor, asOf) / term));
 }
 
-/** Cantidad de ciclos adelantados manualmente. */
-function advancedCycles(loan: Loan): number {
-  return (loan.advancedAt || []).length;
+/** Cantidad de ciclos adelantados manualmente hasta `asOf` (inclusive).
+ *  Un adelanto fechado a futuro todavia no capitalizo nada, asi que no cuenta: espeja
+ *  advancedCycles/advancedCyclesUpTo de src/lib/utils.ts. */
+function advancedCycles(loan: Loan, asOf: string): number {
+  return (loan.advancedAt || []).filter((d) => d <= asOf).length;
 }
 
 /** Mirror of src/lib/utils.js getNextRenewalDate. Suma los ciclos adelantados. */
 export function getNextRenewalDate(loan: Loan, today: string): string | null {
   if (!loan.dueDate) return null;
-  const periods = loanElapsedPeriods(loan, loan.dueDate, today) + advancedCycles(loan);
+  const periods = loanElapsedPeriods(loan, loan.dueDate, today) + advancedCycles(loan, today);
   return loanPeriodDate(loan, loan.dueDate, periods + 1);
 }
 
@@ -130,7 +132,7 @@ type OverdueMeta = { daysOverdue: number; overduePeriods: number; rate: number }
 
 function getOverdueMeta(loan: Loan, today: string): OverdueMeta | null {
   if (!loan.dueDate) return null;
-  const advCycles = advancedCycles(loan);
+  const advCycles = advancedCycles(loan, today);
   const daysOverdue = daysBetween(loan.dueDate, today);
   const naturalPeriods = daysOverdue > 0 ? loanElapsedPeriods(loan, loan.dueDate, today) : 0;
   const overduePeriods = naturalPeriods + advCycles;
@@ -151,7 +153,7 @@ function resolvePaymentPos(p: Payment, overduePeriods: number, loan: Loan): numb
  *  período por cada ciclo transcurrido desde el inicio, más el ciclo en curso. */
 function noDueDateBalance(loan: Loan, today: string): number {
   const base = Number(loan.amount ?? 0);
-  const periods = loanElapsedPeriods(loan, loan.startDate ?? "", today) + 1 + advancedCycles(loan);
+  const periods = loanElapsedPeriods(loan, loan.startDate ?? "", today) + 1 + advancedCycles(loan, today);
   if (loan.interestMode === "fixed") return base + Number(loan.fixedInterest ?? 0) * periods;
   return base * Math.pow(1 + Number(loan.interestRate ?? 0) / 100, periods);
 }
