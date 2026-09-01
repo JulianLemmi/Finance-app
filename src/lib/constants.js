@@ -108,14 +108,22 @@ export const BUSINESS_RULES = {
   RESET_COOLDOWN_SECS: 3,
 };
 
+// Paleta de graficos. Los tonos de serie salen de una validacion de contraste y
+// daltonismo (OKLab): caen en la banda de luminosidad del tema oscuro (L 0.48-0.67) y
+// el par ingreso/gasto separa dE 8.6 en deuteranopia. El par anterior (#10b981 /
+// #f43f5e) separaba solo 5.6: un daltonico rojo-verde no distinguia un ingreso de un
+// gasto. Si tocas estos valores, revalidalos antes de commitear.
 export const CHART_COLORS = {
-  capital: "#b45309",
+  capital: "#d97706",
   capitalStroke: "#f59e0b",
-  income: "#10b981",
-  expense: "#f43f5e",
+  income: "#059669",
+  expense: "#dc2626",
   gain: "#d97706",
   gainStroke: "#f59e0b",
   cashflow: "#d97706",
+  // Serie de contexto, no una categoria mas: es la referencia "capital total"
+  // detras del invertido. Neutra a proposito, para no competir con los tonos de serie.
+  reference: "#52525b",
   grid: "#1f1f22",
   axis: "#71717a",
   cursor: "#27272a55",
