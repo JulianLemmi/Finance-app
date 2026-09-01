@@ -11,7 +11,7 @@ import {
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
-  getLoanCycleDays, todayISO, todayDate, myShare, daysBetween,
+  getLoanCycleDays, todayISO, todayDate, myShare, daysBetween, loanDeployedFrom,
 } from "./utils.js";
 import type { Loan } from "../types";
 
@@ -363,8 +363,19 @@ describe("capital desplegado (loanCapitalAt)", () => {
     expect(loanCapitalAt(mk({ status: "refinanced" }), HOY)).toBe(0);
   });
 
-  it("un préstamo que todavía no arrancó no aporta capital", () => {
-    expect(loanCapitalAt(mk({ startDate: addDays(HOY, 5) }), HOY)).toBe(0);
+  // Ojo: un startDate futuro NO significa "todavía no presté". El campo también marca
+  // "pagado hasta", así que un cliente con los intereses al día re-inicia el préstamo
+  // adelante sin devolver el capital: esa plata sigue en la calle y tiene que contar.
+  it("un préstamo con inicio a futuro sigue aportando su capital", () => {
+    const l = mk({ startDate: addDays(HOY, 5), dueDate: addDays(HOY, 35) });
+    expect(loanCapitalAt(l, HOY)).toBeCloseTo(100000, 2);
+  });
+
+  it("pero no aporta en fechas anteriores a que la plata saliera", () => {
+    const alta = new Date(2026, 6, 1).getTime(); // 1 de julio
+    const l = mk({ startDate: addDays(HOY, 5), dueDate: addDays(HOY, 35), createdAt: alta });
+    expect(loanCapitalAt(l, "2026-06-15")).toBe(0);
+    expect(loanCapitalAt(l, "2026-07-15")).toBeCloseTo(100000, 2);
   });
 
   it("un pagado no aporta capital", () => {
@@ -566,9 +577,31 @@ describe("la deuda de hoy coincide por los dos caminos", () => {
 // separaron — sumaba el monto entero de un préstamo con fecha de inicio futura, que
 // todavía no desplegó un peso, y la curva no lo contaba.
 describe("capital desplegado por prestamo", () => {
-  it("un prestamo que todavia no arranco no aporta capital", () => {
-    expect(loanCapitalAt(mk({ startDate: addDays(HOY, 1), dueDate: addCalendarMonths(HOY, 2) }), todayISO())).toBe(0);
-    expect(loanCapitalAt(mk({ startDate: addCalendarMonths(HOY, 1), dueDate: addCalendarMonths(HOY, 2) }), todayISO())).toBe(0);
+  // startDate cumple dos papeles: "cuando preste" y "pagado hasta". Cuando el cliente
+  // paga los intereses por adelantado el prestamo se re-inicia en una fecha futura, pero
+  // el capital NO volvio: sigue prestado y tiene que contar. Tomar startDate a secas
+  // borraba esa plata del capital desplegado y del grafico.
+  it("un prestamo con inicio a futuro sigue contando: la plata ya esta prestada", () => {
+    const manana = mk({ startDate: addDays(HOY, 1), dueDate: addCalendarMonths(HOY, 2) });
+    expect(loanCapitalAt(manana, todayISO())).toBeCloseTo(Number(manana.amount), 2);
+    const enUnMes = mk({ startDate: addCalendarMonths(HOY, 1), dueDate: addCalendarMonths(HOY, 2) });
+    expect(loanCapitalAt(enUnMes, todayISO())).toBeCloseTo(Number(enUnMes.amount), 2);
+  });
+
+  it("con inicio a futuro y alta conocida, cuenta desde el alta", () => {
+    const alta = new Date(2026, 4, 10).getTime(); // 10 de mayo
+    const l = mk({ startDate: addCalendarMonths(HOY, 1), dueDate: addCalendarMonths(HOY, 2), createdAt: alta });
+    expect(loanDeployedFrom(l)).toBe("2026-05-10");
+    expect(loanCapitalAt(l, "2026-06-30")).toBeCloseTo(Number(l.amount), 2);
+    // Antes del alta no habia plata en la calle.
+    expect(loanCapitalAt(l, "2026-04-30")).toBe(0);
+  });
+
+  it("sin alta conocida, un inicio a futuro cuenta desde hoy y no antes", () => {
+    const l = mk({ startDate: addDays(HOY, 10), dueDate: addCalendarMonths(HOY, 2), createdAt: 0 });
+    expect(loanDeployedFrom(l)).toBe(todayISO());
+    expect(loanCapitalAt(l, todayISO())).toBeCloseTo(Number(l.amount), 2);
+    expect(loanCapitalAt(l, addDays(HOY, -1))).toBe(0);
   });
 
   it("uno que arranca hoy ya aporta su principal", () => {

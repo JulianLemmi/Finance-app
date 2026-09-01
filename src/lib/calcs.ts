@@ -1,5 +1,5 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo } from "./utils.js";
+import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, loanDeployedFrom } from "./utils.js";
 import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 interface OverdueMeta {
@@ -129,7 +129,11 @@ export function remainingDebt(loan: Loan): number {
 // capitalizado por vencimientos/re-vencimientos) tal como estaba al cierre de `asOf`,
 // contando sólo los pagos hechos hasta esa fecha. Con asOf = hoy coincide con remainingDebt.
 export function remainingDebtAt(loan: Loan, asOf: string): number {
-  if (loan.startDate && loan.startDate > asOf) return 0;
+  // No es `startDate` a secas: un préstamo puede tener startDate a futuro (el cliente
+  // pagó los intereses por adelantado) y aun así tener la plata prestada. Ver
+  // `loanDeployedFrom`.
+  const desplegadoDesde = loanDeployedFrom(loan);
+  if (desplegadoDesde && desplegadoDesde > asOf) return 0;
 
   const base = Number(loan.amount);
   const paymentsUpTo = (loan.payments || []).filter((p) => (p.date || "") <= asOf);
@@ -172,7 +176,8 @@ export function remainingDebtAt(loan: Loan, asOf: string): number {
 // los que todavía no arrancaron no aportan. Con asOf = hoy, la suma == capitalInvested.
 export function loanCapitalAt(loan: Loan, asOf: string): number {
   if (loan.status === "refinanced") return 0;
-  if (loan.startDate && loan.startDate > asOf) return 0;
+  const desplegadoDesde = loanDeployedFrom(loan);
+  if (desplegadoDesde && desplegadoDesde > asOf) return 0;
   // A hoy la clasificación tiene que ser EXACTAMENTE la del header (`resolveStatus`), o la
   // curva del gráfico no cierra con la card de capital invertido: un préstamo marcado como
   // pagado queda fuera del header, pero su deuda recalculada podía volver a crecer con los

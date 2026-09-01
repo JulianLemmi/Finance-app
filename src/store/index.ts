@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare } from "../lib/utils.js";
+import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -571,7 +571,9 @@ export function useDerived(state: AppState): Derived {
       const cutoff = monthEnd > today ? today : monthEnd;
       const investedAtMonth = loansResolved
         .filter((l) => {
-          if (l.startDate > cutoff) return false;
+          // Mismo criterio que `loanCapitalAt`: la plata puede estar prestada aunque
+          // startDate sea futuro (cliente con los intereses pagos por adelantado).
+          if (loanDeployedFrom(l) > cutoff) return false;
           const paidUpTo = (l.payments || [])
             .filter((p) => p.date <= cutoff)
             .reduce((s, p) => s + Number(p.amount), 0);

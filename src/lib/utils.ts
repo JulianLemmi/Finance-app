@@ -154,6 +154,31 @@ export function advancedCyclesUpTo(loan: Pick<Loan, "advancedAt">, asOf: string)
   return (loan.advancedAt || []).filter((d) => d <= asOf).length;
 }
 
+/**
+ * Fecha desde la que la plata del préstamo está en la calle.
+ *
+ * Normalmente es `startDate`, pero `startDate` cumple dos papeles: además de "cuándo
+ * presté" marca "pagado hasta". Cuando un cliente paga los intereses por adelantado, el
+ * préstamo se re-inicia en una fecha futura sin que el capital haya vuelto — la plata
+ * sigue prestada. Tomar `startDate` a secas dejaba a esos préstamos fuera del capital
+ * desplegado y del gráfico, como si el dinero no existiera.
+ *
+ * Con `startDate` a futuro vale la fecha de alta (cuando el dinero salió de verdad) si la
+ * conocemos; si no, hoy — nunca una fecha futura, que borraría el préstamo del presente.
+ */
+export function loanDeployedFrom(
+  loan: Pick<Loan, "startDate" | "createdAt">,
+  today: string = todayISO()
+): string {
+  const start = loan.startDate || "";
+  if (!start || start <= today) return start;
+  const ts = Number(loan.createdAt);
+  // createdAt 0/ausente (backups viejos, fixtures) daría 1970 y metería el préstamo en
+  // todos los meses del histórico: en ese caso vale hoy.
+  const created = Number.isFinite(ts) && ts > 0 ? toISODate(new Date(ts)) : "";
+  return created && created < start ? created : today;
+}
+
 export function getNextRenewalDate(loan: LoanCycleInput & Pick<Loan, "advancedAt">): string {
   if (!loan.dueDate) return "";
   const periods = loanElapsedPeriods(loan, loan.dueDate, todayISO()) + advancedCycles(loan);
