@@ -384,7 +384,7 @@ export default function HomeScreen() {
             </div>
             <ChartContainer className="h-52 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="24%">
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                   {/* El capital puede ser negativo si los pasivos superan al patrimonio,
@@ -427,7 +427,7 @@ export default function HomeScreen() {
             </div>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="20%">
+                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="6%">
                   <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }} />
                   {/* Con "auto" el dominio calza justo con los datos y la etiqueta del gasto
@@ -490,7 +490,7 @@ export default function HomeScreen() {
           </div>
           <ChartContainer className="h-52 min-w-0">
             {({ width, height }) => (
-              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="24%">
+              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%">
                 <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                 <YAxis

@@ -559,3 +559,38 @@ describe("la deuda de hoy coincide por los dos caminos", () => {
     expect(remainingDebtAt(loan, todayISO())).toBeCloseTo(remainingDebt(loan), 2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `loanCapitalAt` es la única fuente del "capital invertido": la usan tanto la card del
+// header como la curva del gráfico. Antes el header repetía la fórmula por su cuenta y se
+// separaron — sumaba el monto entero de un préstamo con fecha de inicio futura, que
+// todavía no desplegó un peso, y la curva no lo contaba.
+describe("capital desplegado por prestamo", () => {
+  it("un prestamo que todavia no arranco no aporta capital", () => {
+    expect(loanCapitalAt(mk({ startDate: addDays(HOY, 1), dueDate: addCalendarMonths(HOY, 2) }), todayISO())).toBe(0);
+    expect(loanCapitalAt(mk({ startDate: addCalendarMonths(HOY, 1), dueDate: addCalendarMonths(HOY, 2) }), todayISO())).toBe(0);
+  });
+
+  it("uno que arranca hoy ya aporta su principal", () => {
+    const l = mk({ startDate: HOY, dueDate: addCalendarMonths(HOY, 1) });
+    expect(loanCapitalAt(l, todayISO())).toBeCloseTo(Number(l.amount), 2);
+  });
+
+  it("un activo aporta el principal, acotado a lo que se debe", () => {
+    const l = mk({ dueDate: addCalendarMonths(HOY, 1) });
+    expect(loanCapitalAt(l, todayISO())).toBeCloseTo(Number(l.amount), 2);
+  });
+
+  it("un vencido aporta la deuda entera, con el interes ya capitalizado", () => {
+    const l = mk({ dueDate: addCalendarMonths(HOY, -1) });
+    expect(loanCapitalAt(l, todayISO())).toBeCloseTo(remainingDebt(l), 2);
+    expect(loanCapitalAt(l, todayISO())).toBeGreaterThan(Number(l.amount));
+  });
+
+  it("los cerrados y los saldados no aportan", () => {
+    const pagado = mk({ dueDate: addDays(HOY, -10), payments: [{ id: "p", amount: 110000, date: addDays(HOY, -9) }] });
+    expect(loanCapitalAt(pagado, todayISO())).toBe(0);
+    expect(loanCapitalAt(mk({ status: "refinanced", dueDate: addCalendarMonths(HOY, -1) }), todayISO())).toBe(0);
+    expect(loanCapitalAt(mk({ status: "paid", dueDate: addCalendarMonths(HOY, -1) }), todayISO())).toBe(0);
+  });
+});

@@ -361,15 +361,23 @@ export function useDerived(state: AppState): Derived {
     const { activeLoans, overdueLoans, paidLoans } = loanGroups;
     const deployed = [...activeLoans, ...overdueLoans];
 
+    const todayStr = todayISO();
+
     // Capital invertido: en los atrasados/vencidos la deuda ya capitalizó el interés
-    // devengado (_remaining), así que ese monto entero cuenta como capital realizado.
-    // En los activos es el principal prestado, pero acotado a la deuda que aún queda
-    // (min): si ya se cobró más que el interés y se comió principal, el capital baja.
-    // En préstamos compartidos se prorratea por `myShare` (0-1): mi capital, mi ganancia,
-    // mis pagos. Los números "brutos" (_paid, _remaining, etc.) quedan intactos para la UI
-    // del detalle; el share sólo aplica a las métricas globales agregadas.
-    const capitalInvested = deployed.reduce(
-      (a, l) => a + myShare(l) * (l._status === "overdue" ? l._remaining : Math.min(l._remaining, Number(l.amount))),
+    // devengado, así que ese monto entero cuenta como capital realizado. En los activos
+    // es el principal prestado, pero acotado a la deuda que aún queda: si ya se cobró más
+    // que el interés y se comió principal, el capital baja. En préstamos compartidos se
+    // prorratea por `myShare` (0-1): mi capital, mi ganancia, mis pagos. Los números
+    // "brutos" (_paid, _remaining, etc.) quedan intactos para la UI del detalle; el share
+    // sólo aplica a las métricas globales agregadas.
+    //
+    // Usa `loanCapitalAt` —la misma función que arma la curva del gráfico— en vez de
+    // repetir la fórmula acá. Cuando estaban duplicadas se separaron: esta versión sumaba
+    // el monto entero de un préstamo con fecha de inicio futura (todavía no desplegó nada)
+    // y la curva no, así que la card y la última barra mostraban números distintos para la
+    // misma plata. Compartiendo la función la identidad se cumple por construcción.
+    const capitalInvested = loansResolved.reduce(
+      (a, l) => a + myShare(l) * loanCapitalAt(l, todayStr),
       0
     );
     // Ganancia esperada (aún no realizada): sólo de los activos. En los vencidos el
@@ -397,7 +405,6 @@ export function useDerived(state: AppState): Derived {
     const workingCapital = available + capitalInvested;
     const totalCapital = workingCapital + totalAssets - totalLiabilities;
 
-    const todayStr = todayISO();
     const thisMonth = monthKey(todayStr);
 
     // Sueldo fijo virtual: del mes en curso (para "Ganancia mensual") y total acumulado

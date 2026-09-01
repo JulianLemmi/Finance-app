@@ -339,6 +339,24 @@ describe("adelantos de ciclo", () => {
     expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
   });
 
+  // Un prestamo cargado con fecha de inicio futura: no desplego capital todavia. El
+  // header lo sumaba entero y la curva no, asi que la card y la ultima barra del grafico
+  // mostraban numeros distintos para la misma plata.
+  it("un prestamo que todavia no arranco no infla el capital de la card", () => {
+    const d = derive({
+      ...estado,
+      loans: [...cartera, mk({
+        id: "futuro", clientName: "Kevin",
+        startDate: addDays(HOY, 20), dueDate: addCalendarMonths(HOY, 2),
+      })],
+    });
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+    expect(ultimo.capital).toBeCloseTo(d.totalCapital, 2);
+    // Y no cambia nada respecto de la cartera sin ese prestamo.
+    expect(d.capitalInvested).toBeCloseTo(derive().capitalInvested, 2);
+  });
+
   it("un vencido con adelanto futuro cuadra card y curva", () => {
     const d = derive(vencidoConAdelanto(addDays(HOY, 5)));
     const ultimo = d.months[d.months.length - 1];
