@@ -358,7 +358,7 @@ export function useDerived(state: AppState): Derived {
 
   // Stage 3: financial aggregates
   const financials = useMemo(() => {
-    const { activeLoans, overdueLoans, paidLoans } = loanGroups;
+    const { activeLoans, overdueLoans, paidLoans, refinancedLoans } = loanGroups;
     const deployed = [...activeLoans, ...overdueLoans];
 
     const todayStr = todayISO();
@@ -388,7 +388,18 @@ export function useDerived(state: AppState): Derived {
     );
     // Ganancia que se cobraría en el próximo período de cada préstamo (lo que muestra cada card).
     const nextProfitTotal = deployed.reduce((a, l) => a + myShare(l) * l._nextProfit, 0);
-    const accumulatedProfit = paidLoans.reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0);
+    // "Total generado": lo que produjo la plata prestada, incluidas las refinanciaciones.
+    // Un préstamo refinanciado nunca llega a "paid", así que sumando sólo los pagados se
+    // perdía el interés de cada eslabón de la cadena: A ($100k) → B ($110k) cobrado en
+    // $121k daba $11k de ganancia en vez de $21k. El interés de A no desapareció, se
+    // capitalizó dentro del capital de B — y como B mide su ganancia contra SU monto
+    // ($110k, que ya lo incluye), sumar el devengado de A cierra la cuenta sin duplicar.
+    const accumulatedProfit =
+      paidLoans.reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0)
+      + refinancedLoans.reduce(
+        (a, l) => a + myShare(l) * interestAccruals(l).reduce((s, ev) => s + ev.amount, 0),
+        0
+      );
     const incomeTransactions = state.income.reduce((a, t) => a + Number(t.amount), 0);
     const totalExpense = state.expenses.reduce((a, t) => a + Number(t.amount), 0);
     const totalDisbursed = loansResolved
@@ -427,12 +438,17 @@ export function useDerived(state: AppState): Derived {
         .reduce((s, p) => s + Number(p.amount), 0),
     0);
 
-    const upcomingDue = deployed
+    // Agenda: lo que hay que ir a cobrar. Los archivados quedan afuera de los avisos
+    // —archivar es justamente sacarlos de la vista— pero siguen contando entero en las
+    // métricas (capital, devengado, ganancia). Por eso se filtra acá y no en `deployed`.
+    const agenda = deployed.filter((l) => !l.archived);
+
+    const upcomingDue = agenda
       .filter((l) => l._daysUntilDue !== null)
       .sort((a, b) => (a._daysUntilDue as number) - (b._daysUntilDue as number))
       .slice(0, UI_LIMITS.UPCOMING_DUE_MAX);
 
-    const dueTodayTomorrow = deployed
+    const dueTodayTomorrow = agenda
       .filter((l) => l._daysUntilDue !== null && l._daysUntilDue >= 0 && l._daysUntilDue <= 1)
       .sort((a, b) => (a._daysUntilDue as number) - (b._daysUntilDue as number));
 
@@ -498,8 +514,10 @@ export function useDerived(state: AppState): Derived {
       cashFlow30d[i].expected += myShare(loan) * loan._remaining;
       cashFlow30d[i].count += 1;
     };
-    activeLoans.forEach((l) => addInflow(l.dueDate, l));
-    overdueLoans.forEach((l) => addInflow(l.dueDate === todayStr ? l.dueDate : getNextRenewalDate(l), l));
+    // Mismo criterio que el resto de la agenda: un archivado no entra al flujo previsto.
+    agenda.filter((l) => l._status === "active").forEach((l) => addInflow(l.dueDate, l));
+    agenda.filter((l) => l._status === "overdue")
+      .forEach((l) => addInflow(l.dueDate === todayStr ? l.dueDate : getNextRenewalDate(l), l));
 
     return {
       capitalInvested, expectedProfitTotal, nextProfitTotal, accumulatedProfit,

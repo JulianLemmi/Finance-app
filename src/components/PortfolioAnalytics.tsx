@@ -176,11 +176,13 @@ export function VencimientosHeatmap() {
     const idx = new Map(entries.map((e, i) => [e.date, i]));
 
     // En préstamos compartidos, la ganancia que muestra el mapa es mi parte, no el total.
-    for (const l of derived.activeLoans) {
+    // Los archivados no entran al mapa: es una agenda de cobro, no una metrica. Siguen
+    // contando en capital y devengado (ver useDerived).
+    for (const l of derived.activeLoans.filter((l) => !l.archived)) {
       const i = idx.get(l.dueDate);
       if (i !== undefined) entries[i].dueLoans.push({ loan: l, gain: (Number(l._profit) || 0) * myShare(l), isRenewal: false });
     }
-    for (const l of derived.overdueLoans) {
+    for (const l of derived.overdueLoans.filter((l) => !l.archived)) {
       // Día 0 de atraso: el préstamo pasa a "vencido" el mismo día de su vencimiento
       // (ver isOverdue), pero ese día sigue siendo su propio dueDate, no un re-vencimiento
       // futuro — sin este chequeo desaparecería de la celda de "hoy" en el mapa.

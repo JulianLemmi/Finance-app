@@ -33,6 +33,9 @@ export type Loan = {
   /** Fechas de adelantos manuales de ciclo. Cada entrada suma un ciclo de capitalización
    *  a la deuda y corre el próximo vencimiento un ciclo hacia adelante. */
   advancedAt?: string[];
+  /** Archivado: sale de la agenda y de las notificaciones, pero sigue contando en las
+   *  metricas de la app. Espeja loan.archived del frontend. */
+  archived?: boolean;
   status?: string;
   paymentType?: string;
   customDays?: number;

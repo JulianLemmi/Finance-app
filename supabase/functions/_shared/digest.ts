@@ -24,6 +24,8 @@ export function fmtDate(iso: string): string {
  * Devuelve null si el préstamo no aplica (cerrado o sin fecha).
  */
 export function nextCollectionDate(loan: Loan, today: string): { date: string; renewal: boolean } | null {
+  // Archivar es sacar el préstamo de la vista: tampoco tiene que avisar por push.
+  if (loan.archived) return null;
   const status = resolveStatus(loan, today);
   if (status !== "active" && status !== "overdue") return null;
   if (!loan.dueDate) return null; // los préstamos sin vencimiento no entran al digest

@@ -363,3 +363,98 @@ describe("adelantos de ciclo", () => {
     expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Archivar es sólo un filtro de la pantalla de Préstamos: la plata sigue siendo plata y
+// tiene que contar en todas las métricas. Si alguna vez se cuela un `.filter(l =>
+// !l.archived)` en `useDerived`, este test lo caza.
+describe("archivados", () => {
+  it("un prestamo archivado alimenta las metricas igual que uno visible", () => {
+    const base = derive();
+    const conArchivados = derive({
+      ...estado,
+      loans: cartera.map((l) => ({ ...l, archived: true })),
+    });
+    expect(conArchivados.capitalInvested).toBeCloseTo(base.capitalInvested, 2);
+    expect(conArchivados.totalCapital).toBeCloseTo(base.totalCapital, 2);
+    expect(conArchivados.nextProfitTotal).toBeCloseTo(base.nextProfitTotal, 2);
+    expect(conArchivados.totalDisbursed).toBeCloseTo(base.totalDisbursed, 2);
+    expect(conArchivados.accumulatedProfit).toBeCloseTo(base.accumulatedProfit, 2);
+    conArchivados.months.forEach((m, i) => {
+      expect(m.capital).toBeCloseTo(base.months[i].capital, 2);
+      expect(m.accrued).toBeCloseTo(base.months[i].accrued, 2);
+    });
+  });
+
+  // Pero SI sale de la agenda: archivar es sacarlo de la vista, y eso incluye los avisos.
+  // La linea divisoria es metricas (sigue) vs. cosas que te dicen "anda a cobrar" (no).
+  it("pero sale de la agenda de cobro", () => {
+    const base = derive();
+    expect(base.upcomingDue.length).toBeGreaterThan(0);
+    const conArchivados = derive({
+      ...estado,
+      loans: cartera.map((l) => ({ ...l, archived: true })),
+    });
+    expect(conArchivados.upcomingDue).toHaveLength(0);
+    expect(conArchivados.dueTodayTomorrow).toHaveLength(0);
+    expect(conArchivados.cashFlow30d.reduce((s, d) => s + d.count, 0)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Refinanciar encadena préstamos: el viejo queda "refinanced" y el nuevo arranca con la
+// deuda del viejo como capital. La misma plata pasa por varios registros, así que lo que
+// se vigila acá es que no se cuente dos veces — ni que se pierda por el camino.
+describe("cadenas de refinanciacion", () => {
+  const A = mk({ id: "A", status: "refinanced", startDate: "2026-06-01", dueDate: "2026-07-01" });
+  const B = mk({ id: "B", refinancedFromId: "A", amount: 110000, status: "refinanced",
+                 startDate: "2026-07-01", dueDate: "2026-08-01" });
+  const C = mk({ id: "C", refinancedFromId: "B", amount: 121000, status: "active",
+                 startDate: "2026-08-01", dueDate: "2026-09-01" });
+  const soloCadena = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  it("el capital no se duplica: solo cuenta el eslabon vigente", () => {
+    const d = derive(soloCadena([A, B, C]));
+    expect(d.capitalInvested).toBeCloseTo(121000, 2);
+  });
+
+  it("lo prestado cuenta una sola vez, no una por refinanciacion", () => {
+    const d = derive(soloCadena([A, B, C]));
+    expect(d.totalDisbursed).toBeCloseTo(100000, 2);
+  });
+
+  it("card y curva siguen cuadrando con una cadena en el medio", () => {
+    const d = derive(soloCadena([A, B, C]));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+    expect(ultimo.capital).toBeCloseTo(d.totalCapital, 2);
+  });
+
+  it("la ganancia de una cadena cobrada incluye los eslabones refinanciados", () => {
+    // $100k prestados, cobrados $121k al final: la ganancia real de la cadena es $21k.
+    // Sumando sólo los pagados daban $11k, porque el interés de D se había capitalizado
+    // dentro del capital de E y ahí dejaba de contarse como ganancia.
+    const D = mk({ id: "D", status: "refinanced", startDate: "2026-06-01", dueDate: "2026-07-01" });
+    const E = mk({ id: "E", refinancedFromId: "D", amount: 110000, status: "paid",
+                   startDate: "2026-07-01", dueDate: "2026-08-01",
+                   payments: [{ id: "p", amount: 121000, date: "2026-08-01" }] });
+    const d = derive(soloCadena([D, E]));
+    expect(d.accumulatedProfit).toBeCloseTo(21000, 2);
+    expect(d.capitalInvested).toBeCloseTo(0, 2);
+  });
+
+  it("refinanciar antes del vencimiento devenga en el cierre, no en el futuro", () => {
+    // F vence el 1/9 pero se refinancia hoy: su interés se capitalizó en G ahora, así que
+    // tiene que aparecer en el devengado de este mes. Antes se fechaba en el vencimiento
+    // —una fecha futura— y la ganancia se caía del gráfico hasta que llegara.
+    const F = mk({ id: "F", status: "refinanced", startDate: "2026-08-01", dueDate: "2026-09-01" });
+    const G = mk({ id: "G", refinancedFromId: "F", amount: 110000, status: "active",
+                   startDate: HOY, dueDate: "2026-09-25" });
+    const d = derive(soloCadena([F, G]));
+    const devengadoTotal = d.months.reduce((s, m) => s + m.accrued, 0);
+    expect(devengadoTotal).toBeCloseTo(10000, 2);
+  });
+});

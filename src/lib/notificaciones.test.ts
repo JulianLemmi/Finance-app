@@ -141,6 +141,23 @@ describe("paridad de los helpers de fecha", () => {
 describe("el resumen que sale por push", () => {
   const digestDe = (loans: Loan[], dias = 7) => buildDigest(loans, HOY, dias);
 
+  // Archivar saca al prestamo de la agenda de la app; el push tiene que acompanar, o
+  // seguis recibiendo recordatorios de algo que justamente sacaste de la vista.
+  it("no anuncia un préstamo archivado", () => {
+    const activo = mk({ id: "a", clientName: "Ana", startDate: addDays(HOY, -10), dueDate: addDays(HOY, 3) });
+    expect(digestDe([activo])).not.toBeNull();
+    expect(digestDe([{ ...activo, archived: true }])).toBeNull();
+  });
+
+  it("archivar uno no silencia a los demás", () => {
+    const ana = mk({ id: "a", clientName: "Ana", startDate: addDays(HOY, -10), dueDate: addDays(HOY, 3) });
+    const beto = mk({ id: "b", clientName: "Beto", startDate: addDays(HOY, -10), dueDate: addDays(HOY, 4), archived: true });
+    const d = digestDe([ana, beto])!;
+    expect(d.count).toBe(1);
+    expect(d.body).toContain("Ana");
+    expect(d.body).not.toContain("Beto");
+  });
+
   it("anuncia el vencimiento propio de un préstamo activo", () => {
     const l = mk({ id: "a", clientName: "Ana", startDate: addDays(HOY, -10), dueDate: addDays(HOY, 3) });
     const d = digestDe([l])!;

@@ -208,7 +208,15 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   const today = todayISO();
   const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
   const closed = loan.status === "paid" || loan.status === "refinanced";
-  const horizon = closed ? (lastPayment || loan.dueDate || today) : today;
+  // Fecha de cierre. Con pagos, la del último. Un refinanciado normalmente cierra sin
+  // pago —la deuda rueda al préstamo nuevo— y ahí vale su vencimiento... salvo que el
+  // vencimiento todavía no haya llegado: refinanciar antes de tiempo cerraba el préstamo
+  // hoy pero devengaba el interés en una fecha futura, y esa ganancia desaparecía del
+  // gráfico hasta que esa fecha llegara.
+  const closeDate = closed
+    ? (lastPayment || (loan.dueDate && loan.dueDate < today ? loan.dueDate : today))
+    : today;
+  const horizon = closeDate;
 
   // Adelantos manuales dentro del horizonte: cada uno devenga otro interés capitalizado
   // en su fecha, además del devengado natural del ciclo.
@@ -235,10 +243,11 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   if (!loan.dueDate) return events;
   if (loan.dueDate > horizon) {
     // Cerrado antes de su vencimiento: el interés contratado se cobró igual (el cliente
-    // paga capital + interés aunque cancele antes), así que se devenga en la fecha de
-    // cierre. Sin esto la ganancia de un préstamo pagado anticipadamente desaparecía del
-    // ROI histórico y de "Ganancia acumulada proyectada".
-    if (closed && lastPayment) events.push({ date: lastPayment, amount: contracted });
+    // paga capital + interés aunque cancele antes, y en una refinanciación se capitaliza
+    // dentro del préstamo nuevo), así que se devenga en la fecha de cierre. Sin esto la
+    // ganancia de un préstamo pagado anticipadamente —o refinanciado antes de vencer—
+    // desaparecía del ROI histórico y de "Ganancia acumulada proyectada".
+    if (closed) events.push({ date: lastPayment || closeDate, amount: contracted });
     return events;
   }
   // Vencimiento original: interés contratado.
