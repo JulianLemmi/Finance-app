@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { X } from "lucide-react";
 import { IconButton } from "./button.jsx";
 
-type SheetSize = "sm" | "md" | "lg";
+type SheetSize = "sm" | "md" | "lg" | "xl";
 
 interface SheetProps {
   open: boolean;
@@ -20,6 +20,9 @@ const widths: Record<SheetSize, string> = {
   sm: "sm:max-w-md",
   md: "sm:max-w-lg",
   lg: "sm:max-w-2xl",
+  // "xl" es para los sheets que en pantalla ancha se abren a dos columnas (el detalle de
+  // un préstamo): con max-w-2xl sobraba media pantalla y todo quedaba apilado en una sola.
+  xl: "sm:max-w-3xl lg:max-w-6xl",
 };
 
 const CLOSE_MS = 220;
