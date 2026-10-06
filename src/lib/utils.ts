@@ -154,6 +154,30 @@ export function advancedCyclesUpTo(loan: Pick<Loan, "advancedAt">, asOf: string)
   return (loan.advancedAt || []).filter((d) => d <= asOf).length;
 }
 
+/** Suma de los adicionales de capital ya entregados hasta `asOf` (inclusive). Un adicional
+ *  es un hecho con fecha —"hoy le pasé $50k más"—, así que uno fechado a futuro todavía no
+ *  está en la calle y no cuenta, igual que los adelantos de ciclo. */
+export function loanExtrasUpTo(loan: Pick<Loan, "extras">, asOf: string): number {
+  return (loan.extras || []).reduce(
+    (s, e) => ((e.date || "") <= asOf ? s + Number(e.amount || 0) : s),
+    0
+  );
+}
+
+/**
+ * Capital vigente del préstamo a una fecha: el monto original más los adicionales ya
+ * entregados. `loan.amount` queda siendo el capital inicial para no reescribir la
+ * historia (la deuda, el devengado y las curvas de los gráficos a fechas pasadas no
+ * pueden ver plata que todavía no se había entregado), así que TODA cuenta que necesite
+ * "cuánto capital tiene este préstamo" tiene que pasar por acá y no por `loan.amount`.
+ */
+export function loanPrincipalAt(
+  loan: Pick<Loan, "amount" | "extras">,
+  asOf: string = todayISO()
+): number {
+  return Number(loan.amount || 0) + loanExtrasUpTo(loan, asOf);
+}
+
 /**
  * Fecha desde la que la plata del préstamo está en la calle.
  *

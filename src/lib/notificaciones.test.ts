@@ -12,6 +12,7 @@ import { buildDigest, fmtDate } from "../../supabase/functions/_shared/digest.ts
 import {
   getLoanCycleDays, loanPeriodDate, loanElapsedPeriods, getNextRenewalDate,
   addCalendarMonths, addDays, daysBetween,
+  loanPrincipalAt,
 } from "./utils.js";
 import { remainingDebt, resolveStatus, expectedProfit, expectedReturn, paidAmount } from "./calcs.js";
 import type { Loan } from "../types";
@@ -61,6 +62,30 @@ const cartera: Record<string, Loan> = {
   // para la app vuelve a estar "activo" aunque su vencimiento ya haya pasado.
   interesesAlDia: mk({ startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
                        payments: [{ id: "p", amount: 20000, date: addCalendarMonths(HOY, -1) }] }),
+  // Adicionales de capital: el préstamo creció sin refinanciar. El edge function tiene su
+  // propia copia del reparto por ciclo, así que acá se compara contra la del frontend.
+  extraActivo: mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 12),
+                    extras: [{ id: "e", amount: 50000, date: HOY }] }),
+  extraPrevioAlVenc: mk({ startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+                          extras: [{ id: "e", amount: 40000, date: addDays(HOY, -45) }] }),
+  extraEnMora: mk({ startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3),
+                    extras: [{ id: "e", amount: 40000, date: addCalendarMonths(HOY, -2) }] }),
+  extraHoyVencido: mk({ startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+                        extras: [{ id: "e", amount: 30000, date: HOY }] }),
+  extraFuturo: mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 12),
+                    extras: [{ id: "e", amount: 50000, date: addDays(HOY, 5) }] }),
+  extraVarios: mk({ paymentType: "15", startDate: addDays(HOY, -60), dueDate: addDays(HOY, -45),
+                    extras: [{ id: "e1", amount: 20000, date: addDays(HOY, -50) },
+                             { id: "e2", amount: 25000, date: addDays(HOY, -20) },
+                             { id: "e3", amount: 15000, date: HOY }] }),
+  extraFijo: mk({ interestMode: "fixed", fixedInterest: 8000, interestRate: 0,
+                  startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+                  extras: [{ id: "e", amount: 50000, date: addDays(HOY, -20) }] }),
+  extraSinVenc: mk({ noDueDate: true, dueDate: "", startDate: addCalendarMonths(HOY, -3),
+                     extras: [{ id: "e", amount: 40000, date: addCalendarMonths(HOY, -1) }] }),
+  extraReabrePagado: mk({ startDate: addDays(HOY, -40), dueDate: addDays(HOY, -10),
+                          payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }],
+                          extras: [{ id: "e", amount: 60000, date: addDays(HOY, -2) }] }),
 };
 
 const casos = Object.entries(cartera);
@@ -107,9 +132,13 @@ describe("paridad de montos frontend ↔ notificaciones", () => {
   });
 
   it.each(casos)("mismo interés y retorno esperado [%s]", (_n, l) => {
-    expect(edge.expectedProfit(l)).toBeCloseTo(expectedProfit(l), 2);
-    expect(edge.expectedReturn(l)).toBeCloseTo(expectedReturn(l), 2);
+    expect(edge.expectedProfit(l, HOY)).toBeCloseTo(expectedProfit(l), 2);
+    expect(edge.expectedReturn(l, HOY)).toBeCloseTo(expectedReturn(l), 2);
     expect(edge.paidAmount(l)).toBeCloseTo(paidAmount(l), 2);
+  });
+
+  it.each(casos)("mismo capital vigente [%s]", (_n, l) => {
+    expect(edge.loanPrincipalAt(l, HOY)).toBeCloseTo(loanPrincipalAt(l), 2);
   });
 });
 

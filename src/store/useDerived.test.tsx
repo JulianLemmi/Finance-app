@@ -5,7 +5,7 @@
 // de al lado tienen que ser el mismo número. Varios bugs históricos fueron exactamente eso.
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useDerived, initialState } from "./index.js";
+import { useDerived, initialState, reducer } from "./index.js";
 import { addCalendarMonths, addDays, myShare, getNextRenewalDate, monthKey } from "../lib/utils.js";
 import type { AppState, Loan, Derived } from "../types";
 
@@ -456,5 +456,130 @@ describe("cadenas de refinanciacion", () => {
     const d = derive(soloCadena([F, G]));
     const devengadoTotal = d.months.reduce((s, m) => s + m.accrued, 0);
     expect(devengadoTotal).toBeCloseTo(10000, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sumar capital a un préstamo en curso (sin refinanciar). Lo que se vigila: que la plata
+// nueva aparezca en TODAS las métricas donde ya estaba la vieja, que la card y la curva
+// sigan dando el mismo número, y que un adicional fechado a futuro no se cuele.
+describe("adicionales de capital", () => {
+  const soloUno = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+  const activo = mk({ id: "A", startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) });
+  const conExtra = { ...activo, extras: [{ id: "e1", amount: 50000, date: HOY }] };
+
+  it("el capital invertido sube con el adicional", () => {
+    expect(derive(soloUno([activo])).capitalInvested).toBeCloseTo(100000, 2);
+    expect(derive(soloUno([conExtra])).capitalInvested).toBeCloseTo(150000, 2);
+  });
+
+  it("card y curva siguen cuadrando", () => {
+    const d = derive(soloUno([conExtra]));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+    expect(ultimo.capital).toBeCloseTo(d.totalCapital, 2);
+  });
+
+  it("lo prestado incluye los adicionales: es plata que salió", () => {
+    expect(derive(soloUno([conExtra])).totalDisbursed).toBeCloseTo(150000, 2);
+  });
+
+  it("la ganancia esperada y la próxima se calculan sobre el capital vigente", () => {
+    const d = derive(soloUno([conExtra]));
+    expect(d.nextProfitTotal).toBeCloseTo(15000, 2);
+    expect(d.expectedProfitTotal).toBeCloseTo(15000, 2);
+  });
+
+  it("en un compartido el adicional también se prorratea", () => {
+    const compartido = { ...conExtra, sharedWith: "Papá", myPercent: 50 };
+    expect(derive(soloUno([compartido])).capitalInvested).toBeCloseTo(75000, 2);
+    expect(derive(soloUno([compartido])).totalDisbursed).toBeCloseTo(75000, 2);
+  });
+
+  it("un adicional fechado a futuro no se cuenta todavía", () => {
+    const futuro = { ...activo, extras: [{ id: "e1", amount: 50000, date: addDays(HOY, 5) }] };
+    const d = derive(soloUno([futuro]));
+    expect(d.capitalInvested).toBeCloseTo(100000, 2);
+    expect(d.totalDisbursed).toBeCloseTo(100000, 2);
+    expect(d.months[d.months.length - 1].capitalInvested).toBeCloseTo(d.capitalInvested, 2);
+  });
+
+  it("la curva de meses anteriores no ve un adicional posterior", () => {
+    // El adicional entró este mes: el capital del mes pasado no puede haber cambiado.
+    const viejo = { ...mk({ id: "A", startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, 2) }) };
+    const base = derive(soloUno([viejo]));
+    const d = derive(soloUno([{ ...viejo, extras: [{ id: "e1", amount: 50000, date: HOY }] }]));
+    const mesPasado = monthKey(addCalendarMonths(HOY, -1));
+    const i = base.months.findIndex((m) => m.key === mesPasado);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(d.months[i].capitalInvested).toBeCloseTo(base.months[i].capitalInvested, 2);
+    expect(d.capitalInvested).toBeGreaterThan(base.capitalInvested);
+  });
+
+  it("la ganancia de un préstamo cobrado descuenta también el adicional", () => {
+    // Prestó 100k, le sumó 50k, cobró 165k: ganó 15k, no 65k.
+    const pagado = mk({
+      id: "P", status: "paid", startDate: addDays(HOY, -40), dueDate: addDays(HOY, -5),
+      extras: [{ id: "e1", amount: 50000, date: addDays(HOY, -30) }],
+      payments: [{ id: "p", amount: 181500, date: addDays(HOY, -1) }],
+    });
+    const d = derive(soloUno([pagado]));
+    expect(d.accumulatedProfit).toBeCloseTo(181500 - 150000, 2);
+  });
+
+  it("el devengado del mes incluye el interés del adicional", () => {
+    // Vencimiento hoy con un adicional entregado antes: el interés del ciclo se devenga
+    // sobre los 150k, no sobre los 100k originales.
+    const l = mk({ id: "V", startDate: addCalendarMonths(HOY, -1), dueDate: HOY,
+                   extras: [{ id: "e1", amount: 50000, date: addDays(HOY, -10) }] });
+    const d = derive(soloUno([l]));
+    const esteMes = d.months.find((m) => m.key === monthKey(HOY))!;
+    expect(esteMes.accrued).toBeCloseTo(15000, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El reducer de los adicionales. Importa porque es el que valida la entrada (un monto
+// en 0 no puede ensuciar la cartera) y el que reabre un préstamo ya cobrado.
+describe("reducer de adicionales", () => {
+  const base: AppState = { ...initialState, loaded: true, loans: [mk({ id: "A" })] };
+  const extra = { id: "e1", amount: 50000, date: HOY };
+
+  it("suma el adicional y lo deja en el historial", () => {
+    const s = reducer(base, { type: "ADD_LOAN_EXTRA", payload: { loanId: "A", extra } });
+    expect(s.loans[0].extras).toEqual([extra]);
+    expect(s.loans[0].amount).toBe(100000); // el capital original no se reescribe
+    expect(s.history[0]).toMatchObject({ kind: "loan_extra", ref: "A", amount: 50000, date: HOY });
+  });
+
+  it("rechaza montos inválidos y préstamos que no existen", () => {
+    for (const payload of [
+      { loanId: "A", extra: { ...extra, amount: 0 } },
+      { loanId: "A", extra: { ...extra, amount: -100 } },
+      { loanId: "A", extra: { ...extra, date: "" } },
+      { loanId: "noExiste", extra },
+    ]) {
+      expect(reducer(base, { type: "ADD_LOAN_EXTRA", payload })).toBe(base);
+    }
+  });
+
+  it("reabre un préstamo ya cobrado: volvió a haber deuda", () => {
+    const pagado: AppState = {
+      ...base,
+      loans: [mk({ id: "A", status: "paid", startDate: addDays(HOY, -40), dueDate: addDays(HOY, -10),
+                   payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }] })],
+    };
+    const s = reducer(pagado, { type: "ADD_LOAN_EXTRA", payload: { loanId: "A", extra } });
+    expect(s.loans[0].status).not.toBe("paid");
+  });
+
+  it("quitar el adicional deja el préstamo como estaba", () => {
+    const conExtra = reducer(base, { type: "ADD_LOAN_EXTRA", payload: { loanId: "A", extra } });
+    const s = reducer(conExtra, { type: "DELETE_LOAN_EXTRA", payload: { loanId: "A", extraId: "e1" } });
+    expect(s.loans[0].extras).toEqual([]);
+    expect(derive(s).capitalInvested).toBeCloseTo(derive(base).capitalInvested, 2);
   });
 });

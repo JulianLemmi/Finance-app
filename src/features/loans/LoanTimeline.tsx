@@ -9,10 +9,10 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
-  X, Trash2, CalendarCheck, Pencil, Check,
+  X, Trash2, CalendarCheck, Pencil, Check, PlusCircle,
 } from "lucide-react";
-import { formatDate, formatInterest, loanPeriodDate, myShare, advancedCycles } from "../../lib/utils.js";
-import { expectedReturn, resolvePaymentPos, periodInterest } from "../../lib/calcs.js";
+import { formatDate, formatInterest, loanPeriodDate, myShare, advancedCycles, todayISO } from "../../lib/utils.js";
+import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, periodInterest, extraImpactsBySlot } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
 import type { ResolvedLoan } from "../../types";
@@ -25,12 +25,13 @@ interface LoanTimelineProps {
 // ── Local event union ─────────────────────────────────────────────────────────
 type StartEvent  = { type: "start"; date: string };
 type DueEvent    = { type: "due"; date: string };
+type ExtraEvent  = { type: "extra"; id: string; date: string; amount: number; note?: string };
 type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; isPaid?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; interestInPayment: number; totalInterestAccrued: number;
 };
-type TimelineEvent = StartEvent | DueEvent | MoraEvent | PaymentEvent;
+type TimelineEvent = StartEvent | DueEvent | ExtraEvent | MoraEvent | PaymentEvent;
 
 // ── Estilos compartidos por tipo ──────────────────────────────────────────────
 // Un date input pequeño usado para editar fechas en línea. Colores tomados del contexto.
@@ -138,7 +139,11 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     const getPos = (p: typeof payments[number]) =>
       resolvePaymentPos(p, currentCompoundPeriods, loan);
 
-    let balance = expectedReturn(loan);
+    // Mismo arranque y mismo reparto de adicionales que `debtWalk` (vía
+    // `extraImpactsBySlot`): el total de cada fila tiene que cerrar con la deuda del header.
+    const extraImpacts = extraImpactsBySlot(loan, todayISO(), currentCompoundPeriods);
+    const base = Number(loan.amount);
+    let balance = base + periodInterest(loan, base) + extraImpacts[0];
     payments.filter((p) => getPos(p) === 0).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount));
     });
@@ -169,7 +174,9 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         advIndex: isAdvanced ? advIdx : undefined,
         isPaid,
       });
-      balance = afterMora;
+      // El adicional de este ciclo entra después de la capitalización (ver `extraSlot`):
+      // no vuelve a pagar el ciclo que ya cobró por adelantado.
+      balance = afterMora + extraImpacts[i];
       payments.filter((p) => getPos(p) === i).forEach((p) => {
         balance = Math.max(0, balance - Number(p.amount));
       });
@@ -178,11 +185,17 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
   }, [loan, currentCompoundPeriods]);
 
   const allTimelineEvents = useMemo<TimelineEvent[]>(() => {
-    const totalInterestAccrued = Math.max(0, loan._compoundReturn - Number(loan.amount));
+    // Interés acumulado = total acumulado − capital vigente (con los adicionales dentro):
+    // con `loan.amount` a secas, cada adicional se leía como interés y los pagos aparecían
+    // cubriendo una ganancia que no existía.
+    const totalInterestAccrued = Math.max(0, loan._compoundReturn - loan._principal);
     const events: TimelineEvent[] = [];
 
     events.push({ type: "start", date: loan.startDate });
     if (loan.dueDate) events.push({ type: "due", date: loan.dueDate });
+    (loan.extras || []).forEach((e) =>
+      events.push({ type: "extra", id: e.id, date: e.date, amount: Number(e.amount || 0), note: e.note })
+    );
     overdueTimelinePeriods.forEach((p) => events.push(p));
 
     let cumulativePaid = 0;
@@ -209,7 +222,9 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         if (ev.type === "payment" && ev.timelinePos > 0) {
           return dateMs(loanPeriodDate(loan, loan.dueDate, ev.timelinePos)) + 500;
         }
-        const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, payment: 30 };
+        // El adicional entra después de la capitalización del día (ver `extraSlot`), así
+        // que en un empate de fecha va detrás de la mora y antes de los pagos.
+        const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, extra: 25, payment: 30 };
         return dateMs(ev.date) + (tieBreak[ev.type] ?? 40);
       };
       return getSortKey(a) - getSortKey(b);
@@ -264,6 +279,17 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     );
     dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
     setEditingPaymentId(null);
+  };
+
+  const deleteExtra = (extraId: string) => {
+    dispatch({ type: "DELETE_LOAN_EXTRA", payload: { loanId: loan.id, extraId } });
+    setPendingDelete(null);
+  };
+
+  const editExtraDate = (extraId: string, newDate: string) => {
+    if (!newDate) return;
+    const updated = (loan.extras || []).map((e) => (e.id === extraId ? { ...e, date: newDate } : e));
+    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, extras: updated } });
   };
 
   const deleteAdvance = (idx: number) => {
@@ -329,7 +355,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                       <div className="text-sm font-semibold tabular-nums text-zinc-100">
                         <Money value={loan.amount} hide={hide} currency={cur} />
                       </div>
-                      <div className="text-[11px] text-zinc-500">Capital prestado</div>
+                      <div className="text-[11px] text-zinc-500">Capital inicial</div>
                     </div>
                   </div>
                 </div>
@@ -361,13 +387,67 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                           title="Editar fecha de vencimiento"
                         />
                       </div>
+                      {/* Al vencimiento, con el capital que había a esa fecha: un adicional
+                          entregado después no puede aparecer en esta fila. */}
                       <div className="sm:text-right">
                         <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                          <Money value={loan._return} hide={hide} currency={cur} />
+                          <Money value={expectedReturnAt(loan, loan.dueDate)} hide={hide} currency={cur} />
                         </div>
                         <div className="text-[11px] text-emerald-400/80 tabular-nums">
-                          +<Money value={loan._profit * myShare(loan)} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
+                          +<Money value={expectedProfitAt(loan, loan.dueDate) * myShare(loan)} hide={hide} currency={cur} /> ({formatInterest(loan, cur)})
                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </EventRow>
+              );
+            }
+
+            // ── CAPITAL AGREGADO (sin refinanciar) ──────────────────────────
+            if (ev.type === "extra") {
+              const extraId = `extra-${ev.id}`;
+              const isConfirming = pendingDelete === extraId;
+              return (
+                <EventRow
+                  key={extraId}
+                  ringCls="border-teal-700/60 bg-teal-950/80"
+                  dotCls="bg-teal-400"
+                >
+                  <div className="rounded-xl px-3 py-2.5 hover:bg-zinc-900/40">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-teal-300">
+                        <PlusCircle className="h-3.5 w-3.5" />
+                        Capital agregado
+                      </div>
+                      {isConfirming ? (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => deleteExtra(ev.id)}
+                            className="rounded-lg bg-rose-900/50 px-2 py-0.5 text-[10px] font-medium text-rose-200 hover:bg-rose-900/70">
+                            Quitar
+                          </button>
+                          <button onClick={() => setPendingDelete(null)}
+                            className="rounded-lg px-2 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300">
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setPendingDelete(extraId)} title="Quitar el adicional"
+                          className="rounded-lg p-1 text-zinc-600 transition-colors hover:text-rose-400">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-center">
+                      <div className="text-[11px] text-zinc-500">
+                        <DateInput value={ev.date} onChange={(d) => editExtraDate(ev.id, d)}
+                          tone="zinc" title="Editar fecha del adicional" />
+                        {ev.note && <div className="mt-1 text-[11px] text-zinc-400">{ev.note}</div>}
+                      </div>
+                      <div className="sm:text-right">
+                        <div className="text-sm font-semibold tabular-nums text-teal-200">
+                          +<Money value={ev.amount} hide={hide} currency={cur} />
+                        </div>
+                        <div className="text-[11px] text-zinc-500">Se sumó al capital</div>
                       </div>
                     </div>
                   </div>

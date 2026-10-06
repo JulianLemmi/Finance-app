@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom } from "../lib/utils.js";
+import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -140,6 +140,53 @@ export function reducer(state: AppState, action: AppAction): AppState {
           },
           ...state.history,
         ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
+      };
+    }
+    // Sumar capital a un préstamo en curso, sin refinanciar: la tasa, el ciclo y el
+    // vencimiento quedan donde están y el capital crece desde la fecha del adicional.
+    case "ADD_LOAN_EXTRA": {
+      const { loanId, extra } = action.payload;
+      const target = state.loans.find((l) => l.id === loanId);
+      const amount = Number(extra?.amount);
+      if (!target || !Number.isFinite(amount) || amount <= 0 || !extra?.date) {
+        console.warn("[ADD_LOAN_EXTRA] adicional inválido — rechazado", { loanId, amount });
+        return state;
+      }
+      const newLoans = state.loans.map((l) => {
+        if (l.id !== loanId) return l;
+        // Sumar capital puede reabrir un préstamo ya cobrado: vuelve a haber deuda. Se
+        // destraba el "paid" guardado porque `resolveStatus` lo respeta tal cual.
+        const next: Loan = {
+          ...l,
+          extras: [...(l.extras || []), extra],
+          status: l.status === "paid" ? "active" : l.status,
+        };
+        next.status = resolveStatus(next);
+        return next;
+      });
+      return {
+        ...state,
+        loans: newLoans,
+        history: [
+          {
+            id: uid("h"), kind: "loan_extra" as const, ref: loanId,
+            label: `Capital agregado a ${target.clientName}`,
+            amount, date: extra.date,
+          },
+          ...state.history,
+        ].slice(0, UI_LIMITS.HISTORY_STORE_MAX),
+      };
+    }
+    case "DELETE_LOAN_EXTRA": {
+      const { loanId, extraId } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          const next: Loan = { ...l, extras: (l.extras || []).filter((e) => e.id !== extraId) };
+          next.status = resolveStatus(next);
+          return next;
+        }),
       };
     }
     case "ADVANCE_CYCLE": {
@@ -324,6 +371,7 @@ export function useDerived(state: AppState): Derived {
       return {
         ...l,
         _status: resolveStatus(l),
+        _principal: loanPrincipalAt(l),
         _paid: paidAmount(l),
         _remaining: remainingDebt(l),
         _profit: expectedProfit(l),
@@ -383,7 +431,7 @@ export function useDerived(state: AppState): Derived {
     // Ganancia esperada (aún no realizada): sólo de los activos. En los vencidos el
     // interés ya se capitalizó dentro de capitalInvested, así que no se vuelve a sumar.
     const expectedProfitTotal = deployed.reduce(
-      (a, l) => a + myShare(l) * (l._status === "overdue" ? 0 : Math.max(0, l._remaining - Number(l.amount))),
+      (a, l) => a + myShare(l) * (l._status === "overdue" ? 0 : Math.max(0, l._remaining - l._principal)),
       0
     );
     // Ganancia que se cobraría en el próximo período de cada préstamo (lo que muestra cada card).
@@ -395,16 +443,19 @@ export function useDerived(state: AppState): Derived {
     // capitalizó dentro del capital de B — y como B mide su ganancia contra SU monto
     // ($110k, que ya lo incluye), sumar el devengado de A cierra la cuenta sin duplicar.
     const accumulatedProfit =
-      paidLoans.reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0)
+      paidLoans.reduce((a, l) => a + myShare(l) * (l._paid - l._principal), 0)
       + refinancedLoans.reduce(
         (a, l) => a + myShare(l) * interestAccruals(l).reduce((s, ev) => s + ev.amount, 0),
         0
       );
     const incomeTransactions = state.income.reduce((a, t) => a + Number(t.amount), 0);
     const totalExpense = state.expenses.reduce((a, t) => a + Number(t.amount), 0);
+    // Total prestado: el capital original más los adicionales entregados, que también son
+    // plata que salió. Los refinanciados quedan afuera: su capital es la deuda del eslabón
+    // anterior, y contarlo sería contar la misma plata una vez por refinanciación.
     const totalDisbursed = loansResolved
       .filter((l) => !l.refinancedFromId)
-      .reduce((a, l) => a + myShare(l) * Number(l.amount), 0);
+      .reduce((a, l) => a + myShare(l) * l._principal, 0);
     const available = Number(state.settings.cashOnHand || 0);
     const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
     // Deudas propias (ej: plata que le debo a mi papá): lo adeudado es el monto original
@@ -597,7 +648,9 @@ export function useDerived(state: AppState): Derived {
             .reduce((s, p) => s + Number(p.amount), 0);
           return paidUpTo < expectedReturn(l);
         })
-        .reduce((acc, l) => acc + myShare(l) * Number(l.amount), 0);
+        // Capital a esa fecha: los adicionales entregados después del corte todavía no
+        // estaban en la calle, así que el ROI del mes no los toma como base.
+        .reduce((acc, l) => acc + myShare(l) * loanPrincipalAt(l, cutoff), 0);
       // Capital de la curva: incluye el interés capitalizado por vencimientos y
       // re-vencimientos acumulados a esa fecha (no sólo el principal prestado).
       const capitalAtMonth = loansResolved
@@ -626,7 +679,7 @@ export function useDerived(state: AppState): Derived {
       const debt = active.reduce((a, l) => a + myShare(l) * l._remaining, 0);
       const totalGenerated = cLoans
         .filter((l) => l._status === "paid")
-        .reduce((a, l) => a + myShare(l) * (l._paid - Number(l.amount)), 0);
+        .reduce((a, l) => a + myShare(l) * (l._paid - l._principal), 0);
       const overdueCount = cLoans.filter((l) => l._status === "overdue").length;
       return { ...c, _loans: cLoans, _active: active, _debt: debt, _totalGenerated: totalGenerated, _overdueCount: overdueCount };
     }),

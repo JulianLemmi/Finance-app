@@ -15,7 +15,7 @@ export type CarStatus = "available" | "negotiating" | "sold" | "delivered";
 export type CarFuelType = "nafta" | "diesel" | "gnc" | "hibrido" | "electrico";
 export type TabName = "home" | "loans" | "clients" | "cars" | "finance" | "profile";
 export type TxType = "income" | "expense";
-export type HistoryKind = "loan_created" | "payment_received";
+export type HistoryKind = "loan_created" | "payment_received" | "loan_extra";
 export type ModalType =
   | "loan-form" | "loan-detail"
   | "client-form" | "client-detail"
@@ -46,6 +46,19 @@ export interface Contact {
   id: string;
   date: ISODate;
   note: string;
+  createdAt?: number;
+}
+
+/**
+ * Capital adicional entregado sobre un préstamo que ya está andando, sin refinanciar:
+ * el cliente pide más plata y el préstamo crece, conservando su tasa, su ciclo y su
+ * fecha de vencimiento. Cada adicional es capital nuevo en la calle desde `date`.
+ */
+export interface LoanExtra {
+  id: string;
+  amount: number;
+  date: ISODate;
+  note?: string;
   createdAt?: number;
 }
 
@@ -80,6 +93,10 @@ export interface Loan {
   paymentType: PaymentType;
   customDays?: number;
   payments: Payment[];
+  /** Capital agregado al préstamo después de arrancar, sin refinanciar. `amount` queda
+   *  siendo el capital original: el capital vigente es `loanPrincipalAt(loan, fecha)`,
+   *  que suma los adicionales ya entregados a esa fecha. */
+  extras?: LoanExtra[];
   contacts: Contact[];
   guarantyType: GuarantyType;
   guarantyDetail: string;
@@ -103,6 +120,9 @@ export interface Loan {
 
 export interface LoanComputed {
   _status: LoanStatus;
+  /** Capital vigente: `amount` más los adicionales ya entregados (ver `LoanExtra`).
+   *  Bruto, sin prorratear por `myShare`, como el resto de los `_*`. */
+  _principal: number;
   _paid: number;
   _remaining: number;
   _profit: number;
@@ -287,6 +307,8 @@ export type AppAction =
   | { type: "ADD_CONTACT"; payload: { loanId: string; contact: Contact } }
   | { type: "DELETE_CONTACT"; payload: { loanId: string; contactId: string } }
   | { type: "ADD_PAYMENT"; payload: { loanId: string; payment: Payment } }
+  | { type: "ADD_LOAN_EXTRA"; payload: { loanId: string; extra: LoanExtra } }
+  | { type: "DELETE_LOAN_EXTRA"; payload: { loanId: string; extraId: string } }
   | { type: "ADVANCE_CYCLE"; payload: { loanId: string; date: ISODate } }
   | { type: "UNDO_ADVANCE_CYCLE"; payload: { loanId: string } }
   | { type: "ADD_PARKING_PAYMENT"; payload: { loanId: string; payment: Payment } }

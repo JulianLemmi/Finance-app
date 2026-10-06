@@ -1,5 +1,5 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, loanDeployedFrom } from "./utils.js";
+import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, loanDeployedFrom, loanPrincipalAt } from "./utils.js";
 import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 interface OverdueMeta {
@@ -15,13 +15,160 @@ export function periodInterest(loan: Loan, balance: number): number {
   return balance * (Number(loan.interestRate) / 100);
 }
 
+/** Interés contratado del ciclo sobre el capital vigente a `asOf` (con los adicionales ya
+ *  entregados a esa fecha). En modo "fixed" el cargo es un monto por período que no
+ *  depende del capital, así que sumar capital no lo mueve. */
+export function expectedProfitAt(loan: Loan, asOf: string): number {
+  return periodInterest(loan, loanPrincipalAt(loan, asOf));
+}
+
 export function expectedProfit(loan: Loan): number {
-  if (loan.interestMode === "fixed") return Number(loan.fixedInterest || 0);
-  return (Number(loan.amount) * Number(loan.interestRate)) / 100;
+  return expectedProfitAt(loan, todayISO());
+}
+
+export function expectedReturnAt(loan: Loan, asOf: string): number {
+  return loanPrincipalAt(loan, asOf) + expectedProfitAt(loan, asOf);
 }
 
 export function expectedReturn(loan: Loan): number {
-  return Number(loan.amount) + expectedProfit(loan);
+  return expectedReturnAt(loan, todayISO());
+}
+
+// ── Adicionales de capital (sin refinanciar) ──────────────────────────────────
+// Un adicional es plata nueva prestada sobre un préstamo en curso. Se trata igual que el
+// capital original: entra a la deuda con el interés de su ciclo cobrado por adelantado
+// (prestar $50k al 10% ya son $55k de deuda, la misma regla que al dar de alta el
+// préstamo) y de ahí en más capitaliza en cada vencimiento posterior.
+
+const SIN_EXTRAS: ReadonlyMap<number, number> = new Map();
+
+/** Lo que un adicional suma a la deuda el día que se entrega: capital + el interés del
+ *  ciclo en curso, por adelantado. En modo "fixed" el cargo por período es un monto fijo
+ *  que no depende del capital, así que el adicional suma sólo capital. */
+export function extraDebtImpact(
+  loan: Pick<Loan, "interestMode" | "interestRate">,
+  amount: number
+): number {
+  if (loan.interestMode === "fixed") return amount;
+  return amount * (1 + Number(loan.interestRate || 0) / 100);
+}
+
+/**
+ * Posición del adicional en la línea de tiempo de la deuda: el índice del vencimiento que
+ * cierra el ciclo en el que se entregó. Entra a la deuda DESPUÉS de esa capitalización,
+ * porque su propio ciclo ya lo cobró por adelantado — capitalizarlo también ahí sería
+ * cobrarle dos veces el mismo ciclo. De ahí en más compone como el resto de la deuda.
+ *
+ * 0 → entregado antes del vencimiento original (compone igual que el capital inicial).
+ * i → entregado dentro del ciclo de mora que cierra en el vencimiento i.
+ * N+1 → entregado en el ciclo abierto: todavía no capitalizó nada.
+ */
+function extraSlot(loan: Loan, date: string, overduePeriods: number): number {
+  if (!loan.dueDate || date <= loan.dueDate) return 0;
+  for (let i = 1; i <= overduePeriods; i++) {
+    if (date <= loanPeriodDate(loan, loan.dueDate, i)) return i;
+  }
+  return overduePeriods + 1;
+}
+
+/** Adicionales entregados hasta `asOf`, agrupados por `extraSlot` y ya convertidos al
+ *  impacto que tienen sobre la deuda. */
+function extrasBySlot(loan: Loan, asOf: string, overduePeriods: number): ReadonlyMap<number, number> {
+  const list = loan.extras;
+  if (!list || list.length === 0) return SIN_EXTRAS;
+  const bySlot = new Map<number, number>();
+  for (const e of list) {
+    const date = e.date || "";
+    const amount = Number(e.amount || 0);
+    if (!date || date > asOf || !(amount > 0)) continue;
+    const slot = extraSlot(loan, date, overduePeriods);
+    bySlot.set(slot, (bySlot.get(slot) || 0) + extraDebtImpact(loan, amount));
+  }
+  return bySlot;
+}
+
+/**
+ * Impacto de los adicionales sobre la deuda, indexado por `extraSlot` (0..N+1). Lo usa la
+ * línea de tiempo del detalle para reconstruir ciclo por ciclo los MISMOS saldos que
+ * `remainingDebt`: si reparte los adicionales por su cuenta, los totales que muestra cada
+ * fila de mora dejan de coincidir con la deuda del header.
+ */
+export function extraImpactsBySlot(loan: Loan, asOf: string, overduePeriods: number): number[] {
+  const out = new Array<number>(overduePeriods + 2).fill(0);
+  extrasBySlot(loan, asOf, overduePeriods).forEach((monto, slot) => {
+    if (slot >= 0 && slot < out.length) out[slot] += monto;
+  });
+  return out;
+}
+
+/**
+ * Núcleo de la deuda de un préstamo con vencimiento: arranca en capital + interés del
+ * primer ciclo (cobrado por adelantado) y aplica, vencimiento por vencimiento, la
+ * capitalización del período, los adicionales de ese ciclo y los pagos.
+ *
+ * Lo comparten `remainingDebt`, `remainingDebtAt` y `compoundReturn` a propósito: cuando
+ * cada uno tenía su copia del bucle, agregar un caso nuevo los separaba y la misma plata
+ * salía con dos números distintos en pantalla.
+ */
+function debtWalk(loan: Loan, asOf: string, overduePeriods: number, payments: Payment[]): number {
+  const base = Number(loan.amount);
+  const extras = extrasBySlot(loan, asOf, overduePeriods);
+  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
+
+  let balance = base + periodInterest(loan, base) + (extras.get(0) || 0);
+  payments.filter((p) => getPos(p) === 0).forEach((p) => {
+    balance = Math.max(0, balance - Number(p.amount));
+  });
+  for (let i = 1; i <= overduePeriods; i++) {
+    if (balance > 0) balance += periodInterest(loan, balance);
+    balance += extras.get(i) || 0;
+    payments.filter((p) => getPos(p) === i).forEach((p) => {
+      balance = Math.max(0, balance - Number(p.amount));
+    });
+  }
+  // Adicionales del ciclo abierto: ya son deuda, pero todavía no los alcanzó ninguna
+  // capitalización.
+  return balance + (extras.get(overduePeriods + 1) || 0);
+}
+
+/**
+ * Deuda de un préstamo sin vencimiento al cierre de `asOf`, antes de los pagos: compone un
+ * ciclo por cada período transcurrido desde el inicio más el ciclo en curso. Cada adicional
+ * compone sólo los ciclos posteriores a su entrega.
+ */
+function noDueDateDebt(loan: Loan, asOf: string): number {
+  const base = Number(loan.amount);
+  const elapsed = loanElapsedPeriods(loan, loan.startDate, asOf);
+  const advanced = advancedCyclesUpTo(loan, asOf);
+  const extras = (loan.extras || []).filter(
+    (e) => e.date && e.date <= asOf && Number(e.amount || 0) > 0
+  );
+
+  if (loan.interestMode === "fixed") {
+    // El cargo fijo es por período y no depende del capital: un adicional suma capital,
+    // no otro cargo.
+    const extraCapital = extras.reduce((s, e) => s + Number(e.amount), 0);
+    return base + Number(loan.fixedInterest || 0) * (elapsed + 1 + advanced) + extraCapital;
+  }
+
+  // Recorrido ciclo por ciclo, con el mismo reparto de adicionales que usa
+  // `interestAccruals`: cada adicional entra en el ciclo en que se entregó y de ahí en más
+  // compone con el resto de la deuda. Sin extras es exactamente `base * (1+r)^períodos`.
+  const extrasEntre = (desde: string, hasta: string): number =>
+    extras.reduce((s, e) => (e.date! > desde && e.date! <= hasta ? s + Number(e.amount) : s), 0);
+  let balance = base;
+  let desde = "";
+  for (let i = 1; i <= elapsed; i++) {
+    const date = loanPeriodDate(loan, loan.startDate, i);
+    balance += extrasEntre(desde, date);
+    desde = date;
+    balance += periodInterest(loan, balance);
+  }
+  balance += extrasEntre(desde, asOf);
+  // El ciclo en curso se cobra por adelantado (igual que al dar de alta el préstamo), más
+  // una capitalización por cada adelanto manual.
+  for (let i = 0; i <= advanced; i++) balance += periodInterest(loan, balance);
+  return balance;
 }
 
 function getOverdueMeta(loan: Loan): OverdueMeta | null {
@@ -43,6 +190,11 @@ export function loanIntegrityErrors(loan: Loan): string[] {
   if (!loan.startDate) errors.push("Fecha de inicio faltante");
   if (loan.startDate && loan.dueDate && loan.dueDate < loan.startDate)
     errors.push("Vencimiento anterior al inicio");
+  for (const e of loan.extras || []) {
+    const extra = Number(e.amount);
+    if (!Number.isFinite(extra) || extra <= 0) { errors.push("Adicional con monto inválido"); break; }
+    if (!e.date) { errors.push("Adicional sin fecha"); break; }
+  }
   if (loan.interestMode === "fixed") {
     const fx = Number(loan.fixedInterest);
     if (!Number.isFinite(fx) || fx < 0) errors.push("Interés fijo inválido");
@@ -66,26 +218,13 @@ export function resolvePaymentPos(
   return overduePeriods;
 }
 
+/** Total acumulado de la deuda (capital + todo el interés capitalizado), sin descontar
+ *  pagos. Es `remainingDebt` con los pagos apagados: misma reconstrucción, misma fuente. */
 export function compoundReturn(loan: Loan): number {
-  const base = Number(loan.amount);
-
-  if (loan.noDueDate) {
-    const today = todayISO();
-    const periods = loanElapsedPeriods(loan, loan.startDate, today) + 1 + advancedCycles(loan);
-    if (loan.interestMode === "fixed") {
-      return base + Number(loan.fixedInterest || 0) * periods;
-    }
-    const rate = Number(loan.interestRate) / 100;
-    return base * Math.pow(1 + rate, periods);
-  }
-
-  if (!loan.dueDate) return expectedReturn(loan);
+  const today = todayISO();
+  if (loan.noDueDate) return noDueDateDebt(loan, today);
   const meta = getOverdueMeta(loan);
-  if (!meta || meta.overduePeriods === 0) return expectedReturn(loan);
-  if (loan.interestMode === "fixed") {
-    return base + Number(loan.fixedInterest || 0) * (1 + meta.overduePeriods);
-  }
-  return base * Math.pow(1 + meta.rate, 1 + meta.overduePeriods);
+  return debtWalk(loan, today, meta?.overduePeriods ?? 0, []);
 }
 
 export function paidAmount(loan: Loan): number {
@@ -93,8 +232,6 @@ export function paidAmount(loan: Loan): number {
 }
 
 export function remainingDebt(loan: Loan): number {
-  const payments = loan.payments || [];
-
   // Sin vencimiento: la deuda capitaliza un período por cada ciclo transcurrido desde el
   // inicio. Sin esta rama, `getOverdueMeta` devuelve null (no hay dueDate) y la deuda
   // quedaría congelada en un solo período, contradiciendo a `compoundReturn`,
@@ -102,27 +239,8 @@ export function remainingDebt(loan: Loan): number {
   if (loan.noDueDate) {
     return Math.max(0, compoundReturn(loan) - paidAmount(loan));
   }
-
   const meta = getOverdueMeta(loan);
-
-  if (!meta || meta.overduePeriods === 0) {
-    return Math.max(0, expectedReturn(loan) - paidAmount(loan));
-  }
-
-  const { overduePeriods } = meta;
-  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
-
-  let balance = expectedReturn(loan);
-  payments.filter((p) => getPos(p) === 0).forEach((p) => {
-    balance = Math.max(0, balance - Number(p.amount));
-  });
-  for (let i = 1; i <= overduePeriods; i++) {
-    if (balance > 0) balance += periodInterest(loan, balance);
-    payments.filter((p) => getPos(p) === i).forEach((p) => {
-      balance = Math.max(0, balance - Number(p.amount));
-    });
-  }
-  return Math.max(0, balance);
+  return Math.max(0, debtWalk(loan, todayISO(), meta?.overduePeriods ?? 0, loan.payments || []));
 }
 
 // Versión "a una fecha" de remainingDebt: calcula la deuda (capital + interés
@@ -135,39 +253,21 @@ export function remainingDebtAt(loan: Loan, asOf: string): number {
   const desplegadoDesde = loanDeployedFrom(loan);
   if (desplegadoDesde && desplegadoDesde > asOf) return 0;
 
-  const base = Number(loan.amount);
   const paymentsUpTo = (loan.payments || []).filter((p) => (p.date || "") <= asOf);
-  const paidUpTo = paymentsUpTo.reduce((s, p) => s + Number(p.amount || 0), 0);
 
   // Sin vencimiento: compone un período por cada ciclo transcurrido desde el inicio.
   if (loan.noDueDate) {
-    const periods = loanElapsedPeriods(loan, loan.startDate, asOf) + 1 + advancedCyclesUpTo(loan, asOf);
-    if (loan.interestMode === "fixed") {
-      return Math.max(0, base + Number(loan.fixedInterest || 0) * periods - paidUpTo);
-    }
-    const rate = Number(loan.interestRate) / 100;
-    return Math.max(0, base * Math.pow(1 + rate, periods) - paidUpTo);
+    const paidUpTo = paymentsUpTo.reduce((s, p) => s + Number(p.amount || 0), 0);
+    return Math.max(0, noDueDateDebt(loan, asOf) - paidUpTo);
   }
 
-  if (!loan.dueDate) return Math.max(0, expectedReturn(loan) - paidUpTo);
+  // Sin fecha de vencimiento no hay ciclos que capitalizar (ni los adelantos manuales
+  // tienen un vencimiento al que correr), así que la deuda queda en el ciclo contratado.
+  const overduePeriods = loan.dueDate
+    ? loanElapsedPeriods(loan, loan.dueDate, asOf) + advancedCyclesUpTo(loan, asOf)
+    : 0;
 
-  const naturalPeriods = loanElapsedPeriods(loan, loan.dueDate, asOf);
-  const overduePeriods = naturalPeriods + advancedCyclesUpTo(loan, asOf);
-
-  if (overduePeriods === 0) return Math.max(0, expectedReturn(loan) - paidUpTo);
-
-  const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
-  let balance = expectedReturn(loan);
-  paymentsUpTo.filter((p) => getPos(p) === 0).forEach((p) => {
-    balance = Math.max(0, balance - Number(p.amount));
-  });
-  for (let i = 1; i <= overduePeriods; i++) {
-    if (balance > 0) balance += periodInterest(loan, balance);
-    paymentsUpTo.filter((p) => getPos(p) === i).forEach((p) => {
-      balance = Math.max(0, balance - Number(p.amount));
-    });
-  }
-  return Math.max(0, balance);
+  return Math.max(0, debtWalk(loan, asOf, overduePeriods, paymentsUpTo));
 }
 
 // Capital desplegado en un préstamo al cierre de `asOf`, con la misma clasificación
@@ -190,7 +290,9 @@ export function loanCapitalAt(loan: Loan, asOf: string): number {
   const overdueAt = status
     ? status === "overdue"
     : !loan.noDueDate && !!loan.dueDate && loan.dueDate < asOf;
-  return overdueAt ? remaining : Math.min(remaining, Number(loan.amount));
+  // El tope de un activo es el capital vigente a esa fecha: los adicionales ya entregados
+  // también son plata en la calle (y los de mañana todavía no).
+  return overdueAt ? remaining : Math.min(remaining, loanPrincipalAt(loan, asOf));
 }
 
 // Eventos de interés devengado de un préstamo: cada vez que cae un vencimiento se le
@@ -202,8 +304,7 @@ export function loanCapitalAt(loan: Loan, asOf: string): number {
 export function interestAccruals(loan: Loan): { date: string; amount: number }[] {
   const events: { date: string; amount: number }[] = [];
   const base = Number(loan.amount);
-  const contracted = expectedProfit(loan);
-  if (!(base > 0) || !(contracted > 0)) return events;
+  if (!(base > 0) || !(expectedProfit(loan) > 0)) return events;
 
   const today = todayISO();
   const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
@@ -222,17 +323,32 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   // en su fecha, además del devengado natural del ciclo.
   const advances = (loan.advancedAt || []).filter((d) => d <= horizon).sort();
 
+  // Adicionales de capital entregados dentro del horizonte. Entran al balance en el ciclo
+  // en que se entregaron, así que el interés de ese ciclo se reconoce al cerrarlo —el
+  // mismo desfasaje de un ciclo que tiene el capital original entre el alta y el
+  // vencimiento—. `(desde, hasta]`, con `desde = ""` para incluir el primer tramo.
+  const extras = (loan.extras || []).filter(
+    (e) => e.date && e.date <= horizon && Number(e.amount || 0) > 0
+  );
+  const extrasEntre = (desde: string, hasta: string): number =>
+    extras.reduce((s, e) => (e.date > desde && e.date <= hasta ? s + Number(e.amount) : s), 0);
+
   if (loan.noDueDate) {
     if (!loan.startDate) return events;
     let balance = base;
+    let desde = "";
     for (let i = 1; ; i++) {
       const date = loanPeriodDate(loan, loan.startDate, i);
       if (date > horizon) break;
+      balance += extrasEntre(desde, date);
+      desde = date;
       const interest = periodInterest(loan, balance);
       events.push({ date, amount: interest });
       balance += interest;
     }
     for (const date of advances) {
+      balance += extrasEntre(desde, date);
+      if (date > desde) desde = date;
       const interest = periodInterest(loan, balance);
       events.push({ date, amount: interest });
       balance += interest;
@@ -247,20 +363,30 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
     // dentro del préstamo nuevo), así que se devenga en la fecha de cierre. Sin esto la
     // ganancia de un préstamo pagado anticipadamente —o refinanciado antes de vencer—
     // desaparecía del ROI histórico y de "Ganancia acumulada proyectada".
-    if (closed) events.push({ date: lastPayment || closeDate, amount: contracted });
+    if (closed) {
+      events.push({ date: lastPayment || closeDate, amount: expectedProfitAt(loan, closeDate) });
+    }
     return events;
   }
-  // Vencimiento original: interés contratado.
-  events.push({ date: loan.dueDate, amount: contracted });
-  let balance = base + contracted;
+  // Vencimiento original: interés contratado sobre el capital que había a esa fecha
+  // (los adicionales entregados antes del vencimiento devengan desde el primer ciclo).
+  let balance = base + extrasEntre("", loan.dueDate);
+  const firstInterest = periodInterest(loan, balance);
+  events.push({ date: loan.dueDate, amount: firstInterest });
+  balance += firstInterest;
+  let desde = loan.dueDate;
   for (let i = 1; ; i++) {
     const date = loanPeriodDate(loan, loan.dueDate, i);
     if (date > horizon) break;
+    balance += extrasEntre(desde, date);
+    desde = date;
     const interest = periodInterest(loan, balance);
     events.push({ date, amount: interest });
     balance += interest;
   }
   for (const date of advances) {
+    balance += extrasEntre(desde, date);
+    if (date > desde) desde = date;
     const interest = periodInterest(loan, balance);
     events.push({ date, amount: interest });
     balance += interest;
@@ -273,10 +399,12 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
 // crecimiento futuro del capital. Compone si entran varios ciclos. Ignora pagos futuros.
 export function upcomingInterest(loan: Loan, until: string): number {
   if (loan.status === "paid" || loan.status === "refinanced") return 0;
-  const base = Number(loan.amount);
+  const today = todayISO();
+  // Capital vigente: con adicionales ya entregados, el próximo interés se cobra sobre el
+  // total prestado, no sobre el monto original.
+  const base = loanPrincipalAt(loan, today);
   const contracted = expectedProfit(loan);
   if (!(base > 0) || !(contracted > 0)) return 0;
-  const today = todayISO();
   if (until <= today) return 0;
 
   const advCycles = advancedCycles(loan);
@@ -334,7 +462,9 @@ export function nextPeriodInterest(loan: Loan): number {
   // Adelantos manuales: aunque la fecha del vencimiento aún no llegó, la deuda ya se
   // capitalizó por los ciclos adelantados. El próximo interés se cobra sobre esa deuda.
   if (advancedCycles(loan) > 0) return periodInterest(loan, remainingDebt(loan));
-  const amount = Number(loan.amount);
+  // Capital vigente (con los adicionales ya entregados): la próxima ganancia se cobra
+  // sobre toda la plata prestada.
+  const amount = loanPrincipalAt(loan);
   const contractedInterest = expectedProfit(loan);
   const paid = paidAmount(loan);
   const capitalPaidDown = Math.max(0, paid - contractedInterest);
@@ -377,8 +507,9 @@ export function resolveStatus(loan: Loan): LoanStatus {
   if (!isOverdue(loan)) return "active";
   // Vencido: vuelve a "activo" sólo si los pagos dejaron la deuda en ≤ el capital
   // prestado (o sea, el interés acumulado quedó cubierto). Si un re-vencimiento posterior
-  // volvió a subir la deuda por encima del capital, sigue atrasado.
-  if (remaining <= Number(loan.amount)) return "active";
+  // volvió a subir la deuda por encima del capital, sigue atrasado. El capital es el
+  // vigente: después de sumarle un adicional, el umbral sube con él.
+  if (remaining <= loanPrincipalAt(loan)) return "active";
   return "overdue";
 }
 

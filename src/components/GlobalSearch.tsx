@@ -37,7 +37,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       .filter((l) =>
         l.clientName.toLowerCase().includes(q) ||
         (l.alias || "").toLowerCase().includes(q) ||
-        String(l.amount).includes(q)
+        String(l.amount).includes(q) || String(l._principal).includes(q)
       )
       .slice(0, 6);
 
@@ -132,7 +132,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                     </div>
                     <div className="text-right">
                       <div className="text-xs font-medium tabular-nums text-zinc-300">
-                        <Money value={loan.amount} hide={hide} currency={cur} />
+                        <Money value={loan._principal} hide={hide} currency={cur} />
                       </div>
                       <div className="text-[10px] text-zinc-600">{formatShortDate(loan.dueDate)}</div>
                     </div>

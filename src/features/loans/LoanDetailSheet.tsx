@@ -4,10 +4,10 @@
 import { useState, useMemo } from "react";
 import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
-  MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2,
+  MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle,
 } from "lucide-react";
 import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, loanElapsedPeriods, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
-import { nextPeriodInterest } from "../../lib/calcs.js";
+import { nextPeriodInterest, extraDebtImpact } from "../../lib/calcs.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
@@ -49,6 +49,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [advanceDate, setAdvanceDate] = useState(() => todayISO());
+
+  const [extraOpen, setExtraOpen] = useState(false);
+  const [extraAmount, setExtraAmount] = useState("");
+  const [extraDate, setExtraDate] = useState(() => todayISO());
+  const [extraNote, setExtraNote] = useState("");
 
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
@@ -148,6 +153,27 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
     setShowParkingForm(false);
   };
 
+  // ── Sumar capital (adicional, sin refinanciar) ──────────────────────────────
+  const extraValue = Number(extraAmount);
+  const extraValido = Number.isFinite(extraValue) && extraValue > 0 && !!extraDate;
+  // Lo que el adicional le suma a la deuda hoy: capital + el interés de su ciclo, cobrado
+  // por adelantado igual que al dar de alta el préstamo (ver `extraDebtImpact`).
+  const extraImpacto = extraValido ? extraDebtImpact(loan, extraValue) : 0;
+  const totalExtras = loan._principal - Number(loan.amount);
+
+  const onExtraConfirm = () => {
+    if (!extraValido) return;
+    dispatch({
+      type: "ADD_LOAN_EXTRA",
+      payload: {
+        loanId: loan.id,
+        extra: { id: uid("ext"), amount: extraValue, date: extraDate, note: extraNote.trim() || undefined, createdAt: Date.now() },
+      },
+    });
+    setExtraOpen(false);
+    setExtraAmount(""); setExtraNote(""); setExtraDate(todayISO());
+  };
+
   const addContact = () => {
     if (!contactNote.trim()) return;
     dispatch({
@@ -179,6 +205,13 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               </Button>
               <Button variant="secondary" Icon={RefreshCw} onClick={() => { setExtendDays("15"); setExtendOpen(true); }}>
                 Extender
+              </Button>
+              {/* Sumar capital sin refinanciar: el cliente pide más plata y el préstamo
+                  crece conservando tasa, ciclo y vencimiento. */}
+              <Button variant="secondary" Icon={PlusCircle}
+                onClick={() => { setExtraAmount(""); setExtraNote(""); setExtraDate(todayISO()); setExtraOpen(true); }}
+                disabled={loan._status === "refinanced"}>
+                Sumar capital
               </Button>
               <Button variant="secondary" Icon={Layers} onClick={() => setRefinanceOpen(true)}
                 disabled={loan._status === "paid" || loan._status === "refinanced"}>
@@ -268,7 +301,22 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
             {/* Stats grid */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
               {[
-                { label: "Capital inicial", value: <Money value={loan.amount} hide={hide} currency={cur} />, cls: "text-zinc-100" },
+                // Con adicionales el título cambia: "inicial" sería el número equivocado
+                // (la plata prestada es más) y el detalle va justo abajo.
+                {
+                  label: totalExtras > 0 ? "Capital prestado" : "Capital inicial",
+                  value: (
+                    <span className="flex flex-wrap items-baseline gap-x-1.5">
+                      <Money value={loan._principal} hide={hide} currency={cur} />
+                      {totalExtras > 0 && (
+                        <span className="text-[10px] font-normal text-teal-300/80">
+                          {formatMoney(Number(loan.amount), hide, cur)} + {formatMoney(totalExtras, hide, cur)}
+                        </span>
+                      )}
+                    </span>
+                  ),
+                  cls: "text-zinc-100",
+                },
                 { label: "Próx. ganancia", value: <Money value={loan._nextProfit * myShare(loan)} hide={hide} currency={cur} />, cls: "text-emerald-400" },
                 { label: "Interés", value: formatInterest(loan, cur), cls: "text-zinc-100" },
                 { label: "Vence", value: formatDate(nextDueDate), cls: loan._status === "overdue" ? "text-rose-400" : "text-zinc-100" },
@@ -291,7 +339,8 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
                   <div>
                     <div className="text-zinc-500 text-xs">Tu capital</div>
                     <div className="mt-0.5 font-semibold tabular-nums text-zinc-100">
-                      <Money value={Number(loan.amount) * myShare(loan)} hide={hide} currency={cur} />
+                      {/* Capital vigente: tu parte de los adicionales también es tu plata. */}
+                      <Money value={loan._principal * myShare(loan)} hide={hide} currency={cur} />
                     </div>
                   </div>
                   <div>
@@ -578,6 +627,124 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               <span className="font-medium text-zinc-100">
                 {formatDate(addDays(loan.dueDate, Number(extendDays)))}
               </span>
+            </div>
+          )}
+        </div>
+      </Sheet>
+
+      {/* ── Sumar capital (sin refinanciar) ─────────────────────────────────── */}
+      <Sheet open={extraOpen} onClose={() => setExtraOpen(false)}
+        title="Sumar capital al préstamo"
+        subtitle={`${loan.clientName} · sin refinanciar`}
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-zinc-500">
+              {extraValido ? (
+                <>
+                  La deuda sube{" "}
+                  <span className="font-medium tabular-nums text-teal-300">
+                    +<Money value={extraImpacto} hide={hide} currency={cur} />
+                  </span>
+                </>
+              ) : (
+                "Ingresá cuánto le estás prestando de más"
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setExtraOpen(false)}>Cancelar</Button>
+              <Button variant="bronze" Icon={PlusCircle} onClick={onExtraConfirm} disabled={!extraValido}>
+                Sumar capital
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-teal-900/30 bg-teal-950/15 p-4 text-xs text-teal-200/80">
+            Usalo cuando el cliente pide más plata sobre el mismo préstamo. La tasa, el ciclo
+            y la fecha de vencimiento no se tocan: sólo crece el capital. El interés del ciclo
+            en curso se cobra por adelantado, igual que al dar de alta el préstamo.
+          </div>
+          <Input label="Cuánto le prestás de más" type="number" inputMode="numeric" placeholder="50000"
+            value={extraAmount} onChange={(e) => setExtraAmount(e.target.value)} Icon={PlusCircle} />
+          {/* Tope en hoy: la entrega es un hecho ya ocurrido. Una fecha futura todavía no
+              es plata en la calle y sólo confunde al leer la deuda. */}
+          <Input label="Fecha de la entrega" type="date" Icon={Calendar} max={todayISO()}
+            value={extraDate} onChange={(e) => setExtraDate(e.target.value)} />
+          <Input label="Nota (opcional)" placeholder="para la moto, adelanto de sueldo..."
+            value={extraNote} onChange={(e) => setExtraNote(e.target.value)} Icon={MessageSquare} />
+
+          <div className="grid grid-cols-2 gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 p-4 text-sm">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Capital hoy</div>
+              <div className="mt-1 font-semibold tabular-nums text-zinc-100">
+                <Money value={loan._principal} hide={hide} currency={cur} />
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Pasa a</div>
+              <div className="mt-1 font-semibold tabular-nums text-teal-300">
+                <Money value={loan._principal + (extraValido ? extraValue : 0)} hide={hide} currency={cur} />
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Deuda actual</div>
+              <div className="mt-1 font-semibold tabular-nums text-zinc-100">
+                <Money value={loan._remaining} hide={hide} currency={cur} />
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Deuda nueva</div>
+              <div className="mt-1 font-semibold tabular-nums text-teal-300">
+                <Money value={loan._remaining + extraImpacto} hide={hide} currency={cur} />
+              </div>
+            </div>
+          </div>
+
+          {extraValido && (
+            <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-4 text-xs text-zinc-400">
+              Próxima ganancia del ciclo:{" "}
+              <span className="font-medium tabular-nums text-emerald-400">
+                <Money value={nextPeriodInterest(loan) * myShare(loan)} hide={hide} currency={cur} />
+              </span>
+              {" → "}
+              <span className="font-medium tabular-nums text-emerald-300">
+                <Money
+                  value={nextPeriodInterest({ ...loan, extras: [...(loan.extras || []), { id: "preview", amount: extraValue, date: extraDate }] }) * myShare(loan)}
+                  hide={hide} currency={cur}
+                />
+              </span>
+            </div>
+          )}
+
+          {(loan.extras || []).length > 0 && (
+            <div>
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">
+                Adicionales ya cargados
+              </div>
+              <Card className="divide-y divide-zinc-800/60">
+                {[...(loan.extras || [])].sort((a, b) => (a.date < b.date ? 1 : -1)).map((e) => (
+                  <div key={e.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium tabular-nums text-teal-200">
+                        +<Money value={e.amount} hide={hide} currency={cur} />
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        {formatShortDate(e.date)}
+                        {e.date > todayISO() && <span className="text-amber-400/80"> · todavía no entregado</span>}
+                        {e.note ? ` · ${e.note}` : ""}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => dispatch({ type: "DELETE_LOAN_EXTRA", payload: { loanId: loan.id, extraId: e.id } })}
+                      className="shrink-0 rounded-lg p-1 text-zinc-600 transition-colors hover:text-rose-400"
+                      title="Quitar este adicional"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </Card>
             </div>
           )}
         </div>

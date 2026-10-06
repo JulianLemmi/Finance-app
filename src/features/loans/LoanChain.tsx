@@ -67,7 +67,7 @@ export default function LoanChain({ chain, currentLoanId, onOpenLoan }: LoanChai
               </div>
               <div className="text-right">
                 <div className="text-xs font-semibold tabular-nums text-zinc-200">
-                  <Money value={l.amount} hide={hide} currency={cur} />
+                  <Money value={l._principal} hide={hide} currency={cur} />
                 </div>
               </div>
               {!isCurrent && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-zinc-700" />}

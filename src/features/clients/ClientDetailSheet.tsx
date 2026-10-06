@@ -137,7 +137,7 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-semibold text-zinc-100 tabular-nums">
-                        <Money value={l.amount} hide={state.settings.hideBalances} currency={state.settings.currency} />
+                        <Money value={l._principal} hide={state.settings.hideBalances} currency={state.settings.currency} />
                       </div>
                       <div className="text-xs text-zinc-500 tabular-nums">
                         {formatInterest(l, state.settings.currency)}

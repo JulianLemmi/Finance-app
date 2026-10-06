@@ -12,6 +12,7 @@ import {
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
   getLoanCycleDays, todayISO, todayDate, myShare, daysBetween, loanDeployedFrom,
+  loanPrincipalAt,
 } from "./utils.js";
 import type { Loan } from "../types";
 
@@ -532,6 +533,122 @@ describe("validación e integridad", () => {
 // lado muestran números distintos para la misma plata. Se barre una matriz en vez de un
 // caso suelto porque las divergencias aparecen sólo en ciertas combinaciones (un vencido
 // con un adelanto a futuro, por ejemplo, y no su equivalente activo).
+// Sumar capital a un préstamo en curso, sin refinanciar: el cliente pide más plata y el
+// préstamo crece conservando su tasa, su ciclo y su vencimiento. La regla es la misma que
+// al dar de alta un préstamo: el interés del ciclo se cobra por adelantado, así que
+// entregar $50.000 al 10% son $55.000 de deuda en el momento.
+describe("adicionales de capital (sin refinanciar)", () => {
+  const ACTIVO = { startDate: addDays(HOY, -10), dueDate: addCalendarMonths(HOY, 1) };
+  const extra = (amount: number, date: string, id = "e1") => ({ id, amount, date });
+
+  it("el capital vigente suma los adicionales ya entregados", () => {
+    const l = mk({ ...ACTIVO, extras: [extra(50000, HOY)] });
+    expect(loanPrincipalAt(l)).toBe(150000);
+    // `amount` no se reescribe: sigue siendo el capital original.
+    expect(Number(l.amount)).toBe(100000);
+  });
+
+  it("entra a la deuda con el interés de su ciclo, igual que el capital original", () => {
+    const l = mk({ ...ACTIVO, extras: [extra(50000, HOY)] });
+    expect(remainingDebt(l)).toBeCloseTo(165000, 2); // (100k + 50k) × 1,10
+    expect(expectedReturn(l)).toBeCloseTo(165000, 2);
+    expect(expectedProfit(l)).toBeCloseTo(15000, 2);
+  });
+
+  it("un adicional fechado a futuro todavía no está en la calle", () => {
+    const l = mk({ ...ACTIVO, extras: [extra(50000, addDays(HOY, 5))] });
+    expect(loanPrincipalAt(l)).toBe(100000);
+    expect(remainingDebt(l)).toBeCloseTo(110000, 2);
+    expect(loanCapitalAt(l, todayISO())).toBeCloseTo(100000, 2);
+  });
+
+  it("la deuda a una fecha anterior al adicional no lo ve", () => {
+    const l = mk({ ...ACTIVO, extras: [extra(50000, addDays(HOY, -3))] });
+    expect(remainingDebtAt(l, addDays(HOY, -5))).toBeCloseTo(110000, 2);
+    expect(remainingDebtAt(l, addDays(HOY, -3))).toBeCloseTo(165000, 2);
+    expect(remainingDebtAt(l, todayISO())).toBeCloseTo(remainingDebt(l), 2);
+  });
+
+  it("en un vencido no paga dos veces el ciclo en que se entregó", () => {
+    // Préstamo base: vence hace un mes, así que ya capitalizó un ciclo (100k → 121k).
+    // El adicional de hoy entra con SU ciclo por adelantado (55k) y nada más: el
+    // re-vencimiento de hoy ya quedó cubierto por ese adelanto.
+    const l = mk({ extras: [extra(50000, HOY)] });
+    expect(remainingDebt(mk())).toBeCloseTo(121000, 2);
+    expect(remainingDebt(l)).toBeCloseTo(176000, 2);
+  });
+
+  it("la deuda cierra con capital vigente + devengado", () => {
+    // La identidad que sostiene el ROI y el gráfico de ganancia: lo que el cliente debe
+    // es el capital que recibió más todo el interés reconocido. Si el adicional devengara
+    // de más o de menos, acá se rompe.
+    for (const l of [
+      mk({ extras: [extra(50000, HOY)] }),
+      mk({ extras: [extra(50000, addDays(HOY, -40))] }),
+      mk({ dueDate: addCalendarMonths(HOY, -3), extras: [extra(30000, addDays(HOY, -20))] }),
+    ]) {
+      expect(remainingDebt(l)).toBeCloseTo(loanPrincipalAt(l) + sumAccruals(l), 2);
+    }
+  });
+
+  it("un adicional previo al vencimiento devenga desde el primer ciclo", () => {
+    const l = mk({ extras: [extra(50000, addDays(HOY, -45))] }); // entre inicio y vencimiento
+    const eventos = interestAccruals(l);
+    expect(eventos[0].date).toBe(l.dueDate);
+    expect(eventos[0].amount).toBeCloseTo(15000, 2); // 10% de 150k, no de 100k
+    expect(remainingDebt(l)).toBeCloseTo(181500, 2); // 150k × 1,10²
+  });
+
+  it("en interés fijo suma capital pero no otro cargo", () => {
+    const l = mk({ ...ACTIVO, interestMode: "fixed", fixedInterest: 20000, extras: [extra(50000, HOY)] });
+    expect(expectedProfit(l)).toBeCloseTo(20000, 2);
+    expect(remainingDebt(l)).toBeCloseTo(170000, 2); // 150k + 20k, no 150k + 40k
+  });
+
+  it("sin vencimiento compone sólo los ciclos posteriores a la entrega", () => {
+    const sinExtra = mk({ noDueDate: true, startDate: addCalendarMonths(HOY, -2) });
+    expect(remainingDebt(sinExtra)).toBeCloseTo(133100, 2); // 100k × 1,10³
+    const l = mk({
+      noDueDate: true, startDate: addCalendarMonths(HOY, -2),
+      extras: [extra(50000, addCalendarMonths(HOY, -1))],
+    });
+    expect(remainingDebt(l)).toBeCloseTo(199650, 2); // 133.100 + 50k × 1,10³
+    expect(remainingDebtAt(l, todayISO())).toBeCloseTo(remainingDebt(l), 2);
+  });
+
+  it("la próxima ganancia se cobra sobre el capital vigente", () => {
+    const l = mk({ ...ACTIVO, extras: [extra(50000, HOY)] });
+    expect(nextPeriodInterest(l)).toBeCloseTo(15000, 2);
+    expect(upcomingInterest(l, addDays(l.dueDate, 1))).toBeCloseTo(15000, 2);
+  });
+
+  it("el capital desplegado de un activo se topea en el capital vigente", () => {
+    const l = mk({ ...ACTIVO, extras: [extra(50000, HOY)] });
+    expect(loanCapitalAt(l, todayISO())).toBeCloseTo(150000, 2);
+    // Ayer el adicional no existía: la curva del gráfico no puede verlo antes.
+    expect(loanCapitalAt(l, addDays(HOY, -1))).toBeCloseTo(100000, 2);
+  });
+
+  it("un vencido con la deuda por debajo del capital vigente vuelve a activo", () => {
+    // Deuda 116k: arriba del monto original (100k) pero abajo del capital vigente (150k).
+    // Con el umbral viejo —`loan.amount` a secas— quedaba marcado atrasado para siempre.
+    const l = mk({
+      extras: [extra(50000, HOY)],
+      payments: [{ id: "p", amount: 60000, date: HOY }],
+    });
+    expect(remainingDebt(l)).toBeCloseTo(116000, 2);
+    expect(loanPrincipalAt(l)).toBe(150000);
+    expect(resolveStatus(l)).toBe("active");
+  });
+
+  it("un adicional con monto o fecha inválida se marca como error de integridad", () => {
+    expect(loanIntegrityErrors(mk({ extras: [extra(0, HOY)] }))).toContain("Adicional con monto inválido");
+    expect(loanIntegrityErrors(mk({ extras: [extra(1000, "")] }))).toContain("Adicional sin fecha");
+    expect(loanIntegrityErrors(mk({ extras: [extra(1000, HOY)] }))).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 describe("la deuda de hoy coincide por los dos caminos", () => {
   const variantes: { nombre: string; loan: Loan }[] = [];
   for (const [venc, dueDate] of [
@@ -552,15 +669,25 @@ describe("la deuda de hoy coincide por los dos caminos", () => {
           ["sinPagos", []],
           ["pagoParcial", [{ id: "p", amount: 40000, date: addDays(HOY, -6) }]],
         ] as const) {
-          variantes.push({
-            nombre: `${venc}/${tipo}/${adel}/${pag}`,
-            loan: mk({
-              startDate: addCalendarMonths(HOY, -4), dueDate, paymentType: tipo,
-              customDays: tipo === "custom" ? 20 : undefined,
-              advancedAt: advancedAt ? [...advancedAt] : undefined,
-              payments: [...payments],
-            }),
-          });
+          // Los adicionales entran en el mismo barrido: es la red que atrapa que la deuda
+          // de la card y la de la curva del gráfico se separen al sumar capital.
+          for (const [ext, extras] of [
+            ["sinExtra", undefined],
+            ["extraHoy", [{ id: "e", amount: 30000, date: HOY }]],
+            ["extraViejo", [{ id: "e", amount: 30000, date: addDays(HOY, -40) }]],
+            ["extraFuturo", [{ id: "e", amount: 30000, date: addDays(HOY, 7) }]],
+          ] as const) {
+            variantes.push({
+              nombre: `${venc}/${tipo}/${adel}/${pag}/${ext}`,
+              loan: mk({
+                startDate: addCalendarMonths(HOY, -4), dueDate, paymentType: tipo,
+                customDays: tipo === "custom" ? 20 : undefined,
+                advancedAt: advancedAt ? [...advancedAt] : undefined,
+                payments: [...payments],
+                extras: extras ? extras.map((e) => ({ ...e })) : undefined,
+              }),
+            });
+          }
         }
       }
     }

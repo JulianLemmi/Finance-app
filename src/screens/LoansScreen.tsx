@@ -3,7 +3,7 @@
 // Mantener apretada una card (mouse o touch) la archiva/restaura sin borrar datos —
 // ver Historial en el header y useLongPress en lib/hooks.ts.
 import { useState, useMemo } from "react";
-import { Plus, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ChevronDown, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ChevronDown, Archive, ArchiveRestore } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
 import { formatShortDate, getNextRenewalDate, formatInterest, myShare } from "../lib/utils.js";
@@ -289,9 +289,13 @@ export default function LoansScreen() {
                   <div key={h.id} className="flex items-center justify-between px-4 py-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/70">
+                        {/* Un adicional es plata que SALE: con el ícono de pago parecía
+                            un cobro. */}
                         {h.kind === "loan_created"
                           ? <Plus className="h-4 w-4 text-zinc-400" />
-                          : <ArrowDown className="h-4 w-4 text-emerald-400" />}
+                          : h.kind === "loan_extra"
+                            ? <PlusCircle className="h-4 w-4 text-teal-400" />
+                            : <ArrowDown className="h-4 w-4 text-emerald-400" />}
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm text-zinc-200">{h.label}</div>

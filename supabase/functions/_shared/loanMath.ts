@@ -18,6 +18,13 @@ export type Payment = {
   timelinePos?: number;
 };
 
+/** Capital agregado a un préstamo en curso, sin refinanciar. Espeja LoanExtra del frontend. */
+export type LoanExtra = {
+  id?: string;
+  amount?: number;
+  date?: string;
+};
+
 export type Loan = {
   id: string;
   clientName?: string;
@@ -40,6 +47,9 @@ export type Loan = {
   paymentType?: string;
   customDays?: number;
   payments?: Payment[];
+  /** Capital agregado al préstamo sin refinanciar. `amount` queda siendo el original: el
+   *  capital vigente lo da `loanPrincipalAt`. Espeja loan.extras del frontend. */
+  extras?: LoanExtra[];
 };
 
 const PAID_THRESHOLD = 0.001;
@@ -118,13 +128,51 @@ function periodInterest(loan: Loan, balance: number): number {
   return balance * (Number(loan.interestRate ?? 0) / 100);
 }
 
-export function expectedProfit(loan: Loan): number {
-  if (loan.interestMode === "fixed") return Number(loan.fixedInterest ?? 0);
-  return (Number(loan.amount ?? 0) * Number(loan.interestRate ?? 0)) / 100;
+/** Mirror of src/lib/utils.ts loanPrincipalAt: capital vigente = monto original + los
+ *  adicionales ya entregados a esa fecha. Uno fechado a futuro todavía no está en la calle. */
+export function loanPrincipalAt(loan: Loan, asOf: string): number {
+  return (loan.extras || []).reduce(
+    (s, e) => ((e.date ?? "") <= asOf ? s + Number(e.amount ?? 0) : s),
+    Number(loan.amount ?? 0)
+  );
 }
 
-export function expectedReturn(loan: Loan): number {
-  return Number(loan.amount ?? 0) + expectedProfit(loan);
+export function expectedProfit(loan: Loan, asOf: string): number {
+  return periodInterest(loan, loanPrincipalAt(loan, asOf));
+}
+
+export function expectedReturn(loan: Loan, asOf: string): number {
+  return loanPrincipalAt(loan, asOf) + expectedProfit(loan, asOf);
+}
+
+/** Mirror of src/lib/calcs.ts extraDebtImpact: un adicional entra a la deuda con el interés
+ *  de su ciclo por adelantado, igual que el capital original. En modo fijo, sólo capital. */
+function extraDebtImpact(loan: Loan, amount: number): number {
+  if (loan.interestMode === "fixed") return amount;
+  return amount * (1 + Number(loan.interestRate ?? 0) / 100);
+}
+
+/** Mirror of src/lib/calcs.ts extraSlot: el vencimiento que cierra el ciclo en que se
+ *  entregó el adicional. Entra a la deuda DESPUÉS de esa capitalización, porque su propio
+ *  ciclo ya lo cobró por adelantado. */
+function extraSlot(loan: Loan, date: string, overduePeriods: number): number {
+  if (!loan.dueDate || date <= loan.dueDate) return 0;
+  for (let i = 1; i <= overduePeriods; i++) {
+    if (date <= loanPeriodDate(loan, loan.dueDate, i)) return i;
+  }
+  return overduePeriods + 1;
+}
+
+function extrasBySlot(loan: Loan, asOf: string, overduePeriods: number): Map<number, number> {
+  const bySlot = new Map<number, number>();
+  for (const e of loan.extras || []) {
+    const date = e.date ?? "";
+    const amount = Number(e.amount ?? 0);
+    if (!date || date > asOf || !(amount > 0)) continue;
+    const slot = extraSlot(loan, date, overduePeriods);
+    bySlot.set(slot, (bySlot.get(slot) ?? 0) + extraDebtImpact(loan, amount));
+  }
+  return bySlot;
 }
 
 export function paidAmount(loan: Loan): number {
@@ -156,12 +204,34 @@ function resolvePaymentPos(p: Payment, overduePeriods: number, loan: Loan): numb
  *  período por cada ciclo transcurrido desde el inicio, más el ciclo en curso. */
 function noDueDateBalance(loan: Loan, today: string): number {
   const base = Number(loan.amount ?? 0);
-  const periods = loanElapsedPeriods(loan, loan.startDate ?? "", today) + 1 + advancedCycles(loan, today);
-  if (loan.interestMode === "fixed") return base + Number(loan.fixedInterest ?? 0) * periods;
-  return base * Math.pow(1 + Number(loan.interestRate ?? 0) / 100, periods);
+  const elapsed = loanElapsedPeriods(loan, loan.startDate ?? "", today);
+  const advanced = advancedCycles(loan, today);
+  const extras = (loan.extras || []).filter(
+    (e) => e.date && e.date <= today && Number(e.amount ?? 0) > 0
+  );
+  if (loan.interestMode === "fixed") {
+    const extraCapital = extras.reduce((s, e) => s + Number(e.amount), 0);
+    return base + Number(loan.fixedInterest ?? 0) * (elapsed + 1 + advanced) + extraCapital;
+  }
+  // Ciclo por ciclo, igual que noDueDateDebt del frontend: cada adicional entra en el ciclo
+  // en que se entregó y de ahí compone con el resto.
+  const extrasEntre = (desde: string, hasta: string): number =>
+    extras.reduce((s, e) => (e.date! > desde && e.date! <= hasta ? s + Number(e.amount) : s), 0);
+  let balance = base;
+  let desde = "";
+  for (let i = 1; i <= elapsed; i++) {
+    const date = loanPeriodDate(loan, loan.startDate ?? "", i);
+    balance += extrasEntre(desde, date);
+    desde = date;
+    balance += periodInterest(loan, balance);
+  }
+  balance += extrasEntre(desde, today);
+  for (let i = 0; i <= advanced; i++) balance += periodInterest(loan, balance);
+  return balance;
 }
 
-/** Mirror of src/lib/calcs.js remainingDebt — includes compounding for overdue periods. */
+/** Mirror of src/lib/calcs.js remainingDebt — includes compounding for overdue periods and
+ *  los adicionales de capital en el ciclo en que se entregaron (ver debtWalk del frontend). */
 export function remainingDebt(loan: Loan, today: string): number {
   const payments = loan.payments || [];
 
@@ -172,25 +242,23 @@ export function remainingDebt(loan: Loan, today: string): number {
   }
 
   const meta = getOverdueMeta(loan, today);
-
-  if (!meta || meta.overduePeriods === 0) {
-    return Math.max(0, expectedReturn(loan) - paidAmount(loan));
-  }
-
-  const { overduePeriods } = meta;
+  const overduePeriods = meta?.overduePeriods ?? 0;
+  const extras = extrasBySlot(loan, today, overduePeriods);
   const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
+  const base = Number(loan.amount ?? 0);
 
-  let balance = expectedReturn(loan);
+  let balance = base + periodInterest(loan, base) + (extras.get(0) ?? 0);
   payments.filter((p) => getPos(p) === 0).forEach((p) => {
     balance = Math.max(0, balance - Number(p.amount ?? 0));
   });
   for (let i = 1; i <= overduePeriods; i++) {
     if (balance > 0) balance += periodInterest(loan, balance);
+    balance += extras.get(i) ?? 0;
     payments.filter((p) => getPos(p) === i).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount ?? 0));
     });
   }
-  return Math.max(0, balance);
+  return Math.max(0, balance + (extras.get(overduePeriods + 1) ?? 0));
 }
 
 /** Mirror of src/lib/calcs.js resolveStatus. Pasa a "overdue" desde el propio día del
@@ -203,7 +271,9 @@ export function resolveStatus(loan: Loan, today: string): string {
   const remaining = remainingDebt(loan, today);
   if (remaining <= PAID_THRESHOLD) return "paid";
   if (loan.noDueDate || !loan.dueDate || loan.dueDate > today) return "active";
-  if (remaining <= Number(loan.amount ?? 0)) return "active";
+  // Umbral = capital vigente (con los adicionales ya entregados), igual que resolveStatus
+  // del frontend: después de sumarle capital, la deuda que lo deja "al día" sube con él.
+  if (remaining <= loanPrincipalAt(loan, today)) return "active";
   return "overdue";
 }
 

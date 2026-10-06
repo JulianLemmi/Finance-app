@@ -114,7 +114,7 @@ src/
 ```
 
 ### Tests (`npm test`)
-Cuatro suites, ~293 tests, corren en ~3 s:
+Cuatro suites, ~913 tests, corren en ~3 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
@@ -133,6 +133,8 @@ Convierte a UTC y devuelve otro día según la zona y la hora. Usar `toISODate(d
 ### Cálculos de negocio
 `src/lib/calcs.ts`: `resolveStatus`, `paidAmount`, `remainingDebt`, `loanProgress`, `expectedProfit`, `expectedReturn`, `compoundReturn`, `daysUntilDue`, `loanIntegrityErrors`, `validateLoan`, `calcProjection`. Reglas duras en `BUSINESS_RULES` (constants.js).
 
+**El capital de un préstamo es `loanPrincipalAt(loan, asOf)`, no `loan.amount`** — ver "Sumar capital" más abajo.
+
 **Fechas de ciclo** (`src/lib/utils.ts`) — usar SIEMPRE estos helpers, nunca aritmética de días a mano:
 - `loanPeriodDate(loan, anchor, n)` — fecha del período n. En `paymentType: "30"` avanza por **meses calendario** (vence siempre el mismo día del mes, con clamp a fin de mes vía `addCalendarMonths`); en "15"/"custom" suma días fijos.
 - `loanElapsedPeriods(loan, anchor, asOf)` — períodos completos transcurridos (inverso de `loanPeriodDate`). Define cuántos ciclos de mora se cobraron, así que afecta plata, no sólo la fecha mostrada.
@@ -149,6 +151,19 @@ Modelo de devengado/proyección para los gráficos (mismo archivo):
 - `upcomingInterest(loan, until)` — interés a cobrar entre hoy y `until`; proyecta el crecimiento del capital (usado en la proyección "En 30d" de la card de capital).
 
 Todo agregado global se prorratea por `myShare(loan)` (préstamos compartidos). Los campos `_*` de `ResolvedLoan` quedan **brutos** para la UI del detalle; el share se aplica en `useDerived`, en `calcProjection` y en cualquier importe de ganancia que se muestre por préstamo.
+
+### Sumar capital a un préstamo en curso (`loan.extras`)
+Botón **"Sumar capital"** en el detalle: el cliente pide más plata y el préstamo crece sin refinanciar — conserva tasa, ciclo y vencimiento. Cada adicional es un `LoanExtra { id, amount, date, note? }`.
+
+- **`loan.amount` NUNCA se reescribe**: queda siendo el capital inicial. El capital vigente lo da `loanPrincipalAt(loan, asOf)` (= `amount` + adicionales entregados hasta esa fecha), y es lo que tiene que usar toda cuenta que necesite "cuánto capital tiene este préstamo". Bumpear `amount` reescribiría la historia: la deuda, el devengado y las curvas de meses pasados verían plata que todavía no se había entregado.
+- `ResolvedLoan._principal` es ese capital vigente, bruto (sin `myShare`), para la UI.
+- **La regla de cálculo es la misma que al dar de alta un préstamo**: el interés del ciclo se cobra por adelantado, así que entregar $50k al 10% suma **$55k** a la deuda en el momento (`extraDebtImpact`). En modo `fixed` el cargo por período no depende del capital, así que el adicional suma sólo capital.
+- **Un adicional no paga dos veces el ciclo en que se entregó.** `extraSlot` ubica cada adicional en el vencimiento que cierra su ciclo y entra a la deuda **después** de esa capitalización; de ahí en más compone con el resto. Sin eso, un adicional cargado sobre un préstamo vencido pagaba el mismo ciclo por adelantado y otra vez en el re-vencimiento.
+- **`debtWalk` es el único recorrido de la deuda**: lo comparten `remainingDebt`, `remainingDebtAt` y `compoundReturn`. La línea de tiempo del detalle reconstruye los mismos saldos vía `extraImpactsBySlot` en vez de repartir los adicionales por su cuenta. Cuando cada uno tenía su copia del bucle, agregar un caso los separaba y la misma plata salía con dos números distintos en pantalla.
+- **La deuda cierra con `capital vigente + devengado`** (después del vencimiento): `interestAccruals` mete cada adicional en el ciclo de su entrega, así que el interés de la plata nueva se reconoce al cerrar ese ciclo — el mismo desfasaje de un ciclo que ya tenía el capital original entre el alta y el vencimiento. Hay un test que afirma la identidad; si se rompe, el ROI y el gráfico de ganancia empiezan a derivar.
+- Un adicional fechado **a futuro** todavía no está en la calle y no cuenta (igual que `advancedAt`). La UI topea el date picker en hoy.
+- Sumar capital **reabre** un préstamo marcado `paid`: volvió a haber deuda.
+- Replicado en `_shared/loanMath.ts` (`loanPrincipalAt`, `extraSlot`, `remainingDebt`, `resolveStatus`) y en los resúmenes de `telegram-bot`. `notificaciones.test.ts` compara las dos implementaciones sobre nueve fixtures con adicionales.
 
 ### Sueldo fijo virtual (`settings.fixedIncomeAmount` / `fixedIncomeDay`)
 Ingreso fijo mensual **virtual**: helpers `salaryForMonth` / `totalSalary` en `store/index.ts`. Se suma al ingreso de cada mes (desde la primera actividad registrada, sólo si la fecha de cobro ya pasó) y por eso aparece en: `months[].income` (gráfico "Mes actual", balance/ahorro mensual), `totalIncome` (cards Ingresos/Balance de Finanzas) y `fixedIncomeThisMonth` (sumado a "Ganancia mensual" del inicio). **No** crea transacción (`state.income`), **no** afecta `cashOnHand`/capital, y **no** entra en las métricas de interés de préstamos (`nextProfitTotal` "Ganancia por cobrar", ROI).

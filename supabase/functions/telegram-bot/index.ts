@@ -20,6 +20,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { todayISOInTz } from "../_shared/loanMath.ts";
 
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -87,6 +88,17 @@ function money(n: number, currency: string) {
   return `${currency}${n.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
 }
 
+/** Capital vigente del préstamo: el monto original más los adicionales ya entregados (ver
+ *  loanPrincipalAt en _shared/loanMath.ts). Sin esto el resumen del bot mostraba menos
+ *  capital que la app para los préstamos a los que se les sumó plata. */
+function principal(l: Record<string, unknown>, today: string) {
+  const extras = (l.extras ?? []) as Array<{ amount?: unknown; date?: unknown }>;
+  return extras.reduce(
+    (s, e) => (String(e?.date ?? "") <= today ? s + Number(e?.amount ?? 0) : s),
+    Number(l.amount ?? 0),
+  );
+}
+
 async function cmdResumen(chatId: number | string, userId: string) {
   const [loans, settings] = await Promise.all([
     getKey(userId, "finance:loans"),
@@ -98,9 +110,10 @@ async function cmdResumen(chatId: number | string, userId: string) {
 
   const active = ls.filter((l) => l.status === "active" || l.status === "overdue");
   const overdue = ls.filter((l) => l.status === "overdue");
-  const capitalInvested = active.reduce((a, l) => a + Number(l.amount ?? 0), 0);
+  const hoy = todayISOInTz();
+  const capitalInvested = active.reduce((a, l) => a + principal(l, hoy), 0);
   const expectedProfit = active.reduce(
-    (a, l) => a + Number(l.amount ?? 0) * (Number(l.interestRate ?? 0) / 100),
+    (a, l) => a + principal(l, hoy) * (Number(l.interestRate ?? 0) / 100),
     0,
   );
   const cash = Number(s.cashOnHand ?? 0);
@@ -124,7 +137,7 @@ async function cmdVencimientos(chatId: number | string, userId: string) {
   const s = (settings ?? {}) as Record<string, unknown>;
   const ls = (Array.isArray(loans) ? loans : []) as Array<Record<string, unknown>>;
   const c = cur(s);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISOInTz();
   const in7 = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 
   const upcoming = ls
@@ -146,7 +159,7 @@ async function cmdVencimientos(chatId: number | string, userId: string) {
     );
     const remaining = Math.max(
       0,
-      Number(l.amount ?? 0) * (1 + Number(l.interestRate ?? 0) / 100) - paid,
+      principal(l, today) * (1 + Number(l.interestRate ?? 0) / 100) - paid,
     );
     const emoji = isOverdue ? "🔴" : String(l.dueDate) === today ? "🟡" : "🟢";
     return (
@@ -186,7 +199,7 @@ async function cmdGasto(
     amount,
     category: "otros",
     description,
-    date: new Date().toISOString().slice(0, 10),
+    date: todayISOInTz(),
     createdAt: new Date().toISOString(),
   };
   list.unshift(newItem);
@@ -225,7 +238,7 @@ async function cmdIngreso(
     amount,
     category: "otros",
     description,
-    date: new Date().toISOString().slice(0, 10),
+    date: todayISOInTz(),
     createdAt: new Date().toISOString(),
   };
   list.unshift(newItem);
