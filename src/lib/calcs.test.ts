@@ -437,9 +437,46 @@ describe("capital desplegado (loanCapitalAt)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("proyección (calcProjection)", () => {
   const resueltos = [
-    { ...mk({ dueDate: addCalendarMonths(HOY, -1) }), _remaining: 121000 },
-    { ...mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) }), _remaining: 110000 },
+    { ...mk({ dueDate: addCalendarMonths(HOY, -1) }), _remaining: 121000, _nextProfit: 12100 },
+    { ...mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) }), _remaining: 110000, _nextProfit: 10000 },
   ] as never[];
+
+  // El cuadro "1 ciclo" y la card "Ganancia por ciclo" están uno al lado del otro en
+  // Finanzas y tienen que decir lo mismo. Salían de cuentas distintas: la card sumaba lo
+  // que va a cobrar cada préstamo y el cuadro multiplicaba la deuda total por el promedio
+  // SIMPLE de las tasas. Con la plata grande prestada a tasa baja y préstamos chicos a tasa
+  // alta, ese promedio se dispara y la proyección promete lo que la cartera no da.
+  it("la ganancia del primer ciclo es la suma real de lo que cobra cada préstamo", () => {
+    const p = calcProjection({ activeLoans: resueltos });
+    const gananciaReal = 12100 + 10000;
+    expect(p.gainPerCycle).toBeCloseTo(gananciaReal, 2);
+    expect(p.cyclePoints[0].profit).toBeCloseTo(gananciaReal, 2);
+    expect(p.cyclePoints[0].n).toBe(1);
+  });
+
+  it("la tasa de la proyección es el rendimiento real, no el promedio de los contratos", () => {
+    // Plata grande al 5% y varios préstamos chicos al 30%: el promedio simple dice 21,7%
+    // pero la cartera rinde 6,2%. La proyección tiene que usar el segundo.
+    const cartera = [
+      { ...mk({ amount: 100000, interestRate: 5 }), _remaining: 105000, _nextProfit: 5000 },
+      { ...mk({ amount: 1000, interestRate: 30 }), _remaining: 1300, _nextProfit: 300 },
+      { ...mk({ amount: 1000, interestRate: 30 }), _remaining: 1300, _nextProfit: 300 },
+    ] as never[];
+    const p = calcProjection({ activeLoans: cartera });
+    expect(p.contractRate * 100).toBeCloseTo(21.67, 1);
+    expect(p.rate).toBeCloseTo(5600 / 107600, 6);
+    expect(p.rate).toBeLessThan(p.contractRate);
+    // Y la TEA sale de la tasa real, no de la de los contratos.
+    expect(p.tea).toBeCloseTo(Math.pow(1 + p.rate, p.cyclesPerYear) - 1, 6);
+  });
+
+  it("un préstamo a tasa 0 no inventa rendimiento", () => {
+    const cartera = [{ ...mk({ interestRate: 0 }), _remaining: 100000, _nextProfit: 0 }] as never[];
+    const p = calcProjection({ activeLoans: cartera });
+    expect(p.rate).toBe(0);
+    expect(p.gainPerCycle).toBe(0);
+    expect(p.doublingYears).toBeNull();
+  });
 
   it("no produce NaN en ninguna salida", () => {
     const p = calcProjection({ activeLoans: resueltos, workingCapital: 500000, avgRate: 10 });

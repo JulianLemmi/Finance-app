@@ -595,6 +595,8 @@ export interface ProfitSeriesPoint {
 }
 
 export interface CalcProjectionResult {
+  /** Rendimiento real de la cartera por ciclo (fracción 0-1): la ganancia del próximo ciclo
+   *  sobre la base. Es la tasa que usa TODA la proyección. */
   rate: number;
   days: number;
   base: number;
@@ -602,6 +604,9 @@ export interface CalcProjectionResult {
   tea: number;
   doublingYears: number | null;
   gainPerCycle: number;
+  /** Promedio simple de las tasas de los contratos. Sólo para mostrar junto a `rate` y que
+   *  se vea la diferencia entre la tasa a la que prestás y lo que rinde la plata. */
+  contractRate: number;
   cyclePoints: CyclePoint[];
   profitSeries: ProfitSeriesPoint[];
 }
@@ -633,17 +638,38 @@ export function calcProjection({
   const deployedBase = deployedLoans.reduce((a, l) => a + myShare(l) * (l._remaining ?? Number(l.amount)), 0);
   const base = Math.max(0, deployedBase || workingCapital);
 
-  // Tasa promedio simple de TODOS los préstamos desplegados (activos + atrasados),
-  // no ponderada por capital. Es la que se muestra en el label "X% × N ciclos".
-  const rate =
-    deployedLoans.length > 0
-      ? deployedLoans.reduce((a, l) => a + loanEffectiveRate(l), 0) / deployedLoans.length
-      : avgRate / 100;
+  // Ganancia del próximo ciclo: la suma de lo que va a cobrar CADA préstamo, con su propia
+  // tasa y sobre su propio saldo. Es exactamente `derived.nextProfitTotal`, el número que
+  // la pantalla muestra como "Ganancia por ciclo".
+  const realGain = deployedLoans.reduce((a, l) => {
+    // `_nextProfit` viene de useDerived; si llega un préstamo sin resolver se calcula acá
+    // en vez de tomarlo como 0, que dejaría toda la proyección en cero.
+    const n = Number(l._nextProfit);
+    return a + myShare(l) * (Number.isFinite(n) ? n : nextPeriodInterest(l));
+  }, 0);
+
+  // La tasa de la proyección SE DERIVA de esa ganancia, no al revés: es el rendimiento real
+  // de la cartera por ciclo. Antes era el promedio simple de las tasas de los contratos
+  // aplicado a la deuda total, que es otra cuenta: con la plata grande prestada a tasa baja
+  // y varios préstamos chicos a tasa alta, el promedio simple se dispara y la proyección
+  // prometía mucho más de lo que la cartera iba a dar. En una cartera de prueba, "Ganancia
+  // por ciclo" decía $1.786 y el cuadro "1 ciclo" $4.623 — 2,6 veces más, y la TEA saltaba
+  // de 100% a 457%. Derivándola, el cuadro de 1 ciclo ES la ganancia por ciclo.
+  const rate = base > 0 && deployedLoans.length > 0
+    ? realGain / base
+    : avgRate / 100;
   const days = safeCycleDays(cycleDays);
   const cyclesPerYear = 365 / days;
   const tea = Math.pow(1 + rate, cyclesPerYear) - 1;
   const doublingYears = rate > 0 ? (Math.log(2) / Math.log(1 + rate)) * (days / 365) : null;
   const gainPerCycle = base * rate;
+
+  // Tasa promedio simple de los contratos: NO alimenta ninguna proyección, es sólo para
+  // mostrar al lado y que se vea la diferencia entre "a qué tasa presto" y "cuánto rinde
+  // de verdad la plata". Si están muy separadas, hay capital grande en préstamos flojos.
+  const contractRate = deployedLoans.length > 0
+    ? deployedLoans.reduce((a, l) => a + loanEffectiveRate(l), 0) / deployedLoans.length
+    : avgRate / 100;
 
   const cyclePoints: CyclePoint[] = [
     1,
@@ -682,5 +708,5 @@ export function calcProjection({
     };
   });
 
-  return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, cyclePoints, profitSeries };
+  return { rate, days, base, cyclesPerYear, tea, doublingYears, gainPerCycle, contractRate, cyclePoints, profitSeries };
 }

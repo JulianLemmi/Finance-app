@@ -445,7 +445,14 @@ export default function FinanceScreen() {
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Tasa efectiva anual</div>
               <div className="mt-1 text-xl font-semibold tabular-nums text-amber-400">{(projCalc.tea * 100).toFixed(1)}%</div>
               <div className="mt-0.5 text-[10px] text-zinc-600">{(projCalc.rate * 100).toFixed(1)}% × {projCalc.cyclesPerYear.toFixed(1)} ciclos</div>
-              <div className="mt-1 text-[10px] text-zinc-600">Mediana <span className="text-zinc-400 tabular-nums">{derived.medianRate.toFixed(1)}%</span></div>
+              {/* La tasa de arriba es lo que rinde la plata; ésta es a la que prestás. Si
+                  están muy separadas hay capital grande en préstamos de tasa baja — es
+                  información, no un error, así que se muestran las dos. */}
+              <div className="mt-1 text-[10px] text-zinc-600">
+                Contratos <span className="text-zinc-400 tabular-nums">{(projCalc.contractRate * 100).toFixed(1)}%</span>
+                <span className="text-zinc-700"> · </span>
+                mediana <span className="text-zinc-400 tabular-nums">{derived.medianRate.toFixed(1)}%</span>
+              </div>
             </Card>
             <Card className="p-4">
               <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10"><Banknote className="h-3.5 w-3.5 text-emerald-400" /></div>

@@ -526,10 +526,15 @@ export function useDerived(state: AppState): Derived {
     // form guarda el último valor tocado), así que se convierte el cargo fijo a % sobre el
     // capital vigente. Si no, un fijo de $20k sobre $100k entraba como 8% y arrastraba
     // hacia abajo la tasa de la cartera y la proyección.
-    const rates = activeLoans.map((l) => loanEffectiveRate(l) * 100).filter(Number.isFinite);
+    //
+    // Sobre `deployed` (activos + atrasados), no sólo los activos: la proyección corre
+    // sobre los dos y si acá se mide sólo una parte, el header anuncia la tasa y el plazo
+    // de una minoría de la cartera. Con un activo al 5% y dos atrasados quincenales al 40%
+    // la app decía "5%, ciclo de 30 días" sobre una cartera que rinde 34% cada 15.
+    const rates = deployed.map((l) => loanEffectiveRate(l) * 100).filter(Number.isFinite);
     // Plazo del ciclo, no la distancia cruda entre fechas: un préstamo "30 días" que cae
     // en un mes de 31 debe contar 30 (mismo criterio que getNextRenewalDate y la mora).
-    const terms = activeLoans.map((l) => Math.max(1, getLoanCycleDays(l) || BUSINESS_RULES.DEFAULT_LOAN_DAYS));
+    const terms = deployed.map((l) => Math.max(1, getLoanCycleDays(l) || BUSINESS_RULES.DEFAULT_LOAN_DAYS));
 
     const avgRate = rates.length ? rates.reduce((a, r) => a + r, 0) / rates.length : 0;
     const medianRate = median(rates);

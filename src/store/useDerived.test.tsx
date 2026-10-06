@@ -644,3 +644,31 @@ describe("el devengado de los gráficos es lo que se cobró de verdad", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La tasa y el plazo que muestra el header tienen que describir a TODA la cartera
+// desplegada. Medidos sólo sobre los activos, una cartera mayormente atrasada quedaba
+// retratada por la minoría que todavía no venció.
+describe("tasa y plazo describen toda la cartera desplegada", () => {
+  const soloEstos = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  it("los atrasados cuentan en la tasa y en el plazo mediano", () => {
+    const cartera = [
+      mk({ id: "activo", interestRate: 5, startDate: addDays(HOY, -5), dueDate: addDays(HOY, 25) }),
+      mk({ id: "venc1", interestRate: 40, paymentType: "15",
+           startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1) }),
+      mk({ id: "venc2", interestRate: 40, paymentType: "15",
+           startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1) }),
+    ];
+    const d = derive(soloEstos(cartera));
+    expect(d.activeLoans).toHaveLength(1);
+    expect(d.overdueLoans).toHaveLength(2);
+    // Con sólo los activos daba 5% y ciclo de 30 días.
+    expect(d.avgRate).toBeCloseTo((5 + 40 + 40) / 3, 2);
+    expect(d.medianRate).toBeCloseTo(40, 2);
+    expect(d.medianDays).toBe(15);
+  });
+});

@@ -6,7 +6,7 @@ import { useState, useMemo } from "react";
 import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ChevronDown, Archive, ArchiveRestore } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
-import { formatShortDate, getNextRenewalDate, formatInterest, myShare } from "../lib/utils.js";
+import { formatShortDate, getNextRenewalDate, formatInterest, myShare, daysBetween, todayISO, formatMoney } from "../lib/utils.js";
 import { useLongPress } from "../lib/hooks.js";
 import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card, Badge } from "../components/ui.jsx";
 import { Users } from "lucide-react";
@@ -121,6 +121,95 @@ function LoanCard({ loan, onOpen, onToggleArchive, archived }: LoanCardProps) {
   );
 }
 
+/**
+ * Card de un préstamo archivado. El historial responde otra pregunta que el listado vivo:
+ * de uno cerrado no importa la barra de progreso ni cuándo vence, importa qué dejó. Acá va
+ * lo que generó, cuánto tardó y si pagó en término — información que la app ya calculaba
+ * pero no mostraba en ningún lado.
+ *
+ * Un archivado que TODAVÍA debe se marca aparte: archivar lo saca de la agenda, así que es
+ * plata en la calle de la que la app dejó de avisarte.
+ */
+function ArchivedLoanCard({ loan, onOpen, onToggleArchive }: Omit<LoanCardProps, "archived">) {
+  const { state } = useApp();
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
+  const cerrado = loan._status === "paid" || loan._status === "refinanced";
+  const generado = loan._paid - loan._principal;
+
+  const { pressing, progressMs, handlers } = useLongPress(
+    () => { navigator.vibrate?.(15); onToggleArchive(loan.id); },
+    () => onOpen(loan.id)
+  );
+
+  // Cuánto duró: del inicio al último pago (o a hoy si sigue abierto).
+  const ultimoPago = (loan.payments || []).reduce((max, p) => (p.date > max ? p.date : max), "");
+  const dias = Math.max(0, daysBetween(loan.startDate, ultimoPago || todayISO()));
+  const duracion = dias >= 60 ? `${Math.round(dias / 30)} meses` : `${dias} días`;
+
+  // Mismo criterio que `paidOnTimeCount`: el primer pago llegó antes del vencimiento.
+  const primerPago = [...(loan.payments || [])].sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+  const enTermino = !!primerPago && !!loan.dueDate && primerPago.date <= loan.dueDate;
+
+  return (
+    <button {...handlers}
+      className={`group relative w-full select-none overflow-hidden rounded-2xl border px-4 py-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-900 active:scale-[0.99] ${
+        cerrado ? "border-zinc-800/70 bg-zinc-900/40 hover:border-zinc-700/70"
+                : "border-amber-900/40 bg-amber-950/10 hover:border-amber-800/60"
+      }`}
+    >
+      {pressing && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 overflow-hidden bg-zinc-950/90 text-amber-200">
+          <span className="fa-longpress-fill absolute inset-0 bg-amber-900/40" style={{ animationDuration: `${progressMs}ms` }} />
+          <ArchiveRestore className="relative h-4 w-4" />
+          <span className="relative text-xs font-medium">Restaurando...</span>
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-medium text-zinc-200">{loan.clientName}</span>
+            <StatusBadge status={loan._status} />
+            {loan.sharedWith && (
+              <Badge tone="info"><Users className="h-3 w-3" />{Math.round(myShare(loan) * 100)}%</Badge>
+            )}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-600">
+            <span>Prestó <span className="tabular-nums text-zinc-400">{formatMoney(loan._principal, hide, cur)}</span></span>
+            <span className="text-zinc-700">·</span>
+            <span>{duracion}</span>
+            {cerrado && primerPago && (
+              <>
+                <span className="text-zinc-700">·</span>
+                <span className={enTermino ? "text-emerald-500/80" : "text-amber-500/80"}>
+                  {enTermino ? "pagó en término" : "pagó tarde"}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          {cerrado ? (
+            <>
+              <div className={`text-sm font-semibold tabular-nums ${generado > 0 ? "text-emerald-400" : "text-zinc-400"}`}>
+                {generado > 0 ? "+" : ""}<Money value={generado} hide={hide} currency={cur} />
+              </div>
+              <div className="mt-0.5 text-[11px] text-zinc-600">generó</div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold tabular-nums text-amber-300">
+                <Money value={loan._remaining} hide={hide} currency={cur} />
+              </div>
+              <div className="mt-0.5 text-[11px] text-amber-600/80">sigue debiendo</div>
+            </>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
 type FilterValue = LoanStatus | "all";
 
 export default function LoansScreen() {
@@ -136,6 +225,23 @@ export default function LoansScreen() {
   // card) — no toca useDerived, así que siguen contando igual en Finanzas/Inicio.
   const visibleLoans = useMemo(() => derived.loansResolved.filter((l) => !l.archived), [derived.loansResolved]);
   const archivedLoans = useMemo(() => derived.loansResolved.filter((l) => l.archived), [derived.loansResolved]);
+
+  // Lo que dejó el historial. Prorrateado por `myShare` como el resto de los agregados:
+  // de un préstamo compartido sólo es mío lo que me toca.
+  const resumenHistorial = useMemo(() => {
+    let generado = 0, prestado = 0, abiertos = 0, deudaAbierta = 0;
+    for (const l of archivedLoans) {
+      const share = myShare(l);
+      if (l._status === "paid" || l._status === "refinanced") {
+        generado += share * (l._paid - l._principal);
+        prestado += share * l._principal;
+      } else {
+        abiertos += 1;
+        deudaAbierta += share * l._remaining;
+      }
+    }
+    return { generado, prestado, abiertos, deudaAbierta, total: archivedLoans.length };
+  }, [archivedLoans]);
 
   const toggleArchive = (id: string) => {
     const loan = derived.loansResolved.find((l) => l.id === id);
@@ -257,16 +363,59 @@ export default function LoansScreen() {
         />
       ) : (
         <>
+          {/* Resumen del historial: lo que dejaron los préstamos archivados, que es la
+              pregunta que el historial tiene que contestar de un vistazo. */}
+          {viewArchived && resumenHistorial.total > 0 && (
+            <Card className="p-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Generaron</div>
+                  <div className="mt-1 text-base font-semibold tabular-nums text-emerald-400">
+                    <Money value={resumenHistorial.generado} hide={hide} currency={cur} />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Prestaste</div>
+                  <div className="mt-1 text-base font-semibold tabular-nums text-zinc-200">
+                    <Money value={resumenHistorial.prestado} hide={hide} currency={cur} />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Rendimiento</div>
+                  <div className="mt-1 text-base font-semibold tabular-nums text-amber-400">
+                    {resumenHistorial.prestado > 0
+                      ? `${((resumenHistorial.generado / resumenHistorial.prestado) * 100).toFixed(1)}%`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+              {resumenHistorial.abiertos > 0 && (
+                // Archivar saca el préstamo de la agenda: si todavía debe, no te va a
+                // avisar nadie. Vale la pena que no quede escondido.
+                <div className="mt-3 flex items-center gap-1.5 rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/90">
+                  <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                  {resumenHistorial.abiertos} archivado{resumenHistorial.abiertos > 1 ? "s" : ""} con deuda abierta
+                  {" "}(<Money value={resumenHistorial.deudaAbierta} hide={hide} currency={cur} />) · fuera de los avisos
+                </div>
+              )}
+            </Card>
+          )}
           <div className="flex items-center gap-1.5 px-1 text-[11px] text-zinc-600">
             {viewArchived ? <ArchiveRestore className="h-3 w-3 shrink-0" /> : <Archive className="h-3 w-3 shrink-0" />}
             Mantené apretado un préstamo para {viewArchived ? "restaurarlo" : "archivarlo en el historial"}
           </div>
           <div key={viewArchived ? "archived" : filter} className="fa-rise space-y-2.5">
-            {filtered.map((l) => (
-              <LoanCard key={l.id} loan={l} archived={viewArchived}
-                onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id } } })}
-                onToggleArchive={toggleArchive} />
-            ))}
+            {filtered.map((l) =>
+              viewArchived ? (
+                <ArchivedLoanCard key={l.id} loan={l}
+                  onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id } } })}
+                  onToggleArchive={toggleArchive} />
+              ) : (
+                <LoanCard key={l.id} loan={l}
+                  onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id } } })}
+                  onToggleArchive={toggleArchive} />
+              )
+            )}
           </div>
         </>
       )}
