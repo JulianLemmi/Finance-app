@@ -665,6 +665,22 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
             y la fecha de vencimiento no se tocan: sólo crece el capital. El interés del ciclo
             en curso se cobra por adelantado, igual que al dar de alta el préstamo.
           </div>
+          {/* En interés fijo el cargo del período es un monto, no un %: sumar capital
+              aumenta lo que te deben pero no lo que ganás. Avisarlo acá evita la sorpresa
+              de ver "Próxima ganancia" sin moverse después de confirmar. */}
+          {loan.interestMode === "fixed" ? (
+            <div className="rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4 text-xs text-amber-200/90">
+              <span className="font-semibold">Este préstamo cobra un monto fijo por período</span>{" "}
+              ({formatMoney(Number(loan.fixedInterest || 0), hide, cur)}), que no depende del
+              capital. Sumar capital aumenta lo que te deben, pero la ganancia por ciclo queda
+              igual. Si querés cobrar más, subí el interés fijo desde "Editar".
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-4 text-xs text-zinc-400">
+              El interés es un {formatInterest(loan, cur)} del capital, así que al sumar plata
+              la ganancia por ciclo sube en la misma proporción.
+            </div>
+          )}
           <Input label="Cuánto le prestás de más" type="number" inputMode="numeric" placeholder="50000"
             value={extraAmount} onChange={(e) => setExtraAmount(e.target.value)} Icon={PlusCircle} />
           {/* Tope en hoy: la entrega es un hecho ya ocurrido. Una fecha futura todavía no

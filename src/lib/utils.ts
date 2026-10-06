@@ -179,6 +179,29 @@ export function loanPrincipalAt(
 }
 
 /**
+ * Tasa del ciclo como fracción (0-1), comparable entre los dos modos de interés.
+ *
+ * En modo "percent" es `interestRate / 100`. En modo "fixed" la tasa equivalente es el
+ * cargo fijo sobre el capital vigente: ahí `interestRate` no significa nada —el formulario
+ * guarda el último valor que se tocó, normalmente el default del perfil—, así que contarlo
+ * como la tasa del préstamo ensuciaba la tasa promedio/mediana de la cartera y la
+ * proyección. Un préstamo de $100.000 con $20.000 fijos rinde 20%, no 8%.
+ */
+export function loanEffectiveRate(
+  loan: Pick<Loan, "interestMode" | "interestRate" | "fixedInterest" | "amount" | "extras">,
+  asOf: string = todayISO()
+): number {
+  if (loan.interestMode === "fixed") {
+    const principal = loanPrincipalAt(loan, asOf);
+    const fixed = Number(loan.fixedInterest || 0);
+    if (!(principal > 0) || !Number.isFinite(fixed)) return 0;
+    return fixed / principal;
+  }
+  const rate = Number(loan.interestRate);
+  return Number.isFinite(rate) ? rate / 100 : 0;
+}
+
+/**
  * Fecha desde la que la plata del préstamo está en la calle.
  *
  * Normalmente es `startDate`, pero `startDate` cumple dos papeles: además de "cuándo

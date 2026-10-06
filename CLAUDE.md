@@ -114,7 +114,7 @@ src/
 ```
 
 ### Tests (`npm test`)
-Cuatro suites, ~913 tests, corren en ~3 s:
+Cuatro suites, ~1400 tests, corren en ~4 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
@@ -143,6 +143,23 @@ Convierte a UTC y devuelve otro día según la zona y la hora. Usar `toISODate(d
 Un préstamo pasa a `overdue` **el mismo día de su vencimiento** (`isOverdue` compara con `<=`), no al día siguiente. Ojo al escribir etiquetas: chequear `_daysUntilDue === 0` ("Vence hoy") antes que el estado, o sale "Atrasado 0d".
 
 La **deuda cobra el interés del ciclo por adelantado** (al prestar $100k al 10% ya se deben $110k) mientras que el **devengado** (`interestAccruals`) lo reconoce al cerrar cada período. Ese desfasaje de un ciclo es intencional y consistente en todos los tipos de préstamo — no es un bug.
+
+**El devengado sale del MISMO recorrido que la deuda** (`debtWalkDetailed` / `noDueDateWalk` devuelven `{ balance, accruals }`). No es un cálculo paralelo: cada evento de `interestAccruals` es un cargo que efectivamente entró al saldo. De ahí la identidad que hay que preservar:
+
+```
+deuda = capital vigente + devengado − pagado        (una vez cerrado el primer ciclo)
+```
+
+Dos consecuencias que antes no se cumplían:
+- **El interés de un ciclo se cobra sobre el saldo real, con los pagos ya aplicados.** Si el cliente paga antes del re-vencimiento, se le cobra menos. Cuando el devengado componía sobre un saldo que ignoraba los pagos, el cliente que paga los intereses al día —el caso más común de la cartera— aparecía generando mucho más de lo real: 6 meses al 10% pagando $10k por mes daban $94.871 de devengado contra $77.715 cobrados de verdad, y el error crecía con la antigüedad del préstamo.
+- **Un ciclo adelantado (`advancedAt`) devenga en su fecha**, incluso si el préstamo todavía no venció. Antes el devengado se cortaba antes de mirar los adelantos y esa ganancia quedaba invisible hasta que llegaba el vencimiento, igual que pasaba con las refinanciaciones anticipadas.
+
+El barrido `it.each` "el devengado no supera lo cobrado de verdad" cubre las 480 variantes y es la red de esto: 73 tests fallan si el devengado vuelve a componer sin pagos.
+
+### Interés fijo: `interestRate` no significa nada
+Con `interestMode: "fixed"` el cargo del período es un monto (`fixedInterest`) que **no depende del capital**. El campo `interestRate` queda con el último valor que tocó el formulario (normalmente el `defaultRate` del perfil), así que **nunca** hay que leerlo como "la tasa de este préstamo". Para cualquier cosa que compare o promedie tasas entre préstamos está `loanEffectiveRate(loan, asOf)`, que en modo fijo devuelve `fixedInterest / capital vigente`. Sin eso, un préstamo de $100k con $20k fijos (20% real) entraba como 8% y arrastraba hacia abajo `avgRate`, `medianRate` y toda la proyección de Finanzas.
+
+Corolario: sumarle capital a un préstamo de interés fijo **no aumenta la ganancia** (sí la deuda), y por eso baja su tasa efectiva. El sheet de "Sumar capital" lo avisa antes de confirmar.
 
 Modelo de devengado/proyección para los gráficos (mismo archivo):
 - `remainingDebtAt(loan, asOf)` — deuda (principal + interés capitalizado por vencimientos/re-vencimientos) a una fecha dada. Con `asOf = hoy` coincide con `remainingDebt`.
@@ -210,3 +227,5 @@ Manteniendo apretada una card en Préstamos se archiva/restaura (ver `useLongPre
 - **El capital invertido sale de `loanCapitalAt`, una sola vez.** La card del header y la curva del grafico llaman a la misma funcion a proposito: cuando cada una tenia su copia de la formula se separaron y mostraban numeros distintos para la misma plata. No re-implementar la suma en el store.
 - **Un adelanto de ciclo (`advancedAt`) cuenta desde su fecha, no desde que se carga.** `advancedCycles` delega en `advancedCyclesUpTo(loan, hoy)` justamente por eso: cuando contaba el array entero, un adelanto fechado a futuro lo sumaba la card del header pero no la curva del grafico (que reconstruye la deuda con `advancedCyclesUpTo`), y la misma plata salia con dos numeros distintos. El barrido de `calcs.test.ts` ("la deuda de hoy coincide por los dos caminos") es la red que atrapa la recaida.
 - **`npx tsc --noEmit` debe pasar siempre**: correrlo antes de commitear cambios de tipos.
+- **El mapa de vencimientos muestra `_nextProfit`, igual que la card del préstamo.** Con `_profit` (el interés contratado sobre el capital) el mapa y la card se contradecían en los préstamos con pagos que ya habían cubierto interés y en los que tienen ciclos adelantados — donde además el cobro ya no cae en el `dueDate` original, así que el mapa anunciaba plata en un día en el que no se cobra nada.
+- **El bot de Telegram calcula con `_shared/loanMath.ts`, no con fórmulas propias.** `/resumen` y `/vencimientos` tenían su cuenta a mano (`capital × (1 + tasa) − pagos`), que ignoraba la mora compuesta, el interés fijo y los adicionales: el mismo préstamo salía con un número en la app y otro en Telegram.

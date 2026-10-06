@@ -5,7 +5,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { CheckCircle2, Clock, TrendingDown, CalendarDays, BarChart2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useApp } from "../store/index.js";
-import { formatShortDate, todayISO, addDays, getNextRenewalDate, myShare } from "../lib/utils.js";
+import { formatShortDate, todayISO, addDays, getNextRenewalDate, myShare, advancedCycles } from "../lib/utils.js";
 import { CHART_COLORS } from "../lib/constants.js";
 import { Card, SectionTitle, Money, ChartContainer, ChartTooltip, StatCard } from "./ui.jsx";
 import type { ResolvedLoan } from "../types";
@@ -178,9 +178,17 @@ export function VencimientosHeatmap() {
     // En préstamos compartidos, la ganancia que muestra el mapa es mi parte, no el total.
     // Los archivados no entran al mapa: es una agenda de cobro, no una metrica. Siguen
     // contando en capital y devengado (ver useDerived).
+    // La ganancia del mapa es `_nextProfit`: lo mismo que muestra la card del préstamo.
+    // Con `_profit` (el interés contratado sobre el capital) el mapa y la card se
+    // contradecían en los préstamos con pagos que ya cubrieron interés o con ciclos
+    // adelantados, donde además el cobro ya no cae en el dueDate original.
     for (const l of derived.activeLoans.filter((l) => !l.archived)) {
-      const i = idx.get(l.dueDate);
-      if (i !== undefined) entries[i].dueLoans.push({ loan: l, gain: (Number(l._profit) || 0) * myShare(l), isRenewal: false });
+      const fecha = advancedCycles(l) > 0 ? getNextRenewalDate(l) : l.dueDate;
+      const i = idx.get(fecha);
+      const gain = l._nextProfit * myShare(l);
+      if (i !== undefined) {
+        entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(gain) ? gain : 0, isRenewal: advancedCycles(l) > 0 });
+      }
     }
     for (const l of derived.overdueLoans.filter((l) => !l.archived)) {
       // Día 0 de atraso: el préstamo pasa a "vencido" el mismo día de su vencimiento
@@ -188,7 +196,8 @@ export function VencimientosHeatmap() {
       // futuro — sin este chequeo desaparecería de la celda de "hoy" en el mapa.
       const dueTodayIdx = idx.get(l.dueDate);
       if (dueTodayIdx !== undefined) {
-        entries[dueTodayIdx].dueLoans.push({ loan: l, gain: (Number(l._profit) || 0) * myShare(l), isRenewal: false });
+        const gain = l._nextProfit * myShare(l);
+        entries[dueTodayIdx].dueLoans.push({ loan: l, gain: Number.isFinite(gain) ? gain : 0, isRenewal: false });
       }
       const next = getNextRenewalDate(l);
       const i = idx.get(next);

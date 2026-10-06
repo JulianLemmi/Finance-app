@@ -12,7 +12,7 @@ import {
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
   getLoanCycleDays, todayISO, todayDate, myShare, daysBetween, loanDeployedFrom,
-  loanPrincipalAt,
+  loanPrincipalAt, loanEffectiveRate,
 } from "./utils.js";
 import type { Loan } from "../types";
 
@@ -234,6 +234,40 @@ describe("interés devengado", () => {
     expect(sumAccruals(l)).toBeCloseTo(paidAmount(l) - Number(l.amount), 2);
     expect(eventos).toHaveLength(1);
     expect(eventos[0].date).toBe(addDays(HOY, -20)); // en la fecha de cobro, no la del vencimiento
+  });
+
+  // El cliente que paga los intereses al día es el caso más común de la cartera, y era el
+  // que más se distorsionaba: el devengado componía sobre un saldo sin pagos, así que
+  // cobraba interés sobre plata que el cliente ya había devuelto.
+  it("un cliente que paga los intereses al día devenga lo que pagó, no más", () => {
+    const l = mk({
+      startDate: addCalendarMonths(HOY, -7), dueDate: addCalendarMonths(HOY, -6),
+      payments: [1, 2, 3, 4, 5].map((i) => ({ id: `p${i}`, amount: 10000, date: addCalendarMonths(HOY, -6 + i) })),
+    });
+    const cobradoDeVerdad = remainingDebt(l) + paidAmount(l) - Number(l.amount);
+    expect(cobradoDeVerdad).toBeCloseTo(77715.61, 1);
+    expect(sumAccruals(l)).toBeCloseTo(cobradoDeVerdad, 2);
+  });
+
+  it("un pago antes del re-vencimiento baja el interés de ese ciclo", () => {
+    // Deuda 110.000, el cliente paga 40.000 y después cae el re-vencimiento: el 10% se
+    // cobra sobre 70.000 (7.000), no sobre 110.000.
+    const l = mk({ payments: [{ id: "p", amount: 40000, date: addDays(HOY, -40) }] });
+    expect(sumAccruals(l)).toBeCloseTo(17000, 2); // 10.000 contratado + 7.000 de mora
+    expect(remainingDebt(l)).toBeCloseTo(77000, 2);
+  });
+
+  // Adelantar un ciclo le capitaliza interés a la deuda en el momento. Si el préstamo
+  // todavía no venció, ese interés no aparecía en ningún lado: el devengado se cortaba
+  // antes de mirar los adelantos y la ganancia quedaba invisible hasta el vencimiento.
+  it("un ciclo adelantado devenga en su fecha, aunque el préstamo no haya vencido", () => {
+    const l = mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20), advancedAt: [addDays(HOY, -2)] });
+    const eventos = interestAccruals(l);
+    expect(eventos).toHaveLength(1);
+    expect(eventos[0].date).toBe(addDays(HOY, -2));
+    expect(eventos[0].amount).toBeCloseTo(11000, 2);
+    // El ciclo contratado sigue sin devengarse: su vencimiento no llegó.
+    expect(remainingDebt(l) - Number(l.amount) - sumAccruals(l)).toBeCloseTo(10000, 2);
   });
 
   it("un préstamo cerrado no devenga después de su cierre", () => {
@@ -696,6 +730,18 @@ describe("la deuda de hoy coincide por los dos caminos", () => {
   it.each(variantes)("$nombre", ({ loan }) => {
     expect(remainingDebtAt(loan, todayISO())).toBeCloseTo(remainingDebt(loan), 2);
   });
+
+  // El devengado no puede inventar ganancia: el interés realmente cobrado a un cliente es
+  // `deuda + pagado − capital`, y lo devengado nunca puede pasarse de ahí. Lo que falte es
+  // el ciclo en curso, que se cobra por adelantado y se reconoce al cerrarse.
+  //
+  // Esta es la red que faltaba: el devengado componía sobre un saldo que ignoraba los
+  // pagos, así que un cliente que paga los intereses al día aparecía generando bastante
+  // más de lo que pagó.
+  it.each(variantes)("el devengado no supera lo cobrado de verdad — $nombre", ({ loan }) => {
+    const cobradoDeVerdad = remainingDebt(loan) + paidAmount(loan) - loanPrincipalAt(loan);
+    expect(sumAccruals(loan)).toBeLessThanOrEqual(cobradoDeVerdad + 0.01);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -752,5 +798,33 @@ describe("capital desplegado por prestamo", () => {
     expect(loanCapitalAt(pagado, todayISO())).toBe(0);
     expect(loanCapitalAt(mk({ status: "refinanced", dueDate: addCalendarMonths(HOY, -1) }), todayISO())).toBe(0);
     expect(loanCapitalAt(mk({ status: "paid", dueDate: addCalendarMonths(HOY, -1) }), todayISO())).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La tasa del préstamo no es `interestRate` cuando el interés es un monto fijo: ese campo
+// queda con el último valor que tocó el formulario y no significa nada. La tasa comparable
+// es el cargo fijo sobre el capital vigente.
+describe("tasa efectiva (loanEffectiveRate)", () => {
+  it("en modo porcentaje es la tasa del préstamo", () => {
+    expect(loanEffectiveRate(mk({ interestRate: 10 }))).toBeCloseTo(0.1, 6);
+    expect(loanEffectiveRate(mk({ interestRate: 0 }))).toBe(0);
+  });
+
+  it("en modo fijo es el cargo sobre el capital, no el `interestRate` que quedó colgado", () => {
+    const fijo = mk({ interestMode: "fixed", fixedInterest: 20000, interestRate: 8 });
+    expect(loanEffectiveRate(fijo)).toBeCloseTo(0.2, 6); // 20% real, no 8%
+  });
+
+  it("en modo fijo el capital adicional baja la tasa efectiva (mismo cargo, más capital)", () => {
+    const fijo = mk({ interestMode: "fixed", fixedInterest: 20000, interestRate: 8,
+                      extras: [{ id: "e", amount: 100000, date: HOY }] });
+    expect(loanPrincipalAt(fijo)).toBe(200000);
+    expect(loanEffectiveRate(fijo)).toBeCloseTo(0.1, 6); // 20k sobre 200k
+  });
+
+  it("un capital en cero no produce Infinity", () => {
+    const roto = mk({ interestMode: "fixed", fixedInterest: 20000, amount: 0 });
+    expect(loanEffectiveRate(roto)).toBe(0);
   });
 });

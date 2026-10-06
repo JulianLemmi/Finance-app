@@ -20,7 +20,10 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { todayISOInTz } from "../_shared/loanMath.ts";
+import {
+  todayISOInTz, resolveStatus, remainingDebt, loanPrincipalAt,
+  expectedProfit as edgeExpectedProfit, type Loan,
+} from "../_shared/loanMath.ts";
 
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -88,16 +91,11 @@ function money(n: number, currency: string) {
   return `${currency}${n.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
 }
 
-/** Capital vigente del préstamo: el monto original más los adicionales ya entregados (ver
- *  loanPrincipalAt en _shared/loanMath.ts). Sin esto el resumen del bot mostraba menos
- *  capital que la app para los préstamos a los que se les sumó plata. */
-function principal(l: Record<string, unknown>, today: string) {
-  const extras = (l.extras ?? []) as Array<{ amount?: unknown; date?: unknown }>;
-  return extras.reduce(
-    (s, e) => (String(e?.date ?? "") <= today ? s + Number(e?.amount ?? 0) : s),
-    Number(l.amount ?? 0),
-  );
-}
+/** Los préstamos salen de `user_data` como JSON sin tipar. Se castean al tipo del módulo
+ *  compartido para calcular con las MISMAS fórmulas que la app, en vez de rehacerlas acá:
+ *  el bot ignoraba el modo de interés fijo y la mora compuesta, así que un mismo préstamo
+ *  salía con un número en la app y otro en Telegram. */
+const asLoan = (l: Record<string, unknown>) => l as unknown as Loan;
 
 async function cmdResumen(chatId: number | string, userId: string) {
   const [loans, settings] = await Promise.all([
@@ -108,15 +106,20 @@ async function cmdResumen(chatId: number | string, userId: string) {
   const ls = (Array.isArray(loans) ? loans : []) as Array<Record<string, unknown>>;
   const c = cur(s);
 
-  const active = ls.filter((l) => l.status === "active" || l.status === "overdue");
-  const overdue = ls.filter((l) => l.status === "overdue");
   const hoy = todayISOInTz();
-  const capitalInvested = active.reduce((a, l) => a + principal(l, hoy), 0);
-  const expectedProfit = active.reduce(
-    (a, l) => a + principal(l, hoy) * (Number(l.interestRate ?? 0) / 100),
-    0,
-  );
+  // El estado se recalcula, no se confía en el guardado: puede haber quedado viejo.
+  const abiertos = ls.filter((l) => {
+    const st = resolveStatus(asLoan(l), hoy);
+    return st === "active" || st === "overdue";
+  });
+  const overdue = ls.filter((l) => resolveStatus(asLoan(l), hoy) === "overdue");
+  const capitalInvested = abiertos.reduce((a, l) => a + loanPrincipalAt(asLoan(l), hoy), 0);
+  // Ganancia esperada del ciclo: en modo fijo es el monto fijo, no un % del capital. El
+  // bot lo calculaba siempre como capital × interestRate, que en un préstamo de interés
+  // fijo es un número que no existe.
+  const expectedProfit = abiertos.reduce((a, l) => a + edgeExpectedProfit(asLoan(l), hoy), 0);
   const cash = Number(s.cashOnHand ?? 0);
+  const active = abiertos;
 
   await sendMessage(
     chatId,
@@ -141,7 +144,13 @@ async function cmdVencimientos(chatId: number | string, userId: string) {
   const in7 = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 
   const upcoming = ls
-    .filter((l) => (l.status === "active" || l.status === "overdue") && l.dueDate)
+    .filter((l) => {
+      // Mismo criterio que el digest: archivar saca el préstamo de la agenda, y el estado
+      // se recalcula en vez de confiar en el guardado.
+      if (l.archived) return false;
+      const st = resolveStatus(asLoan(l), today);
+      return (st === "active" || st === "overdue") && !!l.dueDate;
+    })
     .filter((l) => String(l.dueDate) <= in7)
     .sort((a, b) => (String(a.dueDate) < String(b.dueDate) ? -1 : 1))
     .slice(0, 10);
@@ -153,14 +162,10 @@ async function cmdVencimientos(chatId: number | string, userId: string) {
 
   const lines = upcoming.map((l) => {
     const isOverdue = String(l.dueDate) < today;
-    const paid = ((l.payments ?? []) as Array<{ amount: unknown }>).reduce(
-      (s, p) => s + Number(p.amount ?? 0),
-      0,
-    );
-    const remaining = Math.max(
-      0,
-      principal(l, today) * (1 + Number(l.interestRate ?? 0) / 100) - paid,
-    );
+    // La deuda sale de la fórmula compartida: incluye la mora compuesta, el interés fijo y
+    // los adicionales de capital. La cuenta a mano que había acá (capital × (1 + tasa) −
+    // pagos) le mostraba al usuario menos de lo que el cliente debía.
+    const remaining = remainingDebt(asLoan(l), today);
     const emoji = isOverdue ? "🔴" : String(l.dueDate) === today ? "🟡" : "🟢";
     return (
       `${emoji} <b>${l.clientName}</b> — ${money(remaining, c)}\n` +

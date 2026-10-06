@@ -583,3 +583,64 @@ describe("reducer de adicionales", () => {
     expect(derive(s).capitalInvested).toBeCloseTo(derive(base).capitalInvested, 2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La tasa de la cartera alimenta el label "X% × N ciclos" y toda la proyección. Un préstamo
+// de interés fijo no tiene tasa: hay que convertir su cargo a % sobre el capital.
+describe("tasa de la cartera con interés fijo", () => {
+  const soloEstos = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+  const pct = mk({ id: "pct", interestRate: 10, startDate: addDays(HOY, -5), dueDate: addDays(HOY, 25) });
+  // $20.000 fijos sobre $100.000 son 20% reales, pero `interestRate` quedó en 8 (el
+  // formulario guarda el último valor tocado aunque el campo esté oculto).
+  const fijo = mk({ id: "fijo", interestMode: "fixed", fixedInterest: 20000, interestRate: 8,
+                    startDate: addDays(HOY, -5), dueDate: addDays(HOY, 25) });
+
+  it("el fijo entra con su tasa real, no con el interestRate colgado", () => {
+    const d = derive(soloEstos([pct, fijo]));
+    expect(d.avgRate).toBeCloseTo(15, 2);   // (10 + 20) / 2, no (10 + 8) / 2
+    expect(d.medianRate).toBeCloseTo(15, 2);
+  });
+
+  it("la próxima ganancia del fijo no depende del capital", () => {
+    const d = derive(soloEstos([fijo]));
+    expect(d.nextProfitTotal).toBeCloseTo(20000, 2);
+    const conExtra = derive(soloEstos([{ ...fijo, extras: [{ id: "e", amount: 100000, date: HOY }] }]));
+    // El capital sube pero el cargo del período es el mismo monto fijo.
+    expect(conExtra.capitalInvested).toBeCloseTo(200000, 2);
+    expect(conExtra.nextProfitTotal).toBeCloseTo(20000, 2);
+    // Y por eso la tasa efectiva de la cartera baja: mismo cargo sobre el doble de capital.
+    expect(conExtra.avgRate).toBeCloseTo(10, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El devengado alimenta "Ganancia mensual", el ROI de cada mes y la ganancia acumulada de
+// las cadenas refinanciadas. Tiene que ser lo que de verdad se le cargó al cliente.
+describe("el devengado de los gráficos es lo que se cobró de verdad", () => {
+  const soloUno = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  it("un cliente que paga los intereses al día no infla la ganancia del gráfico", () => {
+    const l = mk({ id: "alDia", startDate: addCalendarMonths(HOY, -5), dueDate: addCalendarMonths(HOY, -4),
+                   payments: [1, 2, 3].map((i) => ({ id: `p${i}`, amount: 10000, date: addCalendarMonths(HOY, -4 + i) })) });
+    const d = derive(soloUno([l]));
+    const r = d.loansResolved[0];
+    const cobradoDeVerdad = r._remaining + r._paid - r._principal;
+    const devengadoEnLosGraficos = d.months.reduce((s, m) => s + m.accrued, 0);
+    expect(devengadoEnLosGraficos).toBeCloseTo(cobradoDeVerdad, 2);
+  });
+
+  it("el ROI de cada mes se mantiene en un rango creíble", () => {
+    // Con el devengado inflado el ROI de un préstamo al 10% se iba bastante arriba del 10%.
+    const l = mk({ id: "alDia", startDate: addCalendarMonths(HOY, -5), dueDate: addCalendarMonths(HOY, -4),
+                   payments: [1, 2, 3].map((i) => ({ id: `p${i}`, amount: 10000, date: addCalendarMonths(HOY, -4 + i) })) });
+    for (const m of derive(soloUno([l])).months) {
+      expect(m.roi).toBeLessThanOrEqual(12);
+    }
+  });
+});

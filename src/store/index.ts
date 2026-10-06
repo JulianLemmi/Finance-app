@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt } from "../lib/utils.js";
+import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -522,7 +522,11 @@ export function useDerived(state: AppState): Derived {
       return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     };
 
-    const rates = activeLoans.map((l) => Number(l.interestRate)).filter(Number.isFinite);
+    // Tasa efectiva: un préstamo de interés fijo no tiene `interestRate` con sentido (el
+    // form guarda el último valor tocado), así que se convierte el cargo fijo a % sobre el
+    // capital vigente. Si no, un fijo de $20k sobre $100k entraba como 8% y arrastraba
+    // hacia abajo la tasa de la cartera y la proyección.
+    const rates = activeLoans.map((l) => loanEffectiveRate(l) * 100).filter(Number.isFinite);
     // Plazo del ciclo, no la distancia cruda entre fechas: un préstamo "30 días" que cae
     // en un mes de 31 debe contar 30 (mismo criterio que getNextRenewalDate y la mora).
     const terms = activeLoans.map((l) => Math.max(1, getLoanCycleDays(l) || BUSINESS_RULES.DEFAULT_LOAN_DAYS));
