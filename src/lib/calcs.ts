@@ -378,6 +378,40 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   return events;
 }
 
+/**
+ * Qué dejó un préstamo ya cerrado (cobrado o refinanciado) y cuándo cerró, prorrateado por
+ * mi parte. Lo usan la card del historial de archivados y su resumen.
+ *
+ * Un eslabón **refinanciado** casi nunca cobró nada: la deuda rodó al préstamo siguiente,
+ * así que `_paid - _principal` da una pérdida del tamaño del capital. Su ganancia es el
+ * interés que devengó antes de capitalizarse — la misma definición que usa
+ * `accumulatedProfit`, y la razón por la que la ganancia de una cadena no desaparece.
+ *
+ * `prestado` queda en bruto respecto de la cadena: quien agregue estos valores tiene que
+ * excluir los eslabones con `refinancedFromId`, cuyo capital es la deuda del anterior
+ * (mismo criterio que `totalDisbursed`).
+ */
+export function closedLoanOutcome(loan: ResolvedLoan): {
+  generado: number;
+  prestado: number;
+  cierre: string;
+} {
+  const share = myShare(loan);
+  const accruals = interestAccruals(loan);
+  const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
+  // Sin pagos, el cierre es el del último devengado: `interestAccruals` fecha ahí el
+  // interés contratado de un préstamo cerrado.
+  const lastAccrual = accruals.reduce((max, ev) => (ev.date > max ? ev.date : max), "");
+  const generado = loan._status === "refinanced"
+    ? accruals.reduce((s, ev) => s + ev.amount, 0)
+    : loan._paid - loan._principal;
+  return {
+    generado: share * generado,
+    prestado: share * loan._principal,
+    cierre: lastPayment || lastAccrual || "",
+  };
+}
+
 // Interés que se va a cobrar (capitalizar a la deuda) entre hoy y `until`, por los
 // vencimientos / re-vencimientos que caen en esa ventana. Proyecta hacia adelante: es el
 // crecimiento futuro del capital. Compone si entran varios ciclos. Ignora pagos futuros.

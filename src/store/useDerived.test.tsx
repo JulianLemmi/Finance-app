@@ -672,3 +672,162 @@ describe("tasa y plazo describen toda la cartera desplegada", () => {
     expect(d.medianDays).toBe(15);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ritmo del mes. Hoy es el 25/08/2026: el mes en curso tiene 31 días y el corte del mes
+// anterior cae el 25/07. Un devengado del 28/07 entra en el cierre de julio pero NO en
+// "a esta altura", y eso es justamente lo que hace honesta la comparación.
+describe("monthPace: el mes en curso contra el anterior", () => {
+  const solo = (loans: Loan[], settings: Partial<AppState["settings"]> = {}): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0, ...settings },
+  });
+
+  it("ubica el día dentro del mes", () => {
+    const p = derive().monthPace;
+    expect(p.dayOfMonth).toBe(25);
+    expect(p.daysInMonth).toBe(31);
+  });
+
+  // La identidad que sostiene todo: para el mes EN CURSO el acumulado "hasta hoy" y el del
+  // mes entero son lo mismo, porque `interestAccruals` no fecha eventos a futuro. Si algún
+  // día devengara hacia adelante, la card del ritmo mostraría plata que todavía no se ganó.
+  it("lo del mes en curso coincide con la ganancia del último mes del gráfico", () => {
+    const d = derive();
+    expect(d.monthPace.current).toBeCloseTo(d.months[d.months.length - 1].monthGain, 2);
+  });
+
+  it("compara contra el mismo tramo del mes anterior, no contra el mes cerrado", () => {
+    // Devengó el 28/07: después del día 25, así que cuenta en el cierre de julio y no en
+    // "a esta altura". Sin el corte, el mes en curso competiría contra un mes completo y
+    // la respuesta sería siempre "vas peor".
+    const tarde = mk({ id: "T", startDate: "2026-06-28", dueDate: "2026-07-28", payments: [] });
+    const p = derive(solo([tarde])).monthPace;
+    expect(p.previousFull).toBeCloseTo(10000, 2);
+    expect(p.previousToDate).toBeCloseTo(0, 2);
+    expect(p.previousToDate).toBeLessThan(p.previousFull);
+  });
+
+  it("un devengado anterior al día de corte sí entra en la comparación", () => {
+    // Vence el 10/07 y re-vence el 10/08: ambos antes del día 25 de su mes.
+    const temprano = mk({ id: "E", startDate: "2026-06-10", dueDate: "2026-07-10", payments: [] });
+    const p = derive(solo([temprano])).monthPace;
+    expect(p.previousToDate).toBeCloseTo(10000, 2);
+    expect(p.previousToDate).toBeCloseTo(p.previousFull, 2);
+    expect(p.current).toBeGreaterThan(0);
+  });
+
+  it("sin base de comparación no inventa un porcentaje", () => {
+    // Arrancó en agosto: julio no tiene nada, así que dividir daría Infinity.
+    const nuevo = mk({ id: "N", startDate: "2026-08-01", dueDate: "2026-08-20", payments: [] });
+    const p = derive(solo([nuevo])).monthPace;
+    expect(p.previousToDate).toBeCloseTo(0, 2);
+    expect(p.deltaPct).toBeNull();
+  });
+
+  it("el porcentaje mide el tramo contra el tramo", () => {
+    const temprano = mk({ id: "E", startDate: "2026-06-10", dueDate: "2026-07-10", payments: [] });
+    const p = derive(solo([temprano])).monthPace;
+    expect(p.deltaPct).not.toBeNull();
+    expect(p.deltaPct as number).toBeCloseTo(((p.current - p.previousToDate) / p.previousToDate) * 100, 6);
+  });
+
+  it("la proyección suma el interés que falta devengar antes de fin de mes", () => {
+    // Vence el 28/08: todavía no devengó (hoy es 25) pero va a devengar dentro del mes.
+    const porVencer = mk({ id: "P", startDate: "2026-07-28", dueDate: "2026-08-28", payments: [] });
+    const p = derive(solo([porVencer])).monthPace;
+    expect(p.current).toBeCloseTo(0, 2);
+    expect(p.projected).toBeCloseTo(10000, 2);
+  });
+
+  // La proyección es el interés que realmente falta, no una regla de tres. El devengado
+  // entra a saltos (en cada vencimiento), así que extrapolar 25 días a 31 prometería
+  // 10.000 × 31/25 = 12.400 de un préstamo que este mes ya no devenga nada más.
+  it("no extrapola linealmente lo que ya devengó", () => {
+    const yaDevengo = mk({ id: "Y", startDate: "2026-07-05", dueDate: "2026-08-05", payments: [] });
+    const p = derive(solo([yaDevengo])).monthPace;
+    expect(p.current).toBeCloseTo(10000, 2);
+    expect(p.projected).toBeCloseTo(p.current, 2);
+    expect(p.projected).toBeLessThan(12400);
+  });
+
+  it("la proyección nunca queda por debajo de lo ya devengado", () => {
+    const casos = [derive(), derive(solo([mk({ id: "Z", startDate: "2026-07-05", dueDate: "2026-08-05" })]))];
+    for (const d of casos) {
+      expect(d.monthPace.projected).toBeGreaterThanOrEqual(d.monthPace.current - 0.01);
+    }
+  });
+
+  it("el sueldo fijo del mes anterior entra sólo si ya se había cobrado a esta altura", () => {
+    const l = mk({ id: "S", startDate: "2026-06-10", dueDate: "2026-07-10" });
+    // Cobra el 5: al día 25 de julio ya estaba acreditado.
+    const antes = derive(solo([l], { fixedIncomeAmount: 3000, fixedIncomeDay: 5 })).monthPace;
+    // Cobra el 28: al día 25 de julio todavía no.
+    const despues = derive(solo([l], { fixedIncomeAmount: 3000, fixedIncomeDay: 28 })).monthPace;
+    expect(antes.previousToDate - despues.previousToDate).toBeCloseTo(3000, 2);
+    // En los dos casos el cierre de julio lo incluye: se cobró, sólo que más tarde.
+    expect(antes.previousFull).toBeCloseTo(despues.previousFull, 2);
+  });
+
+  it("el sueldo que falta cobrar este mes entra en la proyección", () => {
+    const l = mk({ id: "S2", startDate: "2026-07-05", dueDate: "2026-08-05" });
+    const p = derive(solo([l], { fixedIncomeAmount: 3000, fixedIncomeDay: 28 })).monthPace;
+    // El 28/08 no llegó, así que no está en `current` pero sí va a estar al cierre.
+    expect(p.projected - p.current).toBeCloseTo(3000, 2);
+  });
+
+  it("los archivados cuentan en el ritmo: la plata es plata", () => {
+    const l = mk({ id: "A1", startDate: "2026-07-05", dueDate: "2026-08-05" });
+    const vivo = derive(solo([l])).monthPace;
+    const guardado = derive(solo([{ ...l, archived: true }])).monthPace;
+    expect(guardado.current).toBeCloseTo(vivo.current, 2);
+    expect(guardado.projected).toBeCloseTo(vivo.projected, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("closedCapital: el denominador del rendimiento histórico", () => {
+  const solo = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  // $100k al 10% que rodó por tres eslabones: el cliente devolvió $133.100, o sea 1,1³.
+  // La ganancia de la cadena es $33.100 sobre los $100.000 que salieron una sola vez.
+  const cadena: Loan[] = [
+    mk({ id: "A", status: "refinanced", amount: 100000,
+         startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3), payments: [] }),
+    mk({ id: "B", status: "refinanced", amount: 110000, refinancedFromId: "A",
+         startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2), payments: [] }),
+    mk({ id: "C", status: "paid", amount: 121000, refinancedFromId: "B",
+         startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+         payments: [{ id: "p", amount: 133100, date: addDays(HOY, -20) }] }),
+  ];
+
+  it("cuenta la plata que salió una sola vez por cadena", () => {
+    expect(derive(solo(cadena)).closedCapital).toBeCloseTo(100000, 2);
+  });
+
+  it("el rendimiento de la cadena es el real, no el de un eslabón", () => {
+    const d = derive(solo(cadena));
+    expect(d.accumulatedProfit).toBeCloseTo(33100, 2);
+    // 33,1% sobre los $100.000 originales: exactamente 1,1³ − 1.
+    expect((d.accumulatedProfit / d.closedCapital) * 100).toBeCloseTo(33.1, 4);
+  });
+
+  it("no incluye el capital de los préstamos todavía abiertos", () => {
+    // Si entraran, el porcentaje saldría diluido: su ganancia no está en el numerador.
+    const abierto = mk({ id: "V", startDate: addDays(HOY, -5), dueDate: addDays(HOY, 25) });
+    const d = derive(solo([...cadena, abierto]));
+    expect(d.closedCapital).toBeCloseTo(100000, 2);
+    expect(d.totalDisbursed).toBeGreaterThan(d.closedCapital);
+  });
+
+  it("prorratea por mi parte en un préstamo compartido", () => {
+    const base = mk({ id: "P", status: "paid", amount: 100000,
+      startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }] });
+    expect(derive(solo([base])).closedCapital).toBeCloseTo(100000, 2);
+    expect(derive(solo([{ ...base, sharedWith: "Papá", myPercent: 50 }])).closedCapital).toBeCloseTo(50000, 2);
+  });
+});

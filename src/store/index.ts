@@ -4,11 +4,11 @@ import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
-  loanIntegrityErrors, loanCapitalAt, interestAccruals,
+  loanIntegrityErrors, loanCapitalAt, interestAccruals, upcomingInterest,
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
-  Loan, Transaction, ResolvedLoan,
+  Loan, Transaction, ResolvedLoan, MonthPace,
 } from "../types";
 
 export const initialState: AppState = {
@@ -448,6 +448,16 @@ export function useDerived(state: AppState): Derived {
         (a, l) => a + myShare(l) * interestAccruals(l).reduce((s, ev) => s + ev.amount, 0),
         0
       );
+    // Capital de los préstamos ya cerrados (cobrados + refinanciados): el denominador del
+    // rendimiento histórico, el que empareja con `accumulatedProfit`. `totalDisbursed` no
+    // sirve para eso — incluye el capital de los préstamos todavía en la calle, cuya
+    // ganancia aún no se realizó, así que la razón saldría diluida hacia abajo. Los
+    // eslabones creados por una refinanciación quedan afuera por el mismo motivo que en
+    // `totalDisbursed`: su capital es la deuda del anterior y contarlo sumaría la misma
+    // plata una vez por refinanciación.
+    const closedCapital = [...paidLoans, ...refinancedLoans]
+      .filter((l) => !l.refinancedFromId)
+      .reduce((a, l) => a + myShare(l) * l._principal, 0);
     const incomeTransactions = state.income.reduce((a, t) => a + Number(t.amount), 0);
     const totalExpense = state.expenses.reduce((a, t) => a + Number(t.amount), 0);
     // Total prestado: el capital original más los adicionales entregados, que también son
@@ -580,7 +590,7 @@ export function useDerived(state: AppState): Derived {
       .forEach((l) => addInflow(l.dueDate === todayStr ? l.dueDate : getNextRenewalDate(l), l));
 
     return {
-      capitalInvested, expectedProfitTotal, nextProfitTotal, accumulatedProfit,
+      capitalInvested, expectedProfitTotal, nextProfitTotal, accumulatedProfit, closedCapital,
       totalIncome, totalExpense, totalDisbursed, available, totalAssets,
       totalLiabilities, workingCapital, totalCapital, monthlyInterestsCollected, collectedThisMonth,
       fixedIncomeThisMonth,
@@ -593,6 +603,10 @@ export function useDerived(state: AppState): Derived {
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
     const now = new Date();
+    const today = todayISO();
+    // Día del mes de hoy: corta el mes anterior en el mismo punto para que la comparación
+    // de ritmo sea contra un tramo equivalente y no contra un mes cerrado completo.
+    const dayOfMonth = Number(today.slice(8, 10));
     const months: { key: string; label: string; income: number; expense: number; capital: number; capitalInvested: number; accrued: number; salary: number; monthGain: number; roi: number }[] = [];
     for (let i = BUSINESS_RULES.CHART_HISTORY_MONTHS - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -611,18 +625,24 @@ export function useDerived(state: AppState): Derived {
     // Sueldo fijo virtual: se suma al ingreso de cada mes (desde la primera actividad y
     // sólo si la fecha de cobro ya pasó). No crea transacción ni afecta el efectivo.
     const fixedAmt = Number(state.settings.fixedIncomeAmount || 0);
+    // Fuera del `if`: el ritmo del mes también los necesita para saber si el sueldo del mes
+    // anterior ya se había acreditado a esta altura.
+    const fixedDay = Math.min(31, Math.max(1, Number(state.settings.fixedIncomeDay || 1)));
+    const firstMonth = firstActivityISO.slice(0, 7);
     if (fixedAmt > 0) {
-      const fixedDay = Math.min(31, Math.max(1, Number(state.settings.fixedIncomeDay || 1)));
-      const todayStr = todayISO();
-      const firstMonth = firstActivityISO.slice(0, 7);
       months.forEach((m) => {
         // `salary` queda separado (gráfico "Mes actual" = interés + sueldo, sin
         // transacciones); `income` lo sigue incluyendo para el flujo/balance de Finanzas.
-        const s = salaryForMonth(m.key, fixedAmt, fixedDay, firstMonth, todayStr);
+        const s = salaryForMonth(m.key, fixedAmt, fixedDay, firstMonth, today);
         m.salary = s;
         m.income += s;
       });
     }
+    // Devengado del mes y devengado "hasta el día N" del mes, en el mismo recorrido: el
+    // segundo es el que permite comparar el mes en curso contra el tramo equivalente del
+    // anterior. En el mes actual los dos coinciden (interestAccruals no fecha eventos a
+    // futuro), y hay un test que lo afirma.
+    const accruedToDate = months.map(() => 0);
     loansResolved.forEach((l) => {
       // accrued: interés devengado por vencimiento/re-vencimiento, lo paguen o no.
       // Es el rendimiento económico real del mes y alimenta el ROI histórico.
@@ -630,10 +650,11 @@ export function useDerived(state: AppState): Derived {
       const share = myShare(l);
       interestAccruals(l).forEach((ev) => {
         const i = monthIdx[monthKey(ev.date)];
-        if (i !== undefined) months[i].accrued += share * ev.amount;
+        if (i === undefined) return;
+        months[i].accrued += share * ev.amount;
+        if (Number(ev.date.slice(8, 10)) <= dayOfMonth) accruedToDate[i] += share * ev.amount;
       });
     });
-    const today = todayISO();
     const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
     const totalLiabilities = state.liabilities.reduce((a, l) => {
       const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
@@ -675,7 +696,58 @@ export function useDerived(state: AppState): Derived {
       // Ganancia del mes para el gráfico "Mes actual": interés devengado + sueldo fijo.
       m.monthGain = m.accrued + m.salary;
     });
-    return { months };
+
+    // Ritmo del mes: el mes en curso contra el MISMO TRAMO del anterior. Comparar el
+    // acumulado de hoy contra un mes cerrado responde siempre "vas peor" (el día 6
+    // compite con 30 días de devengado), así que el mes anterior se corta en el mismo
+    // día del mes. `previousFull` queda al lado para no perder de vista el total.
+    const last = months.length - 1;
+    const prev = last - 1;
+    const [cy, cm] = months[last].key.split("-").map(Number);
+    const daysInMonth = new Date(cy, cm, 0).getDate();
+    const monthEnd = toISODate(new Date(cy, cm, 0));
+    const current = accruedToDate[last] + months[last].salary;
+
+    let previousToDate = 0;
+    let previousFull = 0;
+    let previousLabel = "";
+    if (prev >= 0) {
+      const [py, pm] = months[prev].key.split("-").map(Number);
+      // El mes anterior puede ser más corto que hoy (hoy 31, el anterior de 30): el corte
+      // se topea en su último día, que equivale a tomarlo completo.
+      const cutDay = Math.min(dayOfMonth, new Date(py, pm, 0).getDate());
+      const prevCut = `${months[prev].key}-${String(cutDay).padStart(2, "0")}`;
+      previousToDate = accruedToDate[prev]
+        + salaryForMonth(months[prev].key, fixedAmt, fixedDay, firstMonth, prevCut);
+      previousFull = months[prev].monthGain;
+      previousLabel = months[prev].label;
+    }
+
+    // Proyección del cierre: no una extrapolación lineal del acumulado (el devengado entra
+    // a saltos, en cada vencimiento — extrapolar 6 días que incluyen un vencimiento grande
+    // promete el triple), sino el interés que efectivamente falta devengar hasta fin de mes
+    // más el sueldo fijo que todavía no se acreditó.
+    const pendingAccrual = loansResolved
+      .filter((l) => l._status === "active" || l._status === "overdue")
+      .reduce((a, l) => a + myShare(l) * upcomingInterest(l, monthEnd), 0);
+    const pendingSalary = Math.max(
+      0,
+      salaryForMonth(months[last].key, fixedAmt, fixedDay, firstMonth, monthEnd) - months[last].salary
+    );
+
+    const monthPace: MonthPace = {
+      current,
+      previousToDate,
+      previousFull,
+      // Con base 0 no hay comparación posible: dividir daría Infinity en pantalla.
+      deltaPct: previousToDate > 0 ? ((current - previousToDate) / previousToDate) * 100 : null,
+      projected: current + pendingAccrual + pendingSalary,
+      dayOfMonth,
+      daysInMonth,
+      previousLabel,
+    };
+
+    return { months, monthPace };
   }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
 
   // Stage 5: client stats

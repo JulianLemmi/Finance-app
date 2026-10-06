@@ -378,6 +378,31 @@ export interface MonthData {
   roi: number;
 }
 
+/** Ritmo del mes en curso contra el anterior. La comparación es "a esta misma altura
+ *  del mes": un mes en curso recién empezado siempre pierde contra uno cerrado, así que
+ *  medir el acumulado de hoy contra el cierre del anterior respondería siempre "vas
+ *  peor". `previousToDate` corta el mes anterior en el mismo día del mes que hoy. */
+export interface MonthPace {
+  /** Ganancia del mes en curso hasta hoy: devengado + sueldo fijo ya acreditado. */
+  current: number;
+  /** Lo que el mes anterior llevaba al mismo día del mes. Base de `deltaPct`. */
+  previousToDate: number;
+  /** Cierre completo del mes anterior, para saber contra qué total se corre. */
+  previousFull: number;
+  /** Variación de `current` sobre `previousToDate`, en %. `null` si la base es 0
+   *  (no hay con qué comparar: dividir por cero daría Infinity en pantalla). */
+  deltaPct: number | null;
+  /** Cierre proyectado del mes: lo de hoy + el interés que falta devengar hasta fin de
+   *  mes (`upcomingInterest`, no una extrapolación lineal — el devengado es a saltos
+   *  por vencimiento) + el sueldo fijo que todavía no se acreditó. */
+  projected: number;
+  /** Día del mes de hoy y días que tiene el mes, para el texto "día 6 de 31". */
+  dayOfMonth: number;
+  daysInMonth: number;
+  /** Etiqueta del mes anterior ("sep"), para rotular la comparación. */
+  previousLabel: string;
+}
+
 export interface Derived {
   loansResolved: ResolvedLoan[];
   activeLoans: ResolvedLoan[];
@@ -388,6 +413,10 @@ export interface Derived {
   expectedProfitTotal: number;
   nextProfitTotal: number;
   accumulatedProfit: number;
+  /** Capital de los préstamos cerrados (cobrados + refinanciados, sin los eslabones
+   *  creados por refinanciación). Denominador del rendimiento histórico: es el que
+   *  empareja con `accumulatedProfit`. */
+  closedCapital: number;
   totalIncome: number;
   totalExpense: number;
   totalDisbursed: number;
@@ -414,6 +443,7 @@ export interface Derived {
   avgDaysLate: number;
   cashFlow30d: CashFlowPoint[];
   months: MonthData[];
+  monthPace: MonthPace;
   clientStats: ResolvedClient[];
 }
 

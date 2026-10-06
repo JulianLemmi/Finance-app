@@ -8,13 +8,14 @@ import {
   remainingDebt, remainingDebtAt, loanCapitalAt, interestAccruals, upcomingInterest,
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
+  closedLoanOutcome,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
   getLoanCycleDays, todayISO, todayDate, myShare, daysBetween, loanDeployedFrom,
   loanPrincipalAt, loanEffectiveRate,
 } from "./utils.js";
-import type { Loan } from "../types";
+import type { Loan, ResolvedLoan } from "../types";
 
 const HOY = "2026-08-25";
 
@@ -863,5 +864,83 @@ describe("tasa efectiva (loanEffectiveRate)", () => {
   it("un capital en cero no produce Infinity", () => {
     const roto = mk({ interestMode: "fixed", fixedInterest: 20000, amount: 0 });
     expect(loanEffectiveRate(roto)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("closedLoanOutcome: qué dejó un préstamo cerrado", () => {
+  /** Resuelve sólo los campos que la función lee. */
+  const res = (l: Loan) => ({
+    ...l,
+    _status: resolveStatus(l),
+    _paid: paidAmount(l),
+    _principal: loanPrincipalAt(l),
+  }) as ResolvedLoan;
+
+  it("un préstamo cobrado generó lo pagado menos el capital", () => {
+    const l = mk({
+      status: "paid", amount: 100000, interestRate: 10,
+      startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      payments: [{ id: "p", amount: 110000, date: addDays(HOY, -20) }],
+    });
+    expect(closedLoanOutcome(res(l)).generado).toBeCloseTo(10000, 2);
+  });
+
+  it("un cobrado cierra en la fecha de su último pago", () => {
+    const l = mk({
+      status: "paid", startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      payments: [
+        { id: "p1", amount: 50000, date: addDays(HOY, -30) },
+        { id: "p2", amount: 60000, date: addDays(HOY, -20) },
+      ],
+    });
+    expect(closedLoanOutcome(res(l)).cierre).toBe(addDays(HOY, -20));
+  });
+
+  // La regresión que motivó el helper: la deuda de un eslabón refinanciado rueda al
+  // préstamo siguiente, así que casi nunca cobra nada. Midiendo `_paid - _principal` el
+  // historial decía "generó -$100.000" y el resumen de arriba se hundía en negativo.
+  it("un eslabón refinanciado sin pagos NO reporta una pérdida del tamaño del capital", () => {
+    const l = mk({
+      status: "refinanced", amount: 100000, interestRate: 10,
+      startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      payments: [],
+    });
+    const { generado } = closedLoanOutcome(res(l));
+    expect(generado).toBeGreaterThan(0);
+    expect(generado).toBeCloseTo(sumAccruals(l), 2);
+    expect(generado).toBeCloseTo(10000, 2);
+  });
+
+  it("un eslabón refinanciado sin pagos cierra en su devengado, no hoy", () => {
+    const l = mk({
+      status: "refinanced", startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      payments: [],
+    });
+    const { cierre } = closedLoanOutcome(res(l));
+    expect(cierre).toBe(addCalendarMonths(HOY, -1));
+    expect(cierre).not.toBe(HOY);
+  });
+
+  it("prorratea por mi parte en un préstamo compartido", () => {
+    const base = {
+      status: "paid" as const, amount: 100000, interestRate: 10,
+      startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      payments: [{ id: "p", amount: 110000, date: addDays(HOY, -20) }],
+    };
+    const solo = closedLoanOutcome(res(mk(base)));
+    const mitad = closedLoanOutcome(res(mk({ ...base, sharedWith: "Papá", myPercent: 50 })));
+    expect(mitad.generado).toBeCloseTo(solo.generado / 2, 2);
+    expect(mitad.prestado).toBeCloseTo(solo.prestado / 2, 2);
+  });
+
+  it("el capital informado incluye los adicionales entregados", () => {
+    const l = mk({
+      status: "paid", amount: 100000,
+      startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+      extras: [{ id: "e", amount: 50000, date: addDays(HOY, -25) }],
+      payments: [{ id: "p", amount: 180000, date: addDays(HOY, -5) }],
+    });
+    expect(closedLoanOutcome(res(l)).prestado).toBeCloseTo(150000, 2);
   });
 });

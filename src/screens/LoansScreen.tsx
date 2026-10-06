@@ -7,6 +7,7 @@ import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, A
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
 import { formatShortDate, getNextRenewalDate, formatInterest, myShare, daysBetween, todayISO, formatMoney } from "../lib/utils.js";
+import { closedLoanOutcome } from "../lib/calcs.js";
 import { useLongPress } from "../lib/hooks.js";
 import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card, Badge } from "../components/ui.jsx";
 import { Users } from "lucide-react";
@@ -135,16 +136,15 @@ function ArchivedLoanCard({ loan, onOpen, onToggleArchive }: Omit<LoanCardProps,
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
   const cerrado = loan._status === "paid" || loan._status === "refinanced";
-  const generado = loan._paid - loan._principal;
+  const { generado, prestado, cierre } = closedLoanOutcome(loan);
 
   const { pressing, progressMs, handlers } = useLongPress(
     () => { navigator.vibrate?.(15); onToggleArchive(loan.id); },
     () => onOpen(loan.id)
   );
 
-  // Cuánto duró: del inicio al último pago (o a hoy si sigue abierto).
-  const ultimoPago = (loan.payments || []).reduce((max, p) => (p.date > max ? p.date : max), "");
-  const dias = Math.max(0, daysBetween(loan.startDate, ultimoPago || todayISO()));
+  // Cuánto duró: del inicio al cierre (o a hoy si sigue abierto).
+  const dias = Math.max(0, daysBetween(loan.startDate, cierre || todayISO()));
   const duracion = dias >= 60 ? `${Math.round(dias / 30)} meses` : `${dias} días`;
 
   // Mismo criterio que `paidOnTimeCount`: el primer pago llegó antes del vencimiento.
@@ -175,7 +175,7 @@ function ArchivedLoanCard({ loan, onOpen, onToggleArchive }: Omit<LoanCardProps,
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-600">
-            <span>Prestó <span className="tabular-nums text-zinc-400">{formatMoney(loan._principal, hide, cur)}</span></span>
+            <span>Prestó <span className="tabular-nums text-zinc-400">{formatMoney(prestado, hide, cur)}</span></span>
             <span className="text-zinc-700">·</span>
             <span>{duracion}</span>
             {cerrado && primerPago && (
@@ -231,14 +231,18 @@ export default function LoansScreen() {
   const resumenHistorial = useMemo(() => {
     let generado = 0, prestado = 0, abiertos = 0, deudaAbierta = 0;
     for (const l of archivedLoans) {
-      const share = myShare(l);
-      if (l._status === "paid" || l._status === "refinanced") {
-        generado += share * (l._paid - l._principal);
-        prestado += share * l._principal;
-      } else {
+      if (l._status !== "paid" && l._status !== "refinanced") {
         abiertos += 1;
-        deudaAbierta += share * l._remaining;
+        deudaAbierta += myShare(l) * l._remaining;
+        continue;
       }
+      const cierre = closedLoanOutcome(l);
+      generado += cierre.generado;
+      // Mismo criterio que `totalDisbursed`: el capital de un eslabón creado por
+      // refinanciación es la deuda del anterior, y contarlo sumaría la misma plata una vez
+      // por refinanciación. Los abiertos tampoco entran al denominador: su ganancia
+      // todavía no está en `generado`, y el rendimiento saldría diluido.
+      if (!l.refinancedFromId) prestado += cierre.prestado;
     }
     return { generado, prestado, abiertos, deudaAbierta, total: archivedLoans.length };
   }, [archivedLoans]);

@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp, Wallet,
   Briefcase, Activity, CalendarClock, ChevronRight, ChevronDown, CheckCircle2, Search,
-  Banknote, Sun,
+  Banknote, Sun, Gauge, History,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate, addDays, todayISO, formatInterest, formatCompact } from "../lib/utils.js";
 import { upcomingInterest } from "../lib/calcs.js";
@@ -89,6 +89,19 @@ export default function HomeScreen() {
 
   const lastMonthIdx = derived.months.length - 1;
   const currentMonthLabel = derived.months[lastMonthIdx]?.label ?? "";
+
+  const pace = derived.monthPace;
+  // Cuánto del cierre del mes pasado ya lleva el mes en curso. Es la lectura de un
+  // vistazo ("voy al 62% de lo que cerró septiembre"); la barra se topea en 100 pero el
+  // número no, así que un mes récord se ve.
+  const pacePctOfPrev = pace.previousFull > 0 ? (pace.current / pace.previousFull) * 100 : null;
+  // Rendimiento histórico: la ganancia realizada sobre el capital de los préstamos que ya
+  // cerraron. El denominador NO es `totalDisbursed` —ése incluye la plata todavía en la
+  // calle, cuya ganancia no está en el numerador, y el porcentaje saldría diluido.
+  const histRoi = derived.closedCapital > 0
+    ? (derived.accumulatedProfit / derived.closedCapital) * 100
+    : null;
+  const closedCount = derived.paidLoans.length + derived.refinancedLoans.length;
 
   // El gasto se grafica negativo para que caiga bajo el cero: en el balance divergente
   // la posicion respecto del eje ya dice si es ingreso o gasto, y el color queda como
@@ -248,6 +261,99 @@ export default function HomeScreen() {
             value={<AnimatedMoney value={derived.expectedProfitTotal + derived.capitalInvested} hide={hide} currency={cur} />}
             hint={`Próximos: ${derived.upcomingDue.length}`} />
         </div>
+
+        {/* Cómo viene la cuenta: el ritmo del mes contra el anterior y el acumulado
+            histórico. Los dos números del histórico vivían sólo en Perfil, al lado de los
+            botones de respaldo. */}
+        {hasAnyData && (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {/* Ritmo del mes. La comparación es contra el MISMO TRAMO del mes anterior:
+                medir el día 6 contra un mes cerrado completo contestaría siempre "vas
+                peor" y el dato no serviría para nada. */}
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+                    <Gauge className="h-3 w-3 text-amber-500" />
+                    Ritmo del mes
+                  </div>
+                  <div className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
+                    <AnimatedMoney value={pace.current} hide={hide} currency={cur} />
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                    Día {pace.dayOfMonth} de {pace.daysInMonth} · devengado
+                    {pace.current !== derived.months[lastMonthIdx]?.accrued ? " + sueldo" : ""}
+                  </div>
+                </div>
+                {pace.deltaPct === null
+                  ? <Badge tone="neutral">Sin comparación</Badge>
+                  : <DeltaPill value={pace.deltaPct}
+                      label={`${pace.deltaPct >= 0 ? "+" : ""}${Math.round(pace.deltaPct)}%`} />}
+              </div>
+
+              {pacePctOfPrev !== null && (
+                <div className="mt-4">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                    <div className="fa-bar-shine h-full rounded-full bg-gradient-to-r from-amber-700 to-amber-500 transition-all duration-700"
+                      style={{ width: `${Math.min(100, pacePctOfPrev)}%` }} />
+                  </div>
+                  <div className="mt-1.5 text-[10px] text-zinc-600">
+                    {Math.round(pacePctOfPrev)}% de lo que cerró {pace.previousLabel}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 space-y-1.5 border-t border-zinc-800/70 pt-3 text-[11px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-zinc-500">A esta altura de {pace.previousLabel || "el mes pasado"}</span>
+                  <Money value={pace.previousToDate} hide={hide} currency={cur} className="tabular-nums text-zinc-300" />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-zinc-500">{pace.previousLabel || "El mes pasado"} cerró en</span>
+                  <Money value={pace.previousFull} hide={hide} currency={cur} className="tabular-nums text-zinc-400" />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-zinc-500">Proyección de cierre</span>
+                  <Money value={pace.projected} hide={hide} currency={cur} className="tabular-nums text-emerald-400" />
+                </div>
+              </div>
+            </Card>
+
+            {/* Histórico. `accumulatedProfit` es ganancia REALIZADA: lo que dejaron los
+                préstamos cobrados más el interés que cada eslabón refinanciado devengó
+                antes de capitalizarse. Lo que todavía está en la calle no entra acá; eso
+                es "Ganancia por cobrar" arriba. */}
+            <Card className="p-5">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+                <History className="h-3 w-3 text-amber-500" />
+                Desde que arrancaste
+              </div>
+              <div className="mt-1.5 text-2xl font-semibold tracking-tight text-emerald-400">
+                <AnimatedMoney value={derived.accumulatedProfit} hide={hide} currency={cur} />
+              </div>
+              <div className="mt-0.5 text-[11px] text-zinc-500">
+                Ganancia ya realizada · {closedCount} préstamo{closedCount === 1 ? "" : "s"} cerrado{closedCount === 1 ? "" : "s"}
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-800/70 pt-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-600">Total prestado</div>
+                  <div className="mt-0.5 text-sm font-semibold tabular-nums text-zinc-200">
+                    <Money value={derived.totalDisbursed} hide={hide} currency={cur} />
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-zinc-600">Toda la plata que salió</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-600">Rendimiento</div>
+                  <div className="mt-0.5 text-sm font-semibold tabular-nums text-amber-400">
+                    {histRoi === null ? "—" : `${histRoi.toFixed(1)}%`}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-zinc-600">Sobre lo ya cerrado</div>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
 
         {/* Objetivo mensual */}
         {Number(state.settings.monthlyTarget) > 0 && (
