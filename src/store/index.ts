@@ -4,7 +4,7 @@ import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
-  loanIntegrityErrors, loanCapitalAt, interestAccruals, upcomingInterest,
+  loanIntegrityErrors, loanCapitalAt, interestAccruals, upcomingInterest, halfCycleCharged,
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
@@ -197,6 +197,46 @@ export function reducer(state: AppState, action: AppAction): AppState {
           if (l.id !== loanId) return l;
           const advancedAt = [...(l.advancedAt || []), date];
           const next: Loan = { ...l, advancedAt };
+          next.status = resolveStatus(next);
+          return next;
+        }),
+      };
+    }
+    // Medio ciclo: el cliente vino unos días después del vencimiento y se le cobra la
+    // mitad del interés del período. El calendario no se mueve — vuelve a vencer en su
+    // fecha de siempre y ahí se cobra la otra mitad.
+    case "ADVANCE_HALF_CYCLE": {
+      const { loanId, date } = action.payload;
+      const target = state.loans.find((l) => l.id === loanId);
+      if (!target || !date) {
+        console.warn("[ADVANCE_HALF_CYCLE] medio ciclo inválido — rechazado", { loanId, date });
+        return state;
+      }
+      // Como mucho uno por período: dos medios ya son el ciclo entero, y para eso está
+      // "Adelantar". Sin este tope, apretar dos veces cobraba de más sin avisar.
+      if (halfCycleCharged(target, date)) {
+        console.warn("[ADVANCE_HALF_CYCLE] el período ya tiene medio ciclo cobrado", { loanId, date });
+        return state;
+      }
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          const next: Loan = { ...l, halfAdvancedAt: [...(l.halfAdvancedAt || []), date].sort() };
+          next.status = resolveStatus(next);
+          return next;
+        }),
+      };
+    }
+    case "UNDO_HALF_CYCLE": {
+      const { loanId } = action.payload;
+      return {
+        ...state,
+        loans: state.loans.map((l) => {
+          if (l.id !== loanId) return l;
+          const arr = l.halfAdvancedAt || [];
+          if (arr.length === 0) return l;
+          const next: Loan = { ...l, halfAdvancedAt: arr.slice(0, -1) };
           next.status = resolveStatus(next);
           return next;
         }),

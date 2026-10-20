@@ -9,6 +9,7 @@ import {
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
   closedLoanOutcome, overduePeriodsAt, resolvePaymentPos, paymentAnchorDate,
+  nextCycleFraction, halfCycleCharged,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
@@ -980,6 +981,16 @@ describe("overduePeriodsAt: los ciclos que la pantalla tiene que mostrar", () =>
     expect(overduePeriodsAt(mk({ noDueDate: true, dueDate: "" }), HOY)).toBe(0);
   });
 
+  it("un vencido al que no le llegó el re-vencimiento ya no apunta a su dueDate", () => {
+    // Venció hace 13 días pero el ciclo cierra a los 30: no corrió ningún ciclo todavía y
+    // sin embargo su dueDate ya es pasado. El detalle anunciaba esa fecha como "próximo
+    // vencimiento" cuando lo que viene es el re-vencimiento.
+    const l = mk({ startDate: addDays(HOY, -43), dueDate: addDays(HOY, -13) });
+    expect(overduePeriodsAt(l, HOY)).toBe(0);
+    expect(l.dueDate < HOY).toBe(true);
+    expect(getNextRenewalDate(l) > HOY).toBe(true);
+  });
+
   // LA REGRESIÓN. Un préstamo vencido al que le pagaron lo suficiente vuelve a "active"
   // (resolveStatus: la deuda quedó por debajo del capital), pero el re-vencimiento se le
   // cobra igual. La línea de tiempo contaba los ciclos mirando `_status` y se quedaba en
@@ -1161,5 +1172,136 @@ describe("reordenado de pagos (timelinePos)", () => {
     const desde = pos === 0 ? l.dueDate : loanPeriodDate(l, l.dueDate, pos);
     expect(ancla).toBe(desde);
     if (pos < ciclos) expect(ancla < loanPeriodDate(l, l.dueDate, pos + 1)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Medio ciclo: el cliente vino unos días después del vencimiento y se le cobra la mitad
+// del interés del período en vez del mes entero. El calendario NO se mueve — vuelve a
+// vencer en su fecha de siempre y ahí se cobra la mitad que quedaba. Media y media hacen
+// el mes: no es un descuento, es cobrar partido.
+describe("medio ciclo (halfAdvancedAt)", () => {
+  // Vence 10/08, re-vence 10/09. Hoy es 25/08: el cliente vino el 20/08, 10 días tarde.
+  const VENCE = "2026-08-10", VINO = "2026-08-20";
+  const BOUNDARY_1 = "2026-09-10", BOUNDARY_2 = "2026-10-10";
+  const conMedio = (o: Partial<Loan> = {}) => mk({
+    startDate: "2026-07-10", dueDate: VENCE, halfAdvancedAt: [VINO], ...o,
+  });
+  const sinMedio = (o: Partial<Loan> = {}) => mk({ startDate: "2026-07-10", dueDate: VENCE, ...o });
+
+  it("cobra la mitad del interés del ciclo en la fecha elegida", () => {
+    // 100.000 + 10.000 contratado = 110.000, más medio ciclo = 5% de 110.000 = 5.500.
+    expect(remainingDebt(sinMedio())).toBeCloseTo(110000, 2);
+    expect(remainingDebt(conMedio())).toBeCloseTo(115500, 2);
+  });
+
+  it("en interés fijo cobra la mitad del monto fijo", () => {
+    const base = { interestMode: "fixed" as const, fixedInterest: 10000 };
+    expect(remainingDebt(conMedio(base)) - remainingDebt(sinMedio(base))).toBeCloseTo(5000, 2);
+  });
+
+  it("no mueve el próximo vencimiento", () => {
+    // Esto es lo que lo separa de "Adelantar": el calendario mensual no se toca.
+    expect(getNextRenewalDate(conMedio())).toBe(getNextRenewalDate(sinMedio()));
+    expect(getNextRenewalDate(conMedio())).toBe(BOUNDARY_1);
+  });
+
+  it("no abre un slot de pago nuevo", () => {
+    expect(overduePeriodsAt(conMedio(), HOY)).toBe(overduePeriodsAt(sinMedio(), HOY));
+    expect(overduePeriodsAt(conMedio(), HOY)).toBe(0);
+  });
+
+  it("el re-vencimiento siguiente cobra la mitad que quedaba", () => {
+    const eventos = interestAccruals(conMedio());
+    expect(eventos.map((e) => e.date)).toEqual([VENCE, VINO]);
+    expect(eventos[1].amount).toBeCloseTo(5500, 2);
+    expect(nextCycleFraction(conMedio())).toBe(0.5);
+    expect(nextCycleFraction(sinMedio())).toBe(1);
+  });
+
+  // LA PROPIEDAD CENTRAL, en interés fijo donde el cargo no compone: al cerrar el ciclo la
+  // deuda es exactamente la misma que si nunca se hubiera cobrado medio. Media y media
+  // hacen el mes.
+  it("media y media hacen el mes: al cerrar el ciclo la deuda es la misma", () => {
+    const base = { interestMode: "fixed" as const, fixedInterest: 10000 };
+    expect(remainingDebtAt(conMedio(base), BOUNDARY_1))
+      .toBeCloseTo(remainingDebtAt(sinMedio(base), BOUNDARY_1), 2);
+    expect(remainingDebtAt(conMedio(base), BOUNDARY_1)).toBeCloseTo(120000, 2);
+  });
+
+  it("después del ciclo partido vuelve a los meses completos", () => {
+    const base = { interestMode: "fixed" as const, fixedInterest: 10000 };
+    const l = conMedio(base);
+    expect(remainingDebtAt(l, BOUNDARY_2) - remainingDebtAt(l, BOUNDARY_1)).toBeCloseTo(10000, 2);
+    // Y ya no queda nada adelantado para el siguiente.
+    expect(nextCycleFraction(l, BOUNDARY_1)).toBe(1);
+  });
+
+  it("en porcentual la segunda mitad compone sobre el saldo ya aumentado", () => {
+    // 0,5 × 10% de 115.500 = 5.775 contra los 5.500 de la primera mitad. Los $275 de más
+    // son el interés de haber cobrado antes: la misma regla que compone todo lo demás.
+    const l = conMedio();
+    expect(remainingDebtAt(l, BOUNDARY_1)).toBeCloseTo(121275, 2);
+    expect(remainingDebtAt(sinMedio(), BOUNDARY_1)).toBeCloseTo(121000, 2);
+  });
+
+  it("anuncia la mitad que falta, no el mes entero", () => {
+    // El sheet de adelanto, la card y el mapa de vencimientos leen de acá. En interés fijo
+    // la mitad es exacta, porque el cargo del período no depende del saldo.
+    const base = { interestMode: "fixed" as const, fixedInterest: 10000 };
+    expect(nextPeriodInterest(conMedio(base))).toBeCloseTo(5000, 2);
+    expect(nextPeriodInterest(sinMedio(base))).toBeCloseTo(10000, 2);
+    expect(upcomingInterest(conMedio(base), "2026-09-30")).toBeCloseTo(5000, 2);
+  });
+
+  it("en porcentual la mitad que falta se cobra sobre el saldo de hoy", () => {
+    // 0,5 × 10% de los 115.500 que ya tiene adentro el medio ciclo = 5.775. Un poco más
+    // que la mitad de los 11.000 del ciclo entero: ese es el interés de haber cobrado
+    // antes, la misma regla que compone todo lo demás.
+    expect(nextPeriodInterest(conMedio())).toBeCloseTo(0.5 * 0.1 * remainingDebt(conMedio()), 2);
+    expect(nextPeriodInterest(conMedio())).toBeCloseTo(5775, 2);
+    expect(upcomingInterest(conMedio(), "2026-09-30")).toBeCloseTo(5775, 2);
+  });
+
+  it("un medio ciclo fechado a futuro todavía no cobra nada", () => {
+    // Mismo criterio que los adelantos y los adicionales: es un hecho con fecha.
+    const futuro = conMedio({ halfAdvancedAt: [addDays(HOY, 5)] });
+    expect(remainingDebt(futuro)).toBeCloseTo(remainingDebt(sinMedio()), 2);
+  });
+
+  it("sin medio ciclo nada cambia", () => {
+    for (const vacio of [undefined, []]) {
+      expect(remainingDebt(sinMedio({ halfAdvancedAt: vacio }))).toBeCloseTo(remainingDebt(sinMedio()), 2);
+      expect(nextCycleFraction(sinMedio({ halfAdvancedAt: vacio }))).toBe(1);
+    }
+  });
+
+  describe("tope de uno por período", () => {
+    it("marca el período que ya tiene su medio cobrado", () => {
+      const l = conMedio();
+      expect(halfCycleCharged(l, "2026-08-25")).toBe(true);
+      expect(halfCycleCharged(l, VINO)).toBe(true);
+    });
+
+    it("el período siguiente queda libre", () => {
+      expect(halfCycleCharged(conMedio(), "2026-09-20")).toBe(false);
+    });
+
+    it("un préstamo sin medios ciclos nunca está topeado", () => {
+      expect(halfCycleCharged(sinMedio(), VINO)).toBe(false);
+    });
+  });
+
+  // La identidad que cuida toda la suite: lo que la pantalla muestra como devengado tiene
+  // que ser lo que de verdad entró a la deuda.
+  it.each([
+    ["porcentual", {}],
+    ["interés fijo", { interestMode: "fixed" as const, fixedInterest: 10000 }],
+    ["con pago", { payments: [{ id: "p", amount: 30000, date: "2026-08-22" }] }],
+    ["con adicional", { extras: [{ id: "e", amount: 20000, date: "2026-08-05" }] }],
+  ])("la deuda sigue cerrando con capital + devengado − pagado: %s", (_caso, extra) => {
+    const l = conMedio(extra);
+    const devengado = interestAccruals(l).reduce((s, e) => s + e.amount, 0);
+    expect(remainingDebt(l)).toBeCloseTo(loanPrincipalAt(l) + devengado - paidAmount(l), 2);
   });
 });

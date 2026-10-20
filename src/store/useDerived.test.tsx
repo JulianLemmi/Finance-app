@@ -831,3 +831,61 @@ describe("closedCapital: el denominador del rendimiento histórico", () => {
     expect(derive(solo([{ ...base, sharedWith: "Papá", myPercent: 50 }])).closedCapital).toBeCloseTo(50000, 2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("reducer: medio ciclo", () => {
+  const VENCE = "2026-08-10";
+  const prestamo = mk({ id: "L", startDate: "2026-07-10", dueDate: VENCE });
+  const conUno = (loans: Loan[]): AppState => ({ ...initialState, loaded: true, loans });
+
+  it("registra el medio ciclo en la fecha elegida", () => {
+    const s = reducer(conUno([prestamo]), {
+      type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-08-20" },
+    });
+    expect(s.loans[0].halfAdvancedAt).toEqual(["2026-08-20"]);
+  });
+
+  it("no toca el vencimiento ni los adelantos enteros", () => {
+    const s = reducer(conUno([prestamo]), {
+      type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-08-20" },
+    });
+    expect(s.loans[0].dueDate).toBe(VENCE);
+    expect(s.loans[0].advancedAt ?? []).toEqual([]);
+  });
+
+  it("rechaza un segundo medio ciclo en el mismo período", () => {
+    // Dos medios son el ciclo entero y para eso está "Adelantar". Sin el tope, apretar
+    // dos veces cobraba de más sin avisar.
+    const uno = reducer(conUno([prestamo]), {
+      type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-08-20" },
+    });
+    const dos = reducer(uno, {
+      type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-08-22" },
+    });
+    expect(dos.loans[0].halfAdvancedAt).toEqual(["2026-08-20"]);
+  });
+
+  it("rechaza un medio ciclo sin fecha o sobre un préstamo que no existe", () => {
+    const base = conUno([prestamo]);
+    expect(reducer(base, { type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "" } })).toBe(base);
+    expect(reducer(base, { type: "ADVANCE_HALF_CYCLE", payload: { loanId: "X", date: "2026-08-20" } })).toBe(base);
+  });
+
+  it("deshacer saca el último", () => {
+    const con = conUno([{ ...prestamo, halfAdvancedAt: ["2026-08-20"] }]);
+    const s = reducer(con, { type: "UNDO_HALF_CYCLE", payload: { loanId: "L" } });
+    expect(s.loans[0].halfAdvancedAt).toEqual([]);
+  });
+
+  it("deshacer sin medios ciclos no rompe nada", () => {
+    const s = reducer(conUno([prestamo]), { type: "UNDO_HALF_CYCLE", payload: { loanId: "L" } });
+    expect(s.loans[0]).toEqual(prestamo);
+  });
+
+  it("el medio ciclo llega a los agregados: sube el capital invertido", () => {
+    const sin = derive(conUno([prestamo]));
+    const con = derive(conUno([{ ...prestamo, halfAdvancedAt: ["2026-08-20"] }]));
+    expect(con.capitalInvested).toBeGreaterThan(sin.capitalInvested);
+    expect(con.capitalInvested - sin.capitalInvested).toBeCloseTo(5500, 2);
+  });
+});

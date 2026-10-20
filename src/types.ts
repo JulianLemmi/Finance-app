@@ -111,6 +111,14 @@ export interface Loan {
    *  capitalización a la deuda y corre `getNextRenewalDate` un ciclo hacia adelante,
    *  como si el vencimiento hubiera caído en esa fecha. Vacío/ausente = comportamiento normal. */
   advancedAt?: ISODate[];
+  /** Fechas ISO en las que se cobró MEDIO ciclo: el cliente vino a pagar unos días después
+   *  del vencimiento y se le cobra la mitad del interés del período en vez del mes entero.
+   *
+   *  A diferencia de `advancedAt`, no corre el calendario: el préstamo vuelve a vencer en
+   *  su fecha de siempre y ese re-vencimiento cobra la mitad que quedaba, para después
+   *  retomar los ciclos completos. Media y media hacen un mes — no es un descuento, es
+   *  cobrar partido. Como mucho un medio ciclo por período, y siempre a mano. */
+  halfAdvancedAt?: ISODate[];
   /** Archivado por el usuario para sacarlo del listado de Préstamos (mantenido apretado
    *  sobre la card). No afecta ningún cálculo: sigue contando en Finanzas/Inicio como
    *  fuente de datos, sólo desaparece de la vista principal. Se restaura desde Historial. */
@@ -311,6 +319,8 @@ export type AppAction =
   | { type: "DELETE_LOAN_EXTRA"; payload: { loanId: string; extraId: string } }
   | { type: "ADVANCE_CYCLE"; payload: { loanId: string; date: ISODate } }
   | { type: "UNDO_ADVANCE_CYCLE"; payload: { loanId: string } }
+  | { type: "ADVANCE_HALF_CYCLE"; payload: { loanId: string; date: ISODate } }
+  | { type: "UNDO_HALF_CYCLE"; payload: { loanId: string } }
   | { type: "ADD_PARKING_PAYMENT"; payload: { loanId: string; payment: Payment } }
   | { type: "DELETE_PARKING_PAYMENT"; payload: { loanId: string; paymentId: string } }
   | {

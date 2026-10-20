@@ -40,6 +40,7 @@ export type Loan = {
   /** Fechas de adelantos manuales de ciclo. Cada entrada suma un ciclo de capitalización
    *  a la deuda y corre el próximo vencimiento un ciclo hacia adelante. */
   advancedAt?: string[];
+  halfAdvancedAt?: string[];
   /** Archivado: sale de la agenda y de las notificaciones, pero sigue contando en las
    *  metricas de la app. Espeja loan.archived del frontend. */
   archived?: boolean;
@@ -163,6 +164,27 @@ function extraSlot(loan: Loan, date: string, overduePeriods: number): number {
   return overduePeriods + 1;
 }
 
+/** Mirror of src/lib/calcs.ts halfCyclesBySlot: medios ciclos cobrados hasta `asOf`,
+ *  agrupados por el re-vencimiento que adelantan. Un medio ciclo se cobra en su fecha y el
+ *  re-vencimiento que adelanta cobra solo la mitad que quedaba; el calendario no se mueve. */
+const HALF = 0.5;
+
+function halfCyclesBySlot(loan: Loan, asOf: string, overduePeriods: number): Map<number, string[]> {
+  const bySlot = new Map<number, string[]>();
+  for (const date of [...(loan.halfAdvancedAt || [])].filter((d) => d && d <= asOf).sort()) {
+    const slot = extraSlot(loan, date, overduePeriods);
+    const prev = bySlot.get(slot);
+    if (prev) prev.push(date);
+    else bySlot.set(slot, [date]);
+  }
+  return bySlot;
+}
+
+/** Mirror of src/lib/calcs.ts pendingCycleFraction. */
+function pendingCycleFraction(halves: Map<number, string[]>, slot: number): number {
+  return Math.max(0, 1 - HALF * (halves.get(slot)?.length ?? 0));
+}
+
 function extrasBySlot(loan: Loan, asOf: string, overduePeriods: number): Map<number, number> {
   const bySlot = new Map<number, number>();
   for (const e of loan.extras || []) {
@@ -247,13 +269,23 @@ export function remainingDebt(loan: Loan, today: string): number {
   const getPos = (p: Payment) => resolvePaymentPos(p, overduePeriods, loan);
   const base = Number(loan.amount ?? 0);
 
+  const halves = halfCyclesBySlot(loan, today, overduePeriods);
   let balance = base + periodInterest(loan, base) + (extras.get(0) ?? 0);
+  // Medios ciclos: se cobran en su fecha, sobre el saldo de ese momento, antes de los
+  // pagos del tramo. Mismo orden que debtWalkDetailed del frontend.
+  const chargeHalves = (slot: number) => {
+    for (const _ of halves.get(slot) || []) {
+      if (balance > 0) balance += HALF * periodInterest(loan, balance);
+    }
+  };
+  chargeHalves(1);
   payments.filter((p) => getPos(p) === 0).forEach((p) => {
     balance = Math.max(0, balance - Number(p.amount ?? 0));
   });
   for (let i = 1; i <= overduePeriods; i++) {
-    if (balance > 0) balance += periodInterest(loan, balance);
+    if (balance > 0) balance += pendingCycleFraction(halves, i) * periodInterest(loan, balance);
     balance += extras.get(i) ?? 0;
+    chargeHalves(i + 1);
     payments.filter((p) => getPos(p) === i).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount ?? 0));
     });

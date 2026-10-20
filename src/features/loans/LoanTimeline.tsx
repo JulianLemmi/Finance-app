@@ -12,7 +12,7 @@ import {
   X, Trash2, CalendarCheck, Pencil, Check, PlusCircle,
 } from "lucide-react";
 import { formatDate, formatInterest, loanPeriodDate, myShare, todayISO } from "../../lib/utils.js";
-import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot } from "../../lib/calcs.js";
+import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot, halfCyclesBySlot, pendingCycleFraction } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
 import type { ResolvedLoan } from "../../types";
@@ -26,12 +26,17 @@ interface LoanTimelineProps {
 type StartEvent  = { type: "start"; date: string };
 type DueEvent    = { type: "due"; date: string };
 type ExtraEvent  = { type: "extra"; id: string; date: string; amount: number; note?: string };
+/** Medio ciclo cobrado: el cliente vino unos dias despues del vencimiento. */
+type HalfEvent   = { type: "half"; date: string; total: number; added: number };
 type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; isPaid?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; naturalPos: number; interestInPayment: number; totalInterestAccrued: number;
 };
-type TimelineEvent = StartEvent | DueEvent | ExtraEvent | MoraEvent | PaymentEvent;
+type TimelineEvent = StartEvent | DueEvent | ExtraEvent | MoraEvent | HalfEvent | PaymentEvent;
+
+/** Fraccion de ciclo que cobra un medio adelanto. */
+const HALF_CYCLE = 0.5;
 
 // ── Estilos compartidos por tipo ──────────────────────────────────────────────
 // Un date input pequeño usado para editar fechas en línea. Colores tomados del contexto.
@@ -131,12 +136,16 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
-  const overdueTimelinePeriods = useMemo<MoraEvent[]>(() => {
+  const overdueTimelinePeriods = useMemo<(MoraEvent | HalfEvent)[]>(() => {
+    if (!loan.dueDate) return [];
+    // Los medios ciclos se cobran aunque todavía no haya corrido ningún re-vencimiento:
+    // ese es justamente el caso para el que existen (el cliente vino unos días tarde).
+    const halves = halfCyclesBySlot(loan, todayISO(), currentCompoundPeriods);
     // `currentCompoundPeriods` ya cuenta los ciclos que el motor cobró (ver
     // `overduePeriodsAt`), así que alcanza como guarda. Acá había además un filtro por
     // `_status !== "overdue"`: escondía la mora de los préstamos que volvieron a "active"
     // por haber pagado el interés, aunque el ciclo se les hubiera cobrado igual.
-    if (!loan.dueDate || currentCompoundPeriods === 0) return [];
+    if (currentCompoundPeriods === 0 && halves.size === 0) return [];
 
     const payments = loan.payments || [];
     const getPos = (p: typeof payments[number]) =>
@@ -147,6 +156,20 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     const extraImpacts = extraImpactsBySlot(loan, todayISO(), currentCompoundPeriods);
     const base = Number(loan.amount);
     let balance = base + periodInterest(loan, base) + extraImpacts[0];
+
+    const share = myShare(loan);
+    const result: (MoraEvent | HalfEvent)[] = [];
+    // Mismo orden que `debtWalk`: el medio ciclo se cobra en su fecha, sobre el saldo de
+    // ese momento, y va antes de los pagos del tramo.
+    const chargeHalves = (slot: number) => {
+      for (const date of halves.get(slot) || []) {
+        const added = balance > 0 ? HALF_CYCLE * periodInterest(loan, balance) : 0;
+        balance += added;
+        result.push({ type: "half", date, total: balance, added: added * share });
+      }
+    };
+
+    chargeHalves(1);
     payments.filter((p) => getPos(p) === 0).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount));
     });
@@ -154,11 +177,10 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     const advDates = [...(loan.advancedAt || [])].sort();
     const naturalCycles = currentCompoundPeriods - advDates.length;
 
-    const share = myShare(loan);
-    const result: MoraEvent[] = [];
     for (let i = 1; i <= currentCompoundPeriods; i++) {
       const prevBalance = Math.max(0, balance);
-      const added = periodInterest(loan, prevBalance);
+      // Si ya se le cobró medio ciclo, acá entra sólo la mitad que quedaba.
+      const added = pendingCycleFraction(halves, i) * periodInterest(loan, prevBalance);
       const afterMora = prevBalance + added;
       const isAdvanced = i > naturalCycles;
       const advIdx = i - naturalCycles - 1;
@@ -180,6 +202,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       // El adicional de este ciclo entra después de la capitalización (ver `extraSlot`):
       // no vuelve a pagar el ciclo que ya cobró por adelantado.
       balance = afterMora + extraImpacts[i];
+      chargeHalves(i + 1);
       payments.filter((p) => getPos(p) === i).forEach((p) => {
         balance = Math.max(0, balance - Number(p.amount));
       });
@@ -246,7 +269,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         //
         // El adicional entra después de la capitalización del día (ver `extraSlot`), así
         // que en un empate de fecha va detrás de la mora y antes de los pagos.
-        const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, extra: 25, payment: 30 };
+        const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, half: 22, extra: 25, payment: 30 };
         return dateMs(ev.date) + (tieBreak[ev.type] ?? 40);
       };
       return getSortKey(a) - getSortKey(b);
@@ -480,6 +503,36 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
             }
 
             // ── CARGO POR MORA / CICLO ADELANTADO / VENCIMIENTO CUBIERTO ────
+            // ── MEDIO CICLO ─────────────────────────────────────────────────
+            if (ev.type === "half") {
+              return (
+                <EventRow key={`half-${ev.date}`} ringCls="border-sky-700/60 bg-sky-950/80" dotCls="bg-sky-400">
+                  <div className="rounded-xl bg-sky-950/10 px-3 py-2.5 ring-1 ring-sky-900/30">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
+                          <CalendarCheck className="h-3.5 w-3.5 shrink-0" />
+                          Medio ciclo
+                        </div>
+                        <div className="mt-1 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
+                        <div className="mt-0.5 text-[11px] text-zinc-600">
+                          El vencimiento no se mueve: cobra la otra mitad
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                          <Money value={ev.total} hide={hide} currency={cur} />
+                        </div>
+                        <div className="mt-0.5 text-[11px] tabular-nums text-sky-400">
+                          +<Money value={ev.added} hide={hide} currency={cur} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </EventRow>
+              );
+            }
+
             if (ev.type === "mora") {
               const adv = ev.isAdvanced;
               const paid = !!ev.isPaid;

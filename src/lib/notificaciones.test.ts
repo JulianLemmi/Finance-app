@@ -86,6 +86,24 @@ const cartera: Record<string, Loan> = {
   extraReabrePagado: mk({ startDate: addDays(HOY, -40), dueDate: addDays(HOY, -10),
                           payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }],
                           extras: [{ id: "e", amount: 60000, date: addDays(HOY, -2) }] }),
+  // Medio ciclo: el cliente vino unos días después del vencimiento y se le cobró la mitad
+  // del interés del período. El edge function tiene su propia copia del reparto, así que
+  // si una de las dos cobra el mes entero el test lo ve.
+  medioAntesDelReVenc: mk({ startDate: addCalendarMonths(HOY, -1), dueDate: addDays(HOY, -10),
+                            halfAdvancedAt: [addDays(HOY, -5)] }),
+  medioYaCerroElCiclo: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+                            halfAdvancedAt: [addCalendarMonths(HOY, -2) > "" ? addDays(addCalendarMonths(HOY, -2), 10) : HOY] }),
+  medioFijo: mk({ interestMode: "fixed", fixedInterest: 8000, interestRate: 0,
+                  startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+                  halfAdvancedAt: [addDays(addCalendarMonths(HOY, -1), 10)] }),
+  medioConPago: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+                     halfAdvancedAt: [addDays(addCalendarMonths(HOY, -2), 12)],
+                     payments: [{ id: "p", amount: 25000, date: addDays(HOY, -20) }] }),
+  medioFuturo: mk({ startDate: addCalendarMonths(HOY, -1), dueDate: addDays(HOY, -10),
+                    halfAdvancedAt: [addDays(HOY, 5)] }),
+  medioConExtra: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+                      halfAdvancedAt: [addDays(addCalendarMonths(HOY, -2), 8)],
+                      extras: [{ id: "e", amount: 30000, date: addDays(HOY, -25) }] }),
 };
 
 const casos = Object.entries(cartera);

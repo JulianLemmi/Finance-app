@@ -125,6 +125,74 @@ export function extraImpactsBySlot(loan: Loan, asOf: string, overduePeriods: num
   return out;
 }
 
+// ── Medio ciclo (`halfAdvancedAt`) ────────────────────────────────────────────
+// El cliente vino a pagar unos días después del vencimiento y se le cobra la mitad del
+// interés del período en vez del mes entero. El cargo cae en la fecha elegida y el
+// re-vencimiento que ese medio ciclo adelanta cobra sólo la mitad que quedaba; de ahí en
+// más vuelven los ciclos completos. Media y media hacen un mes: no es un descuento, es
+// cobrar partido. El calendario no se toca — a diferencia de `advancedAt`, un medio ciclo
+// NO corre `getNextRenewalDate` ni abre un slot de pago propio.
+
+/** Fracción de un ciclo que cobra cada medio adelanto. */
+const HALF = 0.5;
+
+/**
+ * Medios ciclos cobrados hasta `asOf`, agrupados por el re-vencimiento que adelantan.
+ * Comparte la cuenta de `extraSlot`: el slot de una fecha es el índice del vencimiento que
+ * cierra el ciclo en el que cae, que es justamente el que ese medio ciclo está pagando por
+ * adelantado. El slot `overduePeriods + 1` es el ciclo abierto: ya se cobró, y cuando esa
+ * fecha llegue va a descontar su mitad.
+ */
+export function halfCyclesBySlot(loan: Loan, asOf: string, overduePeriods: number): ReadonlyMap<number, string[]> {
+  const list = loan.halfAdvancedAt;
+  if (!list || list.length === 0) return new Map();
+  const bySlot = new Map<number, string[]>();
+  for (const date of [...list].filter((d) => d && d <= asOf).sort()) {
+    const slot = extraSlot(loan, date, overduePeriods);
+    const prev = bySlot.get(slot);
+    if (prev) prev.push(date);
+    else bySlot.set(slot, [date]);
+  }
+  return bySlot;
+}
+
+/**
+ * Fracción que le queda por cobrar al re-vencimiento `slot`: 1 si nadie lo adelantó, 0.5 si
+ * ya se cobró un medio ciclo. Topeado en 0 — más de dos medios en un mismo período sólo
+ * puede venir de datos viejos o importados, y cobrar negativo sería peor que no cobrar.
+ */
+export function pendingCycleFraction(halves: ReadonlyMap<number, string[]>, slot: number): number {
+  return Math.max(0, 1 - HALF * (halves.get(slot)?.length ?? 0));
+}
+
+/**
+ * Lo que le falta cobrar al PRÓXIMO re-vencimiento, como fracción de un ciclo: 0.5 si ya se
+ * le cobró medio al cliente, 1 si no. Lo usan `nextPeriodInterest` y `upcomingInterest`
+ * para no volver a prometer el mes entero cuando ya se cobró la mitad.
+ */
+export function nextCycleFraction(loan: Loan, asOf: string = todayISO()): number {
+  if (!loan.dueDate || loan.noDueDate) return 1;
+  const periods = overduePeriodsAt(loan, asOf);
+  return pendingCycleFraction(halfCyclesBySlot(loan, asOf, periods), periods + 1);
+}
+
+/**
+ * ¿El período en el que cae `date` ya tiene cobrado su medio ciclo? Dos medios son el ciclo
+ * entero y para eso está "Adelantar", así que el reducer rechaza el segundo y la UI apaga
+ * el botón. Mira todos los medios registrados, no sólo los anteriores a `date`.
+ */
+export function halfCycleCharged(loan: Loan, date: string): boolean {
+  if (!loan.dueDate || loan.noDueDate || !date) return false;
+  // La base de ciclos tiene que alcanzar para ubicar `date` y los medios ya registrados:
+  // `extraSlot` manda al mismo slot abierto todo lo que caiga más allá del último ciclo
+  // contado, así que con una base corta dos fechas de períodos distintos se confunden.
+  const horizon = [date, todayISO(), ...(loan.halfAdvancedAt || [])]
+    .reduce((a, b) => (b && b > a ? b : a), date);
+  const periods = overduePeriodsAt(loan, horizon);
+  const slot = extraSlot(loan, date, periods);
+  return (loan.halfAdvancedAt || []).some((d) => d && extraSlot(loan, d, periods) === slot);
+}
+
 /**
  * Núcleo de la deuda de un préstamo con vencimiento: arranca en capital + interés del
  * primer ciclo (cobrado por adelantado) y aplica, vencimiento por vencimiento, la
@@ -155,6 +223,20 @@ function debtWalkDetailed(
   const contracted = periodInterest(loan, balance);
   balance += contracted;
   if (loan.dueDate) accruals.push({ date: loan.dueDate, amount: contracted, contracted: true });
+
+  // Medios ciclos: se cobran en su propia fecha, sobre el saldo de ese momento, y van
+  // antes de los pagos del tramo — el cliente viene, se le cobra la mitad, y recién
+  // entonces paga. El re-vencimiento que adelantan cobra después lo que quedaba.
+  const halves = halfCyclesBySlot(loan, asOf, overduePeriods);
+  const chargeHalves = (slot: number) => {
+    for (const date of halves.get(slot) || []) {
+      const charge = balance > 0 ? HALF * periodInterest(loan, balance) : 0;
+      balance += charge;
+      if (charge > 0) accruals.push({ date, amount: charge });
+    }
+  };
+
+  chargeHalves(1);
   payments.filter((p) => getPos(p) === 0).forEach((p) => {
     balance = Math.max(0, balance - Number(p.amount));
   });
@@ -169,13 +251,18 @@ function debtWalkDetailed(
     // El interés se cobra sobre el saldo REAL del ciclo: si el cliente pagó antes del
     // re-vencimiento, se le cobra menos. Calcularlo sobre un saldo sin pagos inflaba el
     // devengado y rompía la identidad deuda = capital + devengado − pagado.
-    let interest = balance > 0 ? periodInterest(loan, balance) : 0;
+    // Si a este re-vencimiento ya se le cobró medio ciclo por adelantado, acá sólo entra
+    // la mitad que quedaba. Media y media hacen el mes completo.
+    let interest = balance > 0
+      ? pendingCycleFraction(halves, i) * periodInterest(loan, balance)
+      : 0;
     interest += extraInterest(extraCapital);
     balance += interest + extraCapital;
     const date = i > naturalCycles
       ? (advances[i - naturalCycles - 1] || loanPeriodDate(loan, loan.dueDate, i))
       : loanPeriodDate(loan, loan.dueDate, i);
     if (interest > 0) accruals.push({ date, amount: interest });
+    chargeHalves(i + 1);
     payments.filter((p) => getPos(p) === i).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount));
     });
@@ -479,10 +566,14 @@ export function upcomingInterest(loan: Loan, until: string): number {
 
   let nextDate = loanPeriodDate(loan, anchor, periodIndex + 1);
   let total = 0;
+  // Al primer re-vencimiento de la ventana puede quedarle media fracción nada más, si ya se
+  // le cobró medio ciclo al cliente. Los siguientes cobran el ciclo entero.
+  let fraction = nextCycleFraction(loan, today);
   for (let guard = 0; nextDate <= until && guard < 64; guard++) {
-    const interest = periodInterest(loan, balance);
+    const interest = fraction * periodInterest(loan, balance);
     total += interest;
     balance += interest;
+    fraction = 1;
     periodIndex++;
     nextDate = loanPeriodDate(loan, anchor, periodIndex + 1);
   }
@@ -498,7 +589,18 @@ export function upcomingInterest(loan: Loan, until: string): number {
 // - Vencido: el contratado ya está devengado; lo que sigue es la capitalización del próximo
 //   período sobre la deuda actual (deuda × tasa), igual que remainingDebt (balance *= 1 + rate).
 // - Pagado / refinanciado: no hay próxima ganancia.
+/**
+ * Interés que va a cobrar el próximo re-vencimiento. Si a ese re-vencimiento ya se le cobró
+ * medio ciclo (el cliente vino unos días tarde y pagó la mitad), lo que falta es la otra
+ * mitad, no el mes entero: el sheet de adelanto, la card y el mapa de vencimientos anuncian
+ * lo mismo que la deuda va a cobrar.
+ */
 export function nextPeriodInterest(loan: Loan): number {
+  return fullNextPeriodInterest(loan) * nextCycleFraction(loan);
+}
+
+/** El ciclo entero, sin descontar lo que ya se cobró por adelantado. */
+function fullNextPeriodInterest(loan: Loan): number {
   const status = resolveStatus(loan);
   if (status === "paid" || status === "refinanced") return 0;
   // Sin vencimiento: la deuda capitaliza cada ciclo, así que el próximo interés se cobra
