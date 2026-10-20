@@ -11,6 +11,16 @@ export default function GlobalStyles() {
       ::-webkit-scrollbar-thumb:hover { background: rgba(161,106,20,0.6); }
       ::selection { background: rgba(245,158,11,0.28); color: #fff; }
 
+      /* En el teléfono, el detalle de un préstamo tiene mucho más contenido que alto de
+         pantalla. zoom achica todo el bloque —tipografías, espaciados y bordes por igual—
+         y entra bastante más sin tocar ni una clase del contenido. Las medidas de Tailwind
+         son rem (relativas a la raíz), así que bajarle el font-size al contenedor no haría
+         nada: zoom es lo único que las alcanza. En pantalla ancha no aplica, porque ahí el
+         detalle ya se abre en dos columnas y sobra lugar. */
+      @media (max-width: 639px) {
+        .fa-dense { zoom: 0.88 }
+      }
+
       /* ───────────────────────── Motion primitives ───────────────────────── */
       @keyframes fa-fade { from { opacity: 0 } to { opacity: 1 } }
       @keyframes fa-fade-out { from { opacity: 1 } to { opacity: 0 } }

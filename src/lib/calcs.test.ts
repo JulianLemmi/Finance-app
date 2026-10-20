@@ -9,7 +9,7 @@ import {
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
   closedLoanOutcome, overduePeriodsAt, resolvePaymentPos, paymentAnchorDate,
-  nextCycleFraction, halfCycleCharged,
+  nextCycleFraction, halfCycleCharged, loanLedger, unaccruedInterest,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
@@ -1303,5 +1303,152 @@ describe("medio ciclo (halfAdvancedAt)", () => {
     const l = conMedio(extra);
     const devengado = interestAccruals(l).reduce((s, e) => s + e.amount, 0);
     expect(remainingDebt(l)).toBeCloseTo(loanPrincipalAt(l) + devengado - paidAmount(l), 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La ficha de cuenta corriente del préstamo. No recorre la deuda de nuevo: compone el
+// devengado, los adicionales y los pagos. Por eso el último saldo TIENE que dar
+// `remainingDebt` — si deja de cerrar, el que está mal es el recorrido, no la planilla.
+describe("loanLedger: la planilla del préstamo", () => {
+  const ultimo = (l: Loan) => { const f = loanLedger(l); return f[f.length - 1]; };
+
+  // Once formas distintas. La identidad vale para todas.
+  it.each([
+    ["activo simple", mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) })],
+    ["vencido un ciclo", mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2) })],
+    ["vencido tres ciclos", mk({ startDate: addCalendarMonths(HOY, -5), dueDate: addCalendarMonths(HOY, -4) })],
+    ["quincenal", mk({ paymentType: "15", startDate: addDays(HOY, -75), dueDate: addDays(HOY, -60) })],
+    ["interés fijo", mk({ interestMode: "fixed", fixedInterest: 8000, startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1) })],
+    ["con pagos", mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      payments: [{ id: "p1", amount: 20000, date: addDays(HOY, -40) }, { id: "p2", amount: 15000, date: addDays(HOY, -10) }] })],
+    ["con pago reordenado", mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      payments: [{ id: "p", amount: 30000, date: addDays(HOY, -40), timelinePos: 1 }] })],
+    ["con adicional en ciclo cerrado", mk({ startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3),
+      extras: [{ id: "e", amount: 40000, date: addCalendarMonths(HOY, -2) }] })],
+    ["con adicional en el ciclo abierto", mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20),
+      extras: [{ id: "e", amount: 50000, date: addDays(HOY, -2) }] })],
+    ["con medio ciclo", mk({ startDate: "2026-07-10", dueDate: "2026-08-10", halfAdvancedAt: ["2026-08-20"] })],
+    ["con ciclo adelantado", mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20), advancedAt: [addDays(HOY, -2)] })],
+    ["vencido con adicional posterior", mk({ startDate: addDays(HOY, -35), dueDate: addDays(HOY, -5),
+      extras: [{ id: "e", amount: 50000, date: addDays(HOY, -2) }] })],
+    ["pagado", mk({ status: "paid", startDate: addDays(HOY, -40), dueDate: addDays(HOY, -10),
+      payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }] })],
+  ])("el último saldo es la deuda del header: %s", (_caso, l) => {
+    expect(ultimo(l)!.saldo).toBeCloseTo(remainingDebt(l), 2);
+  });
+
+  it("el saldo de cada fila es el anterior más el debe menos el haber", () => {
+    const l = mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      payments: [{ id: "p", amount: 25000, date: addDays(HOY, -20) }] });
+    let previo = 0;
+    for (const f of loanLedger(l)) {
+      expect(f.saldo).toBeCloseTo(previo + f.debe - f.haber, 2);
+      previo = f.saldo;
+    }
+  });
+
+  it("arranca por el capital prestado, en la fecha de inicio", () => {
+    const l = mk({ amount: 100000, startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) });
+    const primera = loanLedger(l)[0];
+    expect(primera).toMatchObject({ kind: "capital", debe: 100000, haber: 0, date: l.startDate });
+    expect(primera.saldo).toBeCloseTo(100000, 2);
+  });
+
+  it("cada cosa cae en su columna: lo que suma en el debe, lo que resta en el haber", () => {
+    const l = mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      payments: [{ id: "p", amount: 25000, date: addDays(HOY, -20) }],
+      extras: [{ id: "e", amount: 30000, date: addDays(HOY, -35) }] });
+    for (const f of loanLedger(l)) {
+      if (f.kind === "pago") expect([f.debe, f.haber > 0]).toEqual([0, true]);
+      else expect([f.haber, f.debe > 0]).toEqual([0, true]);
+    }
+  });
+
+  it("nombra cada interés por lo que es", () => {
+    const l = mk({ startDate: "2026-07-10", dueDate: "2026-08-10", halfAdvancedAt: ["2026-08-20"] });
+    const detalles = loanLedger(l).filter((f) => f.kind === "interes").map((f) => f.detalle);
+    expect(detalles).toContain("Interés del período");
+    expect(detalles).toContain("Medio ciclo");
+  });
+
+  it("la nota del pago y la del adicional se muestran tal cual", () => {
+    const l = mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      payments: [{ id: "p", amount: 1000, date: addDays(HOY, -20), note: "Pagó en mano" }],
+      extras: [{ id: "e", amount: 5000, date: addDays(HOY, -35), note: "Pidió para el auto" }] });
+    const detalles = loanLedger(l).map((f) => f.detalle);
+    expect(detalles).toContain("Pagó en mano");
+    expect(detalles).toContain("Pidió para el auto");
+  });
+
+  it("un pago reordenado se ubica en su ciclo pero muestra su fecha real", () => {
+    const l = mk({ startDate: "2026-06-10", dueDate: "2026-07-10",
+      payments: [{ id: "p", amount: 30000, date: "2026-07-02", timelinePos: 1 }] });
+    const filas = loanLedger(l);
+    const pago = filas.find((f) => f.kind === "pago")!;
+    expect(pago.date).toBe("2026-07-02");
+    // Imputado al ciclo 1: va después del interés por mora del 10/08, no antes del
+    // vencimiento como diría su fecha.
+    expect(filas.indexOf(pago)).toBeGreaterThan(filas.findIndex((f) => f.detalle === "Interés por mora"));
+  });
+
+  it("lo fechado a futuro no entra todavía", () => {
+    const l = mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20),
+      extras: [{ id: "e", amount: 50000, date: addDays(HOY, 5) }] });
+    expect(loanLedger(l).some((f) => f.kind === "extra")).toBe(false);
+  });
+
+  describe("el interés del ciclo en curso", () => {
+    it("un préstamo que no venció ya tiene cobrado su interés contratado", () => {
+      const l = mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) });
+      expect(unaccruedInterest(l)).toBeCloseTo(10000, 2);
+      const f = loanLedger(l);
+      expect(f[f.length - 1].detalle).toContain("ciclo en curso");
+    });
+
+    it("ya vencido no queda nada por fuera: todos los ciclos cerrados están devengados", () => {
+      const l = mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2) });
+      expect(unaccruedInterest(l)).toBe(0);
+      expect(loanLedger(l).some((f) => f.detalle.includes("ciclo en curso"))).toBe(false);
+    });
+
+    it("un préstamo cerrado no tiene ciclo en curso", () => {
+      const l = mk({ status: "paid", startDate: addDays(HOY, -40), dueDate: addDays(HOY, -10),
+        payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }] });
+      expect(unaccruedInterest(l)).toBe(0);
+    });
+
+    it("crece con los adicionales ya entregados", () => {
+      const base = { startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) };
+      const conExtra = mk({ ...base, extras: [{ id: "e", amount: 50000, date: addDays(HOY, -2) }] });
+      expect(unaccruedInterest(conExtra)).toBeCloseTo(15000, 2);
+    });
+  });
+
+  it("un préstamo sin capital no tiene planilla", () => {
+    expect(loanLedger(mk({ amount: 0 }))).toEqual([]);
+  });
+
+  it("un préstamo sin vencimiento también cierra", () => {
+    const l = mk({ noDueDate: true, dueDate: "", startDate: addCalendarMonths(HOY, -3) });
+    expect(ultimo(l)!.saldo).toBeCloseTo(remainingDebt(l), 2);
+  });
+
+  it("si pagó todo, el saldo cierra en cero", () => {
+    const l = mk({ startDate: addDays(HOY, -40), dueDate: addDays(HOY, -10), status: "paid",
+      payments: [{ id: "p", amount: 110000, date: addDays(HOY, -10) }] });
+    expect(ultimo(l)!.saldo).toBeCloseTo(0, 2);
+    expect(ultimo(l)!.saldo).toBeCloseTo(remainingDebt(l), 2);
+  });
+
+  it("las filas van en orden de fecha", () => {
+    const l = mk({ startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3),
+      extras: [{ id: "e", amount: 30000, date: addCalendarMonths(HOY, -2) }],
+      payments: [{ id: "p", amount: 20000, date: addDays(HOY, -15) }] });
+    const filas = loanLedger(l);
+    // El capital siempre primero; de ahí en más, nunca hacia atrás salvo un pago reordenado.
+    expect(filas[0].kind).toBe("capital");
+    const intereses = filas.filter((f) => f.kind === "interes").map((f) => f.date);
+    expect([...intereses].sort()).toEqual(intereses);
   });
 });

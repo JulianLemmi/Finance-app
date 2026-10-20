@@ -494,6 +494,148 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
 }
 
 /**
+ * Interés del ciclo EN CURSO: ya está dentro de la deuda —se cobra por adelantado, igual
+ * que al dar de alta el préstamo— pero el devengado todavía no lo reconoce, porque el
+ * período no cerró. Es el desfasaje de un ciclo que documenta CLAUDE.md, y el motivo por
+ * el que `deuda = capital + devengado − pagado` recién cierra una vez vencido el primero.
+ *
+ * Sale de la regla, no de restarle cosas a `remainingDebt`: si fuera un residuo, la
+ * planilla cerraría siempre y el test que la controla no probaría nada.
+ */
+export function unaccruedInterest(loan: Loan): number {
+  const status = resolveStatus(loan);
+  if (status === "paid" || status === "refinanced") return 0;
+  const today = todayISO();
+  if (loan.noDueDate) {
+    // El ciclo en curso cobra sobre todo lo acumulado hasta el último cierre.
+    const recognized = interestAccruals(loan).reduce((s, ev) => s + ev.amount, 0);
+    return periodInterest(loan, loanPrincipalAt(loan, today) + recognized);
+  }
+  // Con vencimiento, lo único que la deuda tiene y el devengado no es el interés
+  // contratado, mientras la fecha no haya llegado. Ya vencido, todos los ciclos cerrados
+  // están reconocidos y no queda nada por fuera.
+  return loan.dueDate && loan.dueDate > today ? expectedProfit(loan) : 0;
+}
+
+// ── Planilla de cuenta corriente ──────────────────────────────────────────────
+
+/** Qué originó una fila de la planilla. */
+export type LedgerKind = "capital" | "interes" | "extra" | "pago";
+
+/** Una fila de la ficha de cuenta corriente del préstamo. Importes brutos (sin `myShare`),
+ *  igual que el resto del detalle. */
+export interface LedgerRow {
+  date: string;
+  kind: LedgerKind;
+  detalle: string;
+  /** Lo que sumó a la deuda. */
+  debe: number;
+  /** Lo que la bajó. */
+  haber: number;
+  /** Deuda después de esta fila. */
+  saldo: number;
+}
+
+/**
+ * La historia del préstamo como una ficha de cuenta corriente: capital, intereses,
+ * adicionales y pagos en orden, con el saldo corriendo fila por fila.
+ *
+ * No vuelve a recorrer la deuda: compone lo que ya calculan `interestAccruals`, los
+ * adicionales y los pagos. De ahí que el último saldo tenga que dar exactamente
+ * `remainingDebt` — es la identidad `deuda = capital vigente + devengado − pagado` escrita
+ * línea por línea, y hay un test que la afirma sobre once formas de préstamo. Si alguna vez
+ * deja de cerrar, el que está mal es el recorrido, no la planilla.
+ *
+ * Los pagos se ubican por su slot (`paymentAnchorDate`), igual que la línea de tiempo: un
+ * pago reordenado se mueve de lugar acá también.
+ */
+export function loanLedger(loan: Loan): LedgerRow[] {
+  const today = todayISO();
+  const base = Number(loan.amount || 0);
+  if (!(base > 0)) return [];
+
+  const periods = overduePeriodsAt(loan, today);
+  const halfDates = new Set((loan.halfAdvancedAt || []).filter((d) => d && d <= today));
+  const advDates = new Set((loan.advancedAt || []).filter((d) => d && d <= today));
+
+  // `sort` es dónde cae la fila en el recorrido de la deuda; `date` es la fecha que se
+  // muestra. Difieren en un pago reordenado: se ubica en el ciclo al que lo imputaron,
+  // pero la ficha tiene que seguir diciendo el día en que el cliente trajo la plata.
+  type Draft = Omit<LedgerRow, "saldo"> & { sort: string; order: number };
+  const rows: Draft[] = [
+    { date: loan.startDate, sort: loan.startDate, kind: "capital", detalle: "Capital prestado", debe: base, haber: 0, order: 0 },
+  ];
+
+  // Un adicional entregado en el ciclo ABIERTO todavía no cerró su período, así que su
+  // interés se cobró por adelantado y no está en el devengado: la fila tiene que mostrar el
+  // impacto completo o el saldo no cierra. En los ciclos ya cerrados ese interés sí está
+  // dentro del devengado del ciclo, y acá va sólo el capital.
+  for (const e of loan.extras || []) {
+    const amount = Number(e.amount || 0);
+    if (!e.date || e.date > today || !(amount > 0)) continue;
+    const abierto = !loan.noDueDate && extraSlot(loan, e.date, periods) === periods + 1;
+    rows.push({
+      date: e.date,
+      sort: e.date,
+      kind: "extra",
+      detalle: e.note?.trim() || (abierto ? "Capital agregado (con su interés)" : "Capital agregado"),
+      debe: abierto ? extraDebtImpact(loan, amount) : amount,
+      haber: 0,
+      order: 25,
+    });
+  }
+
+  for (const ev of interestAccruals(loan)) {
+    const detalle = loan.noDueDate || ev.date === loan.dueDate
+      ? "Interés del período"
+      : halfDates.has(ev.date)
+        ? "Medio ciclo"
+        : advDates.has(ev.date)
+          ? "Ciclo adelantado"
+          : "Interés por mora";
+    rows.push({ date: ev.date, sort: ev.date, kind: "interes", detalle, debe: ev.amount, haber: 0, order: 20 });
+  }
+
+  for (const p of loan.payments || []) {
+    const amount = Number(p.amount || 0);
+    if (!p.date || !(amount > 0)) continue;
+    rows.push({
+      date: p.date,
+      sort: periods > 0 ? paymentAnchorDate(loan, p, periods) : p.date,
+      kind: "pago",
+      detalle: p.note?.trim() || "Pago recibido",
+      debe: 0,
+      haber: amount,
+      order: 30,
+    });
+  }
+
+  // El ciclo que todavía no cerró ya está cobrado: va al final, con su nombre, para que el
+  // último saldo sea la deuda que muestra el header y no quede plata sin explicar.
+  const enCurso = unaccruedInterest(loan);
+  if (enCurso > 0) {
+    rows.push({
+      date: today,
+      sort: today,
+      kind: "interes",
+      detalle: "Interés del ciclo en curso (cobrado por adelantado)",
+      debe: enCurso,
+      haber: 0,
+      order: 40,
+    });
+  }
+
+  let saldo = 0;
+  return rows
+    .map((r, i) => ({ ...r, i }))
+    .sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : a.order - b.order || a.i - b.i))
+    .map(({ sort: _sort, order: _order, i: _i, ...r }) => {
+      saldo = Math.max(0, saldo + r.debe - r.haber);
+      return { ...r, saldo };
+    });
+}
+
+/**
  * Qué dejó un préstamo ya cerrado (cobrado o refinanciado) y cuándo cerró, prorrateado por
  * mi parte. Lo usan la card del historial de archivados y su resumen.
  *

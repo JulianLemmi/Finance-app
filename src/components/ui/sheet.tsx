@@ -14,6 +14,9 @@ interface SheetProps {
   footer?: ReactNode;
   children?: ReactNode;
   size?: SheetSize;
+  /** Achica el contenido en el teléfono para que entre más sin scrollear (ver `.fa-dense`
+   *  en GlobalStyles). Para los sheets largos, como el detalle de un préstamo. */
+  dense?: boolean;
 }
 
 const widths: Record<SheetSize, string> = {
@@ -28,7 +31,7 @@ const widths: Record<SheetSize, string> = {
 const CLOSE_MS = 220;
 const DISMISS_THRESHOLD = 110;
 
-export function Sheet({ open, onClose, title, subtitle, footer, children, size = "md" }: SheetProps) {
+export function Sheet({ open, onClose, title, subtitle, footer, children, size = "md", dense = false }: SheetProps) {
   const [closing, setClosing] = useState(false);
   const [dragY, setDragY] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -135,7 +138,7 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
 
         {/* Scrollable body */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-          {children}
+          {dense ? <div className="fa-dense">{children}</div> : children}
         </div>
 
         {/* Footer */}

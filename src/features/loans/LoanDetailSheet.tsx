@@ -4,7 +4,7 @@
 import { useState, useMemo } from "react";
 import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
-  MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle,
+  MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle, FileSpreadsheet,
 } from "lucide-react";
 import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
 import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt, halfCycleCharged, periodInterest } from "../../lib/calcs.js";
@@ -22,6 +22,7 @@ import LoanChain from "./LoanChain.jsx";
 import PaymentSheet from "./PaymentSheet.jsx";
 import LoanFormSheet from "./LoanFormSheet.jsx";
 import LoanTimeline from "./LoanTimeline.jsx";
+import LoanLedgerSheet from "./LoanLedgerSheet.jsx";
 import PaymentHistory from "./PaymentHistory.jsx";
 import PhotoGallery from "./PhotoGallery.jsx";
 import type { ResolvedLoan } from "../../types";
@@ -51,6 +52,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   const [showParkingForm, setShowParkingForm] = useState(false);
 
   const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const [advanceDate, setAdvanceDate] = useState(() => todayISO());
   // "half" = el cliente vino unos dias tarde y se le cobra la mitad del interes del
   // periodo; el calendario no se mueve. "full" = el adelanto de siempre.
@@ -222,9 +224,16 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
         title={loan.clientName}
         subtitle={loan.alias || `Préstamo · ${formatDate(loan.startDate)}`}
         size="xl"
+        dense
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button variant="ghost" Icon={Edit2} onClick={() => setEditOpen(true)}>Editar</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="ghost" Icon={Edit2} onClick={() => setEditOpen(true)}>Editar</Button>
+              {/* Todas las operaciones del prestamo en una ficha de cuenta corriente. */}
+              <Button variant="ghost" Icon={FileSpreadsheet} onClick={() => setLedgerOpen(true)}>
+                Ver en planilla
+              </Button>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" Icon={FastForward}
                 onClick={() => { setAdvanceDate(todayISO()); setAdvanceOpen(true); }}
@@ -620,6 +629,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
       </Sheet>
 
       <PaymentSheet open={paymentOpen} onClose={() => setPaymentOpen(false)} loan={loan} />
+      <LoanLedgerSheet open={ledgerOpen} onClose={() => setLedgerOpen(false)} loan={loan} />
       <LoanFormSheet open={editOpen} onClose={() => setEditOpen(false)} editingLoan={editOpen ? loan : null} />
       <LoanFormSheet
         open={refinanceOpen}
