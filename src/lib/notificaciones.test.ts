@@ -104,6 +104,20 @@ const cartera: Record<string, Loan> = {
   medioConExtra: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
                       halfAdvancedAt: [addDays(addCalendarMonths(HOY, -2), 8)],
                       extras: [{ id: "e", amount: 30000, date: addDays(HOY, -25) }] }),
+  // Adelantos reordenados a mano (`pos`): el frontend y el edge tienen que normalizar el
+  // registro igual. Leer un `{ date, pos }` como si fuera un string es silenciosamente
+  // falso —`{...} <= "2026-08-25"` nunca es true—, así que de un lado el adelanto
+  // desaparecería y del otro no.
+  adelantoReordenado: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+                           advancedAt: [{ date: addDays(addCalendarMonths(HOY, -2), 5), pos: 1 }] }),
+  adelantoMixto: mk({ startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3),
+                      advancedAt: [addDays(HOY, -20), { date: addDays(HOY, -10), pos: 1 }] }),
+  // Un medio ciclo movido de re-vencimiento cambia QUÉ ciclo cobra la mitad, o sea el monto
+  // que anuncia el push.
+  medioReordenado: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+                        halfAdvancedAt: [{ date: addDays(addCalendarMonths(HOY, -2), 8), pos: 2 }] }),
+  medioAlCicloAbierto: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+                            halfAdvancedAt: [{ date: addDays(addCalendarMonths(HOY, -2), 8), pos: 3 }] }),
 };
 
 const casos = Object.entries(cartera);

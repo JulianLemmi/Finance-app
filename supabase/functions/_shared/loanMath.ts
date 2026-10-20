@@ -25,6 +25,31 @@ export type LoanExtra = {
   date?: string;
 };
 
+/** Espeja AdvanceEntry/AdvanceRecord de src/types.ts: un adelanto se guarda como fecha
+ *  suelta mientras nadie lo mueva, y como objeto cuando el usuario le fijó la posición en
+ *  la secuencia de ciclos. Las dos formas conviven en el mismo array. */
+export type AdvanceEntry = { date: string; pos?: number };
+export type AdvanceRecord = string | AdvanceEntry;
+
+/** Mirror of src/lib/utils.ts advanceEntries. Comparar un AdvanceRecord contra una fecha
+ *  con `<=` es silenciosamente falso cuando resulta ser un objeto: toda lectura pasa acá. */
+function advanceEntries(list?: AdvanceRecord[]): AdvanceEntry[] {
+  const out: AdvanceEntry[] = [];
+  for (const rec of list ?? []) {
+    if (typeof rec === "string") {
+      if (rec) out.push({ date: rec });
+    } else if (rec && rec.date) {
+      out.push(typeof rec.pos === "number" ? { date: rec.date, pos: rec.pos } : { date: rec.date });
+    }
+  }
+  return out;
+}
+
+/** Mirror of src/lib/utils.ts advanceDates. */
+function advanceDates(list?: AdvanceRecord[]): string[] {
+  return advanceEntries(list).map((e) => e.date);
+}
+
 export type Loan = {
   id: string;
   clientName?: string;
@@ -37,10 +62,11 @@ export type Loan = {
   dueDate?: string;
   /** Préstamo sin fecha de vencimiento: capitaliza un ciclo tras otro desde el inicio. */
   noDueDate?: boolean;
-  /** Fechas de adelantos manuales de ciclo. Cada entrada suma un ciclo de capitalización
-   *  a la deuda y corre el próximo vencimiento un ciclo hacia adelante. */
-  advancedAt?: string[];
-  halfAdvancedAt?: string[];
+  /** Adelantos manuales de ciclo. Cada entrada suma un ciclo de capitalización a la deuda
+   *  y corre el próximo vencimiento un ciclo hacia adelante. Espeja AdvanceRecord del
+   *  frontend: fecha suelta, o `{ date, pos }` cuando el usuario le fijó la posición. */
+  advancedAt?: AdvanceRecord[];
+  halfAdvancedAt?: AdvanceRecord[];
   /** Archivado: sale de la agenda y de las notificaciones, pero sigue contando en las
    *  metricas de la app. Espeja loan.archived del frontend. */
   archived?: boolean;
@@ -113,7 +139,7 @@ export function loanElapsedPeriods(loan: Loan, anchor: string, asOf: string): nu
  *  Un adelanto fechado a futuro todavia no capitalizo nada, asi que no cuenta: espeja
  *  advancedCycles/advancedCyclesUpTo de src/lib/utils.ts. */
 function advancedCycles(loan: Loan, asOf: string): number {
-  return (loan.advancedAt || []).filter((d) => d <= asOf).length;
+  return advanceDates(loan.advancedAt).filter((d) => d <= asOf).length;
 }
 
 /** Mirror of src/lib/utils.js getNextRenewalDate. Suma los ciclos adelantados. */
@@ -171,13 +197,24 @@ const HALF = 0.5;
 
 function halfCyclesBySlot(loan: Loan, asOf: string, overduePeriods: number): Map<number, string[]> {
   const bySlot = new Map<number, string[]>();
-  for (const date of [...(loan.halfAdvancedAt || [])].filter((d) => d && d <= asOf).sort()) {
-    const slot = extraSlot(loan, date, overduePeriods);
+  const charges = advanceEntries(loan.halfAdvancedAt)
+    .filter((e) => e.date <= asOf)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  for (const e of charges) {
+    const slot = halfSlot(loan, e, overduePeriods);
     const prev = bySlot.get(slot);
-    if (prev) prev.push(date);
-    else bySlot.set(slot, [date]);
+    if (prev) prev.push(e.date);
+    else bySlot.set(slot, [e.date]);
   }
   return bySlot;
+}
+
+/** Mirror of src/lib/calcs.ts halfSlot: el re-vencimiento que adelanta un medio ciclo — el
+ *  que el usuario fijó con `pos` (topeado en 1..N+1) o el del ciclo en que cae su fecha.
+ *  De esto depende qué ciclo cobra la mitad, o sea el monto que anuncia la notificación. */
+function halfSlot(loan: Loan, e: AdvanceEntry, overduePeriods: number): number {
+  if (typeof e.pos !== "number") return extraSlot(loan, e.date, overduePeriods);
+  return Math.min(Math.max(e.pos, 1), overduePeriods + 1);
 }
 
 /** Mirror of src/lib/calcs.ts pendingCycleFraction. */

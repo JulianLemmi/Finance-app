@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate } from "../lib/utils.js";
+import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, advanceEntries, packAdvances } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -222,7 +222,12 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         loans: state.loans.map((l) => {
           if (l.id !== loanId) return l;
-          const next: Loan = { ...l, halfAdvancedAt: [...(l.halfAdvancedAt || []), date].sort() };
+          // Ordenado por fecha con el normalizador: los adelantos ya movidos de lugar se
+          // guardan como objeto, y un `.sort()` crudo sobre el array mixto no los compara.
+          const halfAdvancedAt = packAdvances(
+            [...advanceEntries(l.halfAdvancedAt), { date }].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+          );
+          const next: Loan = { ...l, halfAdvancedAt };
           next.status = resolveStatus(next);
           return next;
         }),

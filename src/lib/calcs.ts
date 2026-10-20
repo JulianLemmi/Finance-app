@@ -1,6 +1,6 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate } from "./utils.js";
-import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
+import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, advanceDates, advanceEntries, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate } from "./utils.js";
+import type { AdvanceEntry, Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 /**
  * Ciclos ya capitalizados a `asOf`: los re-vencimientos naturales más los adelantos
@@ -125,6 +125,117 @@ export function extraImpactsBySlot(loan: Loan, asOf: string, overduePeriods: num
   return out;
 }
 
+// ── Secuencia de ciclos (`advancedAt`) ────────────────────────────────────────
+
+/** Un slot de la secuencia de capitalizaciones: o un re-vencimiento natural, o un ciclo
+ *  adelantado a mano. */
+export interface CycleSlot {
+  /** Posición en el recorrido, 1..overduePeriods. */
+  slot: number;
+  /** Fecha de la capitalización: la del adelanto, o la del re-vencimiento natural. */
+  date: string;
+  /** Índice en `advanceEntries(loan.advancedAt)` si este ciclo es un adelanto manual. */
+  advanceIndex?: number;
+  /** El usuario le fijó la posición a mano (`pos`), no es la que le tocaba por default. */
+  pinned?: boolean;
+}
+
+/**
+ * Qué cae en cada slot de la secuencia de capitalizaciones 1..N. El slot es lo que define
+ * el recorrido de la deuda —en qué orden capitaliza y qué pagos entraron antes de cada
+ * cargo— y la fila que dibuja la línea de tiempo.
+ *
+ * Default (nadie movió nada): los re-vencimientos naturales ocupan los primeros slots en
+ * orden de calendario y los adelantos van al final, en orden de fecha. Es el
+ * comportamiento histórico, bit por bit.
+ *
+ * Con `pos` el usuario fija un adelanto en un slot y los naturales se corren para dejarle
+ * el lugar. Hace falta porque el adelanto se queda con su fecha mientras el tiempo sigue
+ * corriendo: a los dos meses su cargo seguía dibujado al final de la lista, con el saldo
+ * más alto de todos, aunque hubiera pasado antes que dos re-vencimientos.
+ *
+ * Mover un adelanto NO cambia la deuda total: todos los slots capitalizan con la misma
+ * fórmula, así que permutarlos da el mismo saldo. Cambia la FECHA con la que se devenga
+ * cada ciclo —o sea a qué mes va la ganancia— y el orden en que se lee la línea de tiempo.
+ */
+export function cycleSequence(loan: Loan, asOf: string, overduePeriods: number): CycleSlot[] {
+  const n = Math.max(0, overduePeriods);
+  if (n === 0) return [];
+  // El índice original se preserva: es con lo que la UI sabe a qué entrada del array
+  // pertenece la fila que estás mirando (hay adelantos que comparten fecha).
+  const advances = advanceEntries(loan.advancedAt)
+    .map((e, advanceIndex) => ({ ...e, advanceIndex }))
+    .filter((e) => e.date <= asOf);
+
+  const filled = new Array<CycleSlot | undefined>(n + 1);
+  const floating: typeof advances = [];
+
+  // 1) Los fijados reclaman su slot, de menor a mayor. Dos adelantos en el mismo slot no
+  //    pueden ser: el segundo vuelve a la bolsa de los que no tienen posición.
+  for (const adv of advances
+    .filter((a) => typeof a.pos === "number")
+    .sort((a, b) => a.pos! - b.pos!)) {
+    const slot = Math.min(Math.max(adv.pos!, 1), n);
+    if (filled[slot]) { floating.push(adv); continue; }
+    filled[slot] = { slot, date: adv.date, advanceIndex: adv.advanceIndex, pinned: true };
+  }
+  floating.push(...advances.filter((a) => typeof a.pos !== "number"));
+
+  // 2) Los que quedaron sin fijar van a los ÚLTIMOS slots libres, en orden de fecha: ese es
+  //    el default histórico ("los adelantos, al final de la secuencia").
+  const free: number[] = [];
+  for (let i = 1; i <= n; i++) if (!filled[i]) free.push(i);
+  floating.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.advanceIndex - b.advanceIndex));
+  const tail = free.slice(Math.max(0, free.length - floating.length));
+  floating.forEach((adv, i) => {
+    const slot = tail[i];
+    if (slot !== undefined) filled[slot] = { slot, date: adv.date, advanceIndex: adv.advanceIndex };
+  });
+
+  // 3) Lo que sobra son los re-vencimientos naturales: el k-ésimo natural vence en
+  //    `loanPeriodDate(..., k)`, sin importar en qué slot haya quedado.
+  let natural = 0;
+  const out: CycleSlot[] = [];
+  for (let i = 1; i <= n; i++) {
+    const hit = filled[i];
+    if (hit) { out.push(hit); continue; }
+    natural += 1;
+    out.push({ slot: i, date: loanPeriodDate(loan, loan.dueDate, natural) });
+  }
+  return out;
+}
+
+/**
+ * Las entradas de `advancedAt` con el ciclo adelantado `advanceIndex` corrido un slot hacia
+ * atrás (`dir: -1`) o hacia adelante (`+1`). `null` si no hay nada que mover: el adelanto no
+ * está en la secuencia (fechado a futuro) o ya está en el borde.
+ *
+ * Si en el slot destino hay OTRO adelanto, los dos se intercambian. Sin eso el desempate de
+ * `cycleSequence` mandaba al desplazado al final de la secuencia, que no es "moverse un
+ * lugar". Si hay un re-vencimiento natural, los naturales se corren solos.
+ */
+export function reorderAdvance(
+  loan: Loan,
+  advanceIndex: number,
+  dir: -1 | 1,
+  asOf: string,
+  overduePeriods: number
+): AdvanceEntry[] | null {
+  const n = Math.max(0, overduePeriods);
+  if (n === 0) return null;
+  const sequence = cycleSequence(loan, asOf, n);
+  const from = sequence.find((s) => s.advanceIndex === advanceIndex);
+  if (!from) return null;
+  const to = Math.min(Math.max(from.slot + dir, 1), n);
+  if (to === from.slot) return null;
+  const occupant = sequence[to - 1];
+  return advanceEntries(loan.advancedAt).map((e, i) => {
+    if (i === advanceIndex) return { ...e, pos: to };
+    if (occupant?.advanceIndex === i) return { ...e, pos: from.slot };
+    return e;
+  });
+}
+
 // ── Medio ciclo (`halfAdvancedAt`) ────────────────────────────────────────────
 // El cliente vino a pagar unos días después del vencimiento y se le cobra la mitad del
 // interés del período en vez del mes entero. El cargo cae en la fecha elegida y el
@@ -143,17 +254,47 @@ const HALF = 0.5;
  * adelantado. El slot `overduePeriods + 1` es el ciclo abierto: ya se cobró, y cuando esa
  * fecha llegue va a descontar su mitad.
  */
-export function halfCyclesBySlot(loan: Loan, asOf: string, overduePeriods: number): ReadonlyMap<number, string[]> {
-  const list = loan.halfAdvancedAt;
-  if (!list || list.length === 0) return new Map();
-  const bySlot = new Map<number, string[]>();
-  for (const date of [...list].filter((d) => d && d <= asOf).sort()) {
-    const slot = extraSlot(loan, date, overduePeriods);
+export function halfCyclesBySlot(loan: Loan, asOf: string, overduePeriods: number): ReadonlyMap<number, HalfCharge[]> {
+  const list = advanceEntries(loan.halfAdvancedAt);
+  if (list.length === 0) return new Map();
+  const bySlot = new Map<number, HalfCharge[]>();
+  const charges = list
+    .map((e, index) => ({ ...e, index }))
+    .filter((e) => e.date <= asOf)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.index - b.index));
+  for (const e of charges) {
+    const slot = halfSlot(loan, e, overduePeriods);
+    const charge: HalfCharge = typeof e.pos === "number"
+      ? { date: e.date, index: e.index, pinned: true }
+      : { date: e.date, index: e.index };
     const prev = bySlot.get(slot);
-    if (prev) prev.push(date);
-    else bySlot.set(slot, [date]);
+    if (prev) prev.push(charge);
+    else bySlot.set(slot, [charge]);
   }
   return bySlot;
+}
+
+/** Un medio ciclo ubicado en el recorrido, con su identidad para la UI. */
+export interface HalfCharge {
+  /** Fecha en la que se cobró. */
+  date: string;
+  /** Índice en `advanceEntries(loan.halfAdvancedAt)`. */
+  index: number;
+  /** El usuario eligió a mano qué re-vencimiento adelanta. */
+  pinned?: boolean;
+}
+
+/**
+ * El re-vencimiento que adelanta un medio ciclo: el que el usuario fijó con `pos`, o el del
+ * ciclo en el que cae su fecha.
+ *
+ * Un `pos` a mano se topea en 1..N+1, que son los slots que el recorrido cobra. El slot
+ * natural se devuelve tal cual, 0 incluido: un medio ciclo fechado antes del vencimiento no
+ * se cobra en ningún recorrido, y eso ya era así.
+ */
+function halfSlot(loan: Loan, e: AdvanceEntry, overduePeriods: number): number {
+  if (typeof e.pos !== "number") return extraSlot(loan, e.date, overduePeriods);
+  return Math.min(Math.max(e.pos, 1), overduePeriods + 1);
 }
 
 /**
@@ -161,7 +302,7 @@ export function halfCyclesBySlot(loan: Loan, asOf: string, overduePeriods: numbe
  * ya se cobró un medio ciclo. Topeado en 0 — más de dos medios en un mismo período sólo
  * puede venir de datos viejos o importados, y cobrar negativo sería peor que no cobrar.
  */
-export function pendingCycleFraction(halves: ReadonlyMap<number, string[]>, slot: number): number {
+export function pendingCycleFraction(halves: ReadonlyMap<number, HalfCharge[]>, slot: number): number {
   return Math.max(0, 1 - HALF * (halves.get(slot)?.length ?? 0));
 }
 
@@ -180,17 +321,21 @@ export function nextCycleFraction(loan: Loan, asOf: string = todayISO()): number
  * ¿El período en el que cae `date` ya tiene cobrado su medio ciclo? Dos medios son el ciclo
  * entero y para eso está "Adelantar", así que el reducer rechaza el segundo y la UI apaga
  * el botón. Mira todos los medios registrados, no sólo los anteriores a `date`.
+ *
+ * Compara el slot EFECTIVO de cada medio ya registrado: uno que el usuario movió a otro
+ * re-vencimiento deja libre el período en el que cae su fecha, y uno que movió hasta acá lo
+ * ocupa aunque su fecha diga otra cosa.
  */
 export function halfCycleCharged(loan: Loan, date: string): boolean {
   if (!loan.dueDate || loan.noDueDate || !date) return false;
   // La base de ciclos tiene que alcanzar para ubicar `date` y los medios ya registrados:
   // `extraSlot` manda al mismo slot abierto todo lo que caiga más allá del último ciclo
   // contado, así que con una base corta dos fechas de períodos distintos se confunden.
-  const horizon = [date, todayISO(), ...(loan.halfAdvancedAt || [])]
+  const horizon = [date, todayISO(), ...advanceDates(loan.halfAdvancedAt)]
     .reduce((a, b) => (b && b > a ? b : a), date);
   const periods = overduePeriodsAt(loan, horizon);
   const slot = extraSlot(loan, date, periods);
-  return (loan.halfAdvancedAt || []).some((d) => d && extraSlot(loan, d, periods) === slot);
+  return advanceEntries(loan.halfAdvancedAt).some((e) => halfSlot(loan, e, periods) === slot);
 }
 
 /**
@@ -229,10 +374,10 @@ function debtWalkDetailed(
   // entonces paga. El re-vencimiento que adelantan cobra después lo que quedaba.
   const halves = halfCyclesBySlot(loan, asOf, overduePeriods);
   const chargeHalves = (slot: number) => {
-    for (const date of halves.get(slot) || []) {
+    for (const half of halves.get(slot) || []) {
       const charge = balance > 0 ? HALF * periodInterest(loan, balance) : 0;
       balance += charge;
-      if (charge > 0) accruals.push({ date, amount: charge });
+      if (charge > 0) accruals.push({ date: half.date, amount: charge });
     }
   };
 
@@ -241,10 +386,11 @@ function debtWalkDetailed(
     balance = Math.max(0, balance - Number(p.amount));
   });
 
-  // Fecha de cada capitalización: primero los re-vencimientos naturales y después los
-  // ciclos adelantados a mano, con la misma convención que la línea de tiempo del detalle.
-  const advances = (loan.advancedAt || []).filter((d) => d && d <= asOf).sort();
-  const naturalCycles = overduePeriods - advances.length;
+  // Fecha de cada capitalización: la secuencia de slots que arma `cycleSequence`, la misma
+  // que dibuja la línea de tiempo del detalle. Por default los re-vencimientos naturales
+  // van primero y los ciclos adelantados al final; un adelanto que el usuario movió de
+  // lugar se devenga en el slot que le fijó.
+  const sequence = cycleSequence(loan, asOf, overduePeriods);
 
   for (let i = 1; i <= overduePeriods; i++) {
     const extraCapital = extras.get(i) || 0;
@@ -258,9 +404,7 @@ function debtWalkDetailed(
       : 0;
     interest += extraInterest(extraCapital);
     balance += interest + extraCapital;
-    const date = i > naturalCycles
-      ? (advances[i - naturalCycles - 1] || loanPeriodDate(loan, loan.dueDate, i))
-      : loanPeriodDate(loan, loan.dueDate, i);
+    const date = sequence[i - 1]?.date || loanPeriodDate(loan, loan.dueDate, i);
     if (interest > 0) accruals.push({ date, amount: interest });
     chargeHalves(i + 1);
     payments.filter((p) => getPos(p) === i).forEach((p) => {
@@ -281,7 +425,9 @@ function debtWalkDetailed(
 function noDueDateWalk(loan: Loan, asOf: string): WalkResult {
   const base = Number(loan.amount);
   const elapsed = loanElapsedPeriods(loan, loan.startDate, asOf);
-  const advances = (loan.advancedAt || []).filter((d) => d && d <= asOf).sort();
+  // Sin vencimiento no hay slots entre los cuales elegir, así que `pos` acá no significa
+  // nada: los adelantos capitalizan al final, en orden de fecha.
+  const advances = advanceDates(loan.advancedAt).filter((d) => d <= asOf).sort();
   const extras = (loan.extras || []).filter(
     (e) => e.date && e.date <= asOf && Number(e.amount || 0) > 0
   );
@@ -555,8 +701,8 @@ export function loanLedger(loan: Loan): LedgerRow[] {
   if (!(base > 0)) return [];
 
   const periods = overduePeriodsAt(loan, today);
-  const halfDates = new Set((loan.halfAdvancedAt || []).filter((d) => d && d <= today));
-  const advDates = new Set((loan.advancedAt || []).filter((d) => d && d <= today));
+  const halfDates = new Set(advanceDates(loan.halfAdvancedAt).filter((d) => d <= today));
+  const advDates = new Set(advanceDates(loan.advancedAt).filter((d) => d <= today));
 
   // `sort` es dónde cae la fila en el recorrido de la deuda; `date` es la fecha que se
   // muestra. Difieren en un pago reordenado: se ubica en el ciclo al que lo imputaron,

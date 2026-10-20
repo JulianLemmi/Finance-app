@@ -11,11 +11,11 @@ import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
   X, Trash2, CalendarCheck, Pencil, Check, PlusCircle,
 } from "lucide-react";
-import { formatDate, formatInterest, loanPeriodDate, myShare, todayISO } from "../../lib/utils.js";
-import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot, halfCyclesBySlot, pendingCycleFraction } from "../../lib/calcs.js";
+import { advanceEntries, formatDate, formatInterest, loanPeriodDate, myShare, packAdvances, todayISO } from "../../lib/utils.js";
+import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot, halfCyclesBySlot, pendingCycleFraction, cycleSequence, reorderAdvance } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
-import type { ResolvedLoan } from "../../types";
+import type { AdvanceEntry, ResolvedLoan } from "../../types";
 
 interface LoanTimelineProps {
   loan: ResolvedLoan;
@@ -26,9 +26,11 @@ interface LoanTimelineProps {
 type StartEvent  = { type: "start"; date: string };
 type DueEvent    = { type: "due"; date: string };
 type ExtraEvent  = { type: "extra"; id: string; date: string; amount: number; note?: string };
-/** Medio ciclo cobrado: el cliente vino unos dias despues del vencimiento. */
-type HalfEvent   = { type: "half"; date: string; total: number; added: number };
-type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; isPaid?: boolean };
+/** Medio ciclo cobrado: el cliente vino unos dias despues del vencimiento. `slot` es el
+ *  re-vencimiento que adelanta (el que cobra la mitad que quedaba) y `halfIndex` su lugar
+ *  en `loan.halfAdvancedAt`, con el que la fila se borra o se mueve. */
+type HalfEvent   = { type: "half"; date: string; slot: number; halfIndex: number; pinned?: boolean; total: number; added: number };
+type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; pinned?: boolean; isPaid?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; naturalPos: number; interestInPayment: number; totalInterestAccrued: number;
@@ -162,10 +164,13 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     // Mismo orden que `debtWalk`: el medio ciclo se cobra en su fecha, sobre el saldo de
     // ese momento, y va antes de los pagos del tramo.
     const chargeHalves = (slot: number) => {
-      for (const date of halves.get(slot) || []) {
+      for (const half of halves.get(slot) || []) {
         const added = balance > 0 ? HALF_CYCLE * periodInterest(loan, balance) : 0;
         balance += added;
-        result.push({ type: "half", date, total: balance, added: added * share });
+        result.push({
+          type: "half", date: half.date, slot, halfIndex: half.index, pinned: half.pinned,
+          total: balance, added: added * share,
+        });
       }
     };
 
@@ -174,16 +179,17 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       balance = Math.max(0, balance - Number(p.amount));
     });
 
-    const advDates = [...(loan.advancedAt || [])].sort();
-    const naturalCycles = currentCompoundPeriods - advDates.length;
+    // La misma secuencia de slots que `debtWalk`: por default los re-vencimientos naturales
+    // primero y los ciclos adelantados al final, y donde el usuario los haya fijado si los
+    // movió a mano.
+    const sequence = cycleSequence(loan, todayISO(), currentCompoundPeriods);
 
     for (let i = 1; i <= currentCompoundPeriods; i++) {
       const prevBalance = Math.max(0, balance);
       // Si ya se le cobró medio ciclo, acá entra sólo la mitad que quedaba.
       const added = pendingCycleFraction(halves, i) * periodInterest(loan, prevBalance);
       const afterMora = prevBalance + added;
-      const isAdvanced = i > naturalCycles;
-      const advIdx = i - naturalCycles - 1;
+      const cycle = sequence[i - 1];
       const paidInCycle = payments
         .filter((p) => getPos(p) === i)
         .reduce((s, p) => s + Number(p.amount), 0);
@@ -191,12 +197,13 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       result.push({
         type: "mora",
         period: i,
-        date: isAdvanced ? (advDates[advIdx] || loanPeriodDate(loan, loan.dueDate, i)) : loanPeriodDate(loan, loan.dueDate, i),
+        date: cycle?.date || loanPeriodDate(loan, loan.dueDate, i),
         total: afterMora,
         added: added * share,
         isCurrent: i === currentCompoundPeriods,
-        isAdvanced,
-        advIndex: isAdvanced ? advIdx : undefined,
+        isAdvanced: cycle?.advanceIndex !== undefined,
+        advIndex: cycle?.advanceIndex,
+        pinned: cycle?.pinned,
         isPaid,
       });
       // El adicional de este ciclo entra después de la capitalización (ver `extraSlot`):
@@ -262,6 +269,20 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         // al principio o al final, nunca entre los dos vencimientos.
         if (ev.type === "payment" && currentCompoundPeriods > 0 && loan.dueDate) {
           return dateMs(paymentAnchorDate(loan, { ...ev, timelinePos: ev.timelinePos }, currentCompoundPeriods)) + 500;
+        }
+        // Un cargo de ciclo se dibuja por su SLOT, no por su fecha: el slot es el orden en
+        // que el recorrido capitaliza, y la columna de subtotales es ese recorrido. Un
+        // adelanto conserva su fecha mientras el tiempo sigue corriendo, así que ordenado
+        // por fecha terminaba arriba de re-vencimientos que ya tenían menos saldo que él.
+        // La fecha real sigue estando en el texto de la fila.
+        if (ev.type === "mora" && loan.dueDate) {
+          return dateMs(loanPeriodDate(loan, loan.dueDate, ev.period)) + 20;
+        }
+        // El medio ciclo se cobra después de la capitalización del ciclo anterior al que
+        // adelanta y antes de los pagos de ese tramo (ver `chargeHalves`). Con ciclos
+        // corridos manda ese lugar; sin ellos sólo existe un slot posible y manda la fecha.
+        if (ev.type === "half" && currentCompoundPeriods > 0 && loan.dueDate) {
+          return dateMs(loanPeriodDate(loan, loan.dueDate, ev.slot - 1)) + 400;
         }
         // Sin ciclos corridos no hay slots entre los cuales elegir (el reordenado está
         // deshabilitado) y el vencimiento puede ser futuro, así que manda la fecha y los
@@ -339,28 +360,51 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, extras: updated } });
   };
 
-  const deleteAdvance = (idx: number) => {
-    const sorted = [...(loan.advancedAt || [])].sort();
-    const target = sorted[idx];
-    if (target === undefined) return;
-    const orig = loan.advancedAt || [];
-    const removeAt = orig.indexOf(target);
-    const updated = removeAt >= 0 ? [...orig.slice(0, removeAt), ...orig.slice(removeAt + 1)] : orig;
-    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, advancedAt: updated } });
+  // ── Adelantos (ciclo entero y medio ciclo) ──────────────────────────────────
+  // Los dos arrays se leen y se reescriben siempre normalizados (`advanceEntries` →
+  // `packAdvances`): el índice que trae cada fila es el de esa lista normalizada, y al
+  // guardar vuelve a quedar la fecha suelta cuando el adelanto no tiene posición fijada.
+  type AdvanceField = "advancedAt" | "halfAdvancedAt";
+
+  const writeAdvances = (field: AdvanceField, entries: AdvanceEntry[]) => {
+    const packed = packAdvances(entries);
+    dispatch({
+      type: "UPDATE_LOAN",
+      payload: field === "advancedAt"
+        ? { id: loan.id, advancedAt: packed }
+        : { id: loan.id, halfAdvancedAt: packed },
+    });
+  };
+
+  const deleteAdvance = (field: AdvanceField, idx: number) => {
+    const entries = advanceEntries(loan[field]);
+    if (!entries[idx]) return;
+    writeAdvances(field, entries.filter((_, i) => i !== idx));
     setPendingDelete(null);
   };
 
-  const editAdvanceDate = (idx: number, newDate: string) => {
+  const editAdvanceDate = (field: AdvanceField, idx: number, newDate: string) => {
     if (!newDate) return;
-    const sorted = [...(loan.advancedAt || [])].sort();
-    const target = sorted[idx];
-    if (target === undefined) return;
-    const orig = loan.advancedAt || [];
-    const replaceAt = orig.indexOf(target);
-    const updated = replaceAt >= 0
-      ? [...orig.slice(0, replaceAt), newDate, ...orig.slice(replaceAt + 1)]
-      : orig;
-    dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, advancedAt: updated } });
+    const entries = advanceEntries(loan[field]);
+    if (!entries[idx]) return;
+    writeAdvances(field, entries.map((e, i) => (i === idx ? { ...e, date: newDate } : e)));
+  };
+
+  // Mover un ciclo adelantado es fijarle el slot de al lado; el intercambio con el que
+  // estaba ahí lo resuelve `reorderAdvance` (ver sus tests).
+  const moveAdvance = (idx: number, dir: "up" | "down") => {
+    const entries = reorderAdvance(loan, idx, dir === "up" ? -1 : 1, todayISO(), currentCompoundPeriods);
+    if (entries) writeAdvances("advancedAt", entries);
+  };
+
+  // Mover un medio ciclo cambia QUÉ re-vencimiento cobra la mitad que quedaba. El rango
+  // llega hasta `N+1`, el ciclo abierto: su fecha no se mueve, sólo a qué cierre se imputa.
+  const moveHalf = (idx: number, fromSlot: number, dir: "up" | "down") => {
+    const entries = advanceEntries(loan.halfAdvancedAt);
+    if (!entries[idx]) return;
+    const to = Math.min(Math.max(fromSlot + (dir === "up" ? -1 : 1), 1), currentCompoundPeriods + 1);
+    if (to === fromSlot) return;
+    writeAdvances("halfAdvancedAt", entries.map((e, i) => (i === idx ? { ...e, pos: to } : e)));
   };
 
   const editStartDate = (newDate: string) => {
@@ -505,21 +549,62 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
             // ── CARGO POR MORA / CICLO ADELANTADO / VENCIMIENTO CUBIERTO ────
             // ── MEDIO CICLO ─────────────────────────────────────────────────
             if (ev.type === "half") {
+              const halfId = `half-${ev.halfIndex}`;
+              const isConfirming = pendingDelete === halfId;
+              // El rango de slots llega al ciclo abierto (`N+1`): un medio ciclo puede
+              // adelantar el próximo cierre, que es justamente el caso más común.
+              const canMoveUp = ev.slot > 1;
+              const canMoveDown = ev.slot < currentCompoundPeriods + 1;
+              const esElAbierto = ev.slot === currentCompoundPeriods + 1;
               return (
-                <EventRow key={`half-${ev.date}`} ringCls="border-sky-700/60 bg-sky-950/80" dotCls="bg-sky-400">
+                <EventRow key={halfId} ringCls="border-sky-700/60 bg-sky-950/80" dotCls="bg-sky-400">
                   <div className="rounded-xl bg-sky-950/10 px-3 py-2.5 ring-1 ring-sky-900/30">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
-                          <CalendarCheck className="h-3.5 w-3.5 shrink-0" />
-                          Medio ciclo
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
+                        <CalendarCheck className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">Medio ciclo</span>
+                        {ev.pinned && <Badge tone="warning">Reordenado</Badge>}
+                      </div>
+                      {isConfirming ? (
+                        <ConfirmDelete
+                          onConfirm={() => deleteAdvance("halfAdvancedAt", ev.halfIndex)}
+                          onCancel={() => setPendingDelete(null)}
+                        />
+                      ) : (
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          {(canMoveUp || canMoveDown) && (
+                            <div className="flex flex-col gap-0.5">
+                              <IconAction disabled={!canMoveUp} title="Adelantar el vencimiento anterior"
+                                onClick={() => moveHalf(ev.halfIndex, ev.slot, "up")}>
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              </IconAction>
+                              <IconAction disabled={!canMoveDown} title="Adelantar el vencimiento siguiente"
+                                onClick={() => moveHalf(ev.halfIndex, ev.slot, "down")}>
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              </IconAction>
+                            </div>
+                          )}
+                          <IconAction tone="rose" title="Eliminar el medio ciclo" onClick={() => setPendingDelete(halfId)}>
+                            <X className="h-3.5 w-3.5" />
+                          </IconAction>
                         </div>
-                        <div className="mt-1 text-[11px] text-zinc-500">{formatDate(ev.date)}</div>
-                        <div className="mt-0.5 text-[11px] text-zinc-600">
-                          El vencimiento no se mueve: cobra la otra mitad
+                      )}
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-center">
+                      <div className="text-[11px] text-zinc-500">
+                        <DateInput
+                          value={ev.date}
+                          onChange={(v) => editAdvanceDate("halfAdvancedAt", ev.halfIndex, v)}
+                          tone="zinc"
+                          title="Cambiar la fecha del medio ciclo"
+                        />
+                        <div className="mt-0.5 text-[10px] text-zinc-600">
+                          {esElAbierto
+                            ? "El vencimiento no se mueve: el próximo cobra la otra mitad"
+                            : `El vencimiento no se mueve: el ${ev.slot}º cobra la otra mitad`}
                         </div>
                       </div>
-                      <div className="shrink-0 text-right">
+                      <div className="sm:text-right">
                         <div className="text-sm font-semibold tabular-nums text-zinc-100">
                           <Money value={ev.total} hide={hide} currency={cur} />
                         </div>
@@ -564,14 +649,29 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                         <span className="truncate">{label}</span>
                         {ev.isCurrent && !paid && <Badge tone={adv ? "purple" : "danger"}>Actual</Badge>}
                         {paid && <Badge tone="success">Cubierto</Badge>}
+                        {ev.pinned && <Badge tone="warning">Reordenado</Badge>}
                       </div>
                       {adv && ev.advIndex !== undefined && (
                         isConfirming
-                          ? <ConfirmDelete onConfirm={() => deleteAdvance(ev.advIndex!)} onCancel={() => setPendingDelete(null)} />
+                          ? <ConfirmDelete onConfirm={() => deleteAdvance("advancedAt", ev.advIndex!)} onCancel={() => setPendingDelete(null)} />
                           : (
-                            <IconAction tone="rose" title="Eliminar adelanto" onClick={() => setPendingDelete(advId)}>
-                              <X className="h-3.5 w-3.5" />
-                            </IconAction>
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              {currentCompoundPeriods > 1 && (
+                                <div className="flex flex-col gap-0.5">
+                                  <IconAction disabled={ev.period <= 1} title="Mover un ciclo antes"
+                                    onClick={() => moveAdvance(ev.advIndex!, "up")}>
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  </IconAction>
+                                  <IconAction disabled={ev.period >= currentCompoundPeriods} title="Mover un ciclo después"
+                                    onClick={() => moveAdvance(ev.advIndex!, "down")}>
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  </IconAction>
+                                </div>
+                              )}
+                              <IconAction tone="rose" title="Eliminar adelanto" onClick={() => setPendingDelete(advId)}>
+                                <X className="h-3.5 w-3.5" />
+                              </IconAction>
+                            </div>
                           )
                       )}
                     </div>
@@ -580,7 +680,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                         {adv && ev.advIndex !== undefined ? (
                           <DateInput
                             value={ev.date}
-                            onChange={(v) => editAdvanceDate(ev.advIndex!, v)}
+                            onChange={(v) => editAdvanceDate("advancedAt", ev.advIndex!, v)}
                             tone={paid ? "amber" : "purple"}
                             title="Cambiar la fecha del adelanto"
                           />

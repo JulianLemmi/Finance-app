@@ -62,6 +62,24 @@ export interface LoanExtra {
   createdAt?: number;
 }
 
+/**
+ * Un adelanto cobrado a mano: un ciclo entero (`Loan.advancedAt`) o medio
+ * (`Loan.halfAdvancedAt`). `date` es el día en que el cliente lo pagó.
+ *
+ * `pos` es la posición que el usuario le fijó en la secuencia de ciclos con las flechitas
+ * de la línea de tiempo. Ausente = la posición que le toca por default (los ciclos
+ * adelantados al final de la secuencia, los medios al re-vencimiento en el que cae su
+ * fecha). Un adelanto se guarda como fecha suelta mientras nadie lo mueva, así que el
+ * formato viejo (`string[]`) sigue siendo válido y no hay que migrar nada.
+ */
+export interface AdvanceEntry {
+  date: ISODate;
+  pos?: number;
+}
+
+/** Un adelanto persistido: la fecha sola, o la fecha con su posición fijada. */
+export type AdvanceRecord = ISODate | AdvanceEntry;
+
 export type InterestMode = "percent" | "fixed";
 
 export interface Loan {
@@ -106,19 +124,26 @@ export interface Loan {
   refinancedFromId?: string;
   notes: string;
   photos?: Photo[];
-  /** Fechas ISO en las que el usuario adelantó manualmente un ciclo de mora (ej: el cliente
-   *  quiere pagar por adelantado un vencimiento futuro). Cada entrada suma un ciclo de
-   *  capitalización a la deuda y corre `getNextRenewalDate` un ciclo hacia adelante,
-   *  como si el vencimiento hubiera caído en esa fecha. Vacío/ausente = comportamiento normal. */
-  advancedAt?: ISODate[];
-  /** Fechas ISO en las que se cobró MEDIO ciclo: el cliente vino a pagar unos días después
-   *  del vencimiento y se le cobra la mitad del interés del período en vez del mes entero.
+  /** Adelantos manuales de un ciclo de mora (ej: el cliente quiere pagar por adelantado un
+   *  vencimiento futuro). Cada entrada suma un ciclo de capitalización a la deuda y corre
+   *  `getNextRenewalDate` un ciclo hacia adelante, como si el vencimiento hubiera caído en
+   *  esa fecha. Vacío/ausente = comportamiento normal.
+   *
+   *  Sin `pos` el adelanto va al final de la secuencia de ciclos (el default de siempre);
+   *  con `pos` queda fijado en ese slot y los re-vencimientos naturales se corren para
+   *  dejarle el lugar. Ver `cycleSequence`. */
+  advancedAt?: AdvanceRecord[];
+  /** Medios ciclos cobrados: el cliente vino a pagar unos días después del vencimiento y se
+   *  le cobra la mitad del interés del período en vez del mes entero.
    *
    *  A diferencia de `advancedAt`, no corre el calendario: el préstamo vuelve a vencer en
    *  su fecha de siempre y ese re-vencimiento cobra la mitad que quedaba, para después
    *  retomar los ciclos completos. Media y media hacen un mes — no es un descuento, es
-   *  cobrar partido. Como mucho un medio ciclo por período, y siempre a mano. */
-  halfAdvancedAt?: ISODate[];
+   *  cobrar partido. Como mucho un medio ciclo por período, y siempre a mano.
+   *
+   *  Sin `pos` adelanta el re-vencimiento en el que cae su fecha; con `pos` adelanta el que
+   *  el usuario eligió a mano (las flechitas de la línea de tiempo). */
+  halfAdvancedAt?: AdvanceRecord[];
   /** Archivado por el usuario para sacarlo del listado de Préstamos (mantenido apretado
    *  sobre la card). No afecta ningún cálculo: sigue contando en Finanzas/Inicio como
    *  fuente de datos, sólo desaparece de la vista principal. Se restaura desde Historial. */

@@ -1,4 +1,4 @@
-import type { Loan } from "../types";
+import type { AdvanceEntry, AdvanceRecord, Loan } from "../types";
 
 export const uid = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -136,6 +136,41 @@ export function loanElapsedPeriods(loan: LoanCycleInput, anchor: string, asOf: s
   return Math.max(0, Math.floor(daysBetween(anchor, asOf) / term));
 }
 
+// ── Adelantos (`advancedAt` / `halfAdvancedAt`) ───────────────────────────────
+// Se persisten como fecha suelta mientras nadie los mueva de lugar, y como
+// `{ date, pos }` cuando el usuario les fijó una posición con las flechitas de la línea de
+// tiempo. Las dos formas conviven en el mismo array: los datos viejos son todos strings.
+// TODA lectura pasa por acá — comparar un `AdvanceRecord` contra una fecha con `<=` es
+// silenciosamente falso cuando resulta ser un objeto.
+
+/** Normaliza un array de adelantos a `{ date, pos? }`, descartando entradas sin fecha.
+ *  Preserva el orden del array; el índice de la salida es el del array original. */
+export function advanceEntries(list?: readonly AdvanceRecord[] | null): AdvanceEntry[] {
+  if (!list || list.length === 0) return [];
+  const out: AdvanceEntry[] = [];
+  for (const rec of list) {
+    if (typeof rec === "string") {
+      if (rec) out.push({ date: rec });
+      continue;
+    }
+    if (rec && typeof rec === "object" && rec.date) {
+      out.push(typeof rec.pos === "number" ? { date: rec.date, pos: rec.pos } : { date: rec.date });
+    }
+  }
+  return out;
+}
+
+/** Sólo las fechas de los adelantos, en el orden del array. */
+export function advanceDates(list?: readonly AdvanceRecord[] | null): string[] {
+  return advanceEntries(list).map((e) => e.date);
+}
+
+/** Vuelve a la forma persistida: fecha suelta si no tiene posición fijada, objeto si la
+ *  tiene. Mantiene compacto lo que se guarda y legible lo que ya estaba guardado. */
+export function packAdvances(entries: readonly AdvanceEntry[]): AdvanceRecord[] {
+  return entries.map((e) => (typeof e.pos === "number" ? { date: e.date, pos: e.pos } : e.date));
+}
+
 /** Cantidad de ciclos que el usuario adelantó manualmente (sin llegar el vencimiento).
  *  Cada adelanto corre el próximo vencimiento un ciclo hacia adelante.
  *
@@ -151,7 +186,7 @@ export function advancedCycles(loan: Pick<Loan, "advancedAt">): number {
 /** Cantidad de adelantos manuales hechos hasta `asOf` (inclusive). Sirve para reconstruir
  *  la deuda a fechas pasadas sin contar adelantos futuros. */
 export function advancedCyclesUpTo(loan: Pick<Loan, "advancedAt">, asOf: string): number {
-  return (loan.advancedAt || []).filter((d) => d <= asOf).length;
+  return advanceDates(loan.advancedAt).filter((d) => d <= asOf).length;
 }
 
 /** Suma de los adicionales de capital ya entregados hasta `asOf` (inclusive). Un adicional

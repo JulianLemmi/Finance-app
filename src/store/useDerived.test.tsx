@@ -888,4 +888,43 @@ describe("reducer: medio ciclo", () => {
     expect(con.capitalInvested).toBeGreaterThan(sin.capitalInvested);
     expect(con.capitalInvested - sin.capitalInvested).toBeCloseTo(5500, 2);
   });
+
+  // Un adelanto que el usuario movió de lugar se guarda como `{ date, pos }` en el mismo
+  // array que los que siguen siendo una fecha suelta. Un `.sort()` crudo sobre ese array
+  // mixto no compara nada y dejaba el orden a la suerte del insert.
+  describe("con adelantos ya reordenados en el array", () => {
+    // Vence 25/06 y re-vence 25/07 y 25/08 (hoy): dos ciclos, dos slots donde elegir.
+    const dosCiclos = mk({ id: "L", startDate: "2026-05-25", dueDate: "2026-06-25" });
+
+    it("inserta ordenado por fecha y le respeta la posición al que ya estaba", () => {
+      const con = conUno([{ ...dosCiclos, halfAdvancedAt: [{ date: "2026-07-05", pos: 2 }] }]);
+      const s = reducer(con, {
+        type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-07-10" },
+      });
+      expect(s.loans[0].halfAdvancedAt).toEqual([{ date: "2026-07-05", pos: 2 }, "2026-07-10"]);
+    });
+
+    it("el tope de uno por período mira el slot efectivo, no la fecha", () => {
+      // El medio del 05/07 fue movido al re-vencimiento de agosto, así que julio quedó
+      // libre (el insert entra) y agosto topeado (el insert se rechaza).
+      const con = conUno([{ ...dosCiclos, halfAdvancedAt: [{ date: "2026-07-05", pos: 2 }] }]);
+      const libre = reducer(con, {
+        type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-07-20" },
+      });
+      expect(libre.loans[0].halfAdvancedAt).toHaveLength(2);
+      const ocupado = reducer(con, {
+        type: "ADVANCE_HALF_CYCLE", payload: { loanId: "L", date: "2026-08-05" },
+      });
+      expect(ocupado).toBe(con);
+    });
+
+    it("adelantar un ciclo entero sigue guardando la fecha suelta", () => {
+      // Sin posición fijada no hace falta el objeto: lo que se guarda queda compacto y
+      // legible, y los backups viejos siguen entrando tal cual.
+      const s = reducer(conUno([dosCiclos]), {
+        type: "ADVANCE_CYCLE", payload: { loanId: "L", date: HOY },
+      });
+      expect(s.loans[0].advancedAt).toEqual([HOY]);
+    });
+  });
 });

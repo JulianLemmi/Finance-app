@@ -9,12 +9,13 @@ import {
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
   closedLoanOutcome, overduePeriodsAt, resolvePaymentPos, paymentAnchorDate,
-  nextCycleFraction, halfCycleCharged, loanLedger, unaccruedInterest,
+  nextCycleFraction, halfCycleCharged, loanLedger, unaccruedInterest, cycleSequence,
+  reorderAdvance,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
   getLoanCycleDays, todayISO, todayDate, myShare, daysBetween, loanDeployedFrom,
-  loanPrincipalAt, loanEffectiveRate,
+  loanPrincipalAt, loanEffectiveRate, packAdvances,
 } from "./utils.js";
 import type { Loan, ResolvedLoan } from "../types";
 
@@ -1303,6 +1304,201 @@ describe("medio ciclo (halfAdvancedAt)", () => {
     const l = conMedio(extra);
     const devengado = interestAccruals(l).reduce((s, e) => s + e.amount, 0);
     expect(remainingDebt(l)).toBeCloseTo(loanPrincipalAt(l) + devengado - paidAmount(l), 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reordenar adelantos: fijarles a mano la posición en la secuencia de ciclos. Hace falta
+// porque un adelanto se queda con su fecha mientras el tiempo sigue corriendo, y por
+// default el recorrido lo pone último: a los dos meses su cargo quedaba dibujado al final,
+// con el saldo más alto de todos, aunque hubiera pasado antes que dos re-vencimientos.
+describe("reordenar adelantos", () => {
+  // Vence 25/07 y re-vence 25/08, que es hoy. El cliente adelantó un ciclo el 28/07: pasó
+  // ANTES del re-vencimiento natural, pero sin reordenar el recorrido lo deja último.
+  const ADEL = "2026-07-28", ADEL2 = "2026-08-05", NATURAL = "2026-08-25";
+  const conAdel = (advancedAt: Loan["advancedAt"]) => mk({ advancedAt });
+  const fechas = (l: Loan) => cycleSequence(l, HOY, overduePeriodsAt(l, HOY)).map((s) => s.date);
+  /** Cuánto se devengó en cada fecha: es lo que decide a qué mes va la ganancia. */
+  const porFecha = (l: Loan) =>
+    Object.fromEntries(interestAccruals(l).map((e) => [e.date, Number(e.amount.toFixed(2))]));
+
+  describe("ciclos enteros (advancedAt)", () => {
+    it("por default el adelanto va al final de la secuencia", () => {
+      const seq = cycleSequence(conAdel([ADEL]), HOY, 2);
+      expect(seq.map((s) => s.date)).toEqual([NATURAL, ADEL]);
+      expect(seq[0].advanceIndex).toBeUndefined();
+      expect(seq[1].advanceIndex).toBe(0);
+      expect(seq[1].pinned).toBeUndefined();
+    });
+
+    it("con `pos` queda fijado en su slot y el natural se corre para dejarle el lugar", () => {
+      const seq = cycleSequence(conAdel([{ date: ADEL, pos: 1 }]), HOY, 2);
+      expect(seq.map((s) => s.date)).toEqual([ADEL, NATURAL]);
+      expect(seq[0].advanceIndex).toBe(0);
+      expect(seq[0].pinned).toBe(true);
+      // El re-vencimiento natural sigue siendo el primero del calendario aunque haya caído
+      // en el slot 2: su fecha sale de su orden entre los naturales, no del slot.
+      expect(seq[1].date).toBe(loanPeriodDate(conAdel([]), "2026-07-25", 1));
+    });
+
+    it("mover un adelanto no cambia la deuda", () => {
+      // Todos los slots capitalizan con la misma fórmula, así que permutarlos da el mismo
+      // saldo. Lo que cambia es la FECHA con la que se devenga cada ciclo.
+      const quieto = conAdel([ADEL]), movido = conAdel([{ date: ADEL, pos: 1 }]);
+      expect(remainingDebt(movido)).toBeCloseTo(remainingDebt(quieto), 2);
+      expect(compoundReturn(movido)).toBeCloseTo(compoundReturn(quieto), 2);
+      expect(sumAccruals(movido)).toBeCloseTo(sumAccruals(quieto), 2);
+    });
+
+    it("mueve a qué fecha se devenga cada ciclo", () => {
+      // Sin reordenar, el ciclo chico cae en el re-vencimiento de agosto y el grande (que
+      // compone sobre él) el 28/07, cuando el cliente vino: la ganancia de agosto se iba a
+      // julio y la lista se leía al revés.
+      expect(porFecha(conAdel([ADEL]))).toEqual({ "2026-07-25": 10000, [NATURAL]: 11000, [ADEL]: 12100 });
+      // Reordenado: primero el adelanto, después el re-vencimiento.
+      expect(porFecha(conAdel([{ date: ADEL, pos: 1 }]))).toEqual({ "2026-07-25": 10000, [ADEL]: 11000, [NATURAL]: 12100 });
+    });
+
+    it("dos adelantos se intercambian sin perder ninguno", () => {
+      expect(fechas(conAdel([ADEL, ADEL2]))).toEqual([NATURAL, ADEL, ADEL2]);
+      expect(fechas(conAdel([{ date: ADEL, pos: 2 }, { date: ADEL2, pos: 1 }])))
+        .toEqual([ADEL2, ADEL, NATURAL]);
+    });
+
+    it("dos adelantos fijados al mismo slot: el segundo vuelve al final", () => {
+      // No se puede perder uno por una posición repetida (datos viejos, un backup editado
+      // a mano): el que no entra cae con los que no tienen posición.
+      expect(fechas(conAdel([{ date: ADEL, pos: 1 }, { date: ADEL2, pos: 1 }])))
+        .toEqual([ADEL, NATURAL, ADEL2]);
+    });
+
+    it("una posición fuera de rango se topea adentro de la secuencia", () => {
+      expect(fechas(conAdel([{ date: ADEL, pos: 0 }]))).toEqual([ADEL, NATURAL]);
+      expect(fechas(conAdel([{ date: ADEL, pos: 99 }]))).toEqual([NATURAL, ADEL]);
+    });
+
+    it("convive con el formato viejo (la fecha suelta) en el mismo array", () => {
+      // Los datos guardados antes de esto son todos strings y no hay migración: un array
+      // mixto tiene que leerse igual.
+      expect(fechas(conAdel(["2026-07-28", { date: ADEL2, pos: 1 }]))).toEqual([ADEL2, NATURAL, ADEL]);
+      expect(remainingDebt(conAdel([ADEL]))).toBeCloseTo(remainingDebt(conAdel([{ date: ADEL }])), 2);
+    });
+
+    it("la posición no mueve el próximo vencimiento ni la cuenta de ciclos", () => {
+      // `pos` es el orden dentro de lo que ya pasó; el calendario lo sigue corriendo la
+      // cantidad de adelantos, no dónde quedaron.
+      const quieto = conAdel([ADEL]), movido = conAdel([{ date: ADEL, pos: 1 }]);
+      expect(getNextRenewalDate(movido)).toBe(getNextRenewalDate(quieto));
+      expect(overduePeriodsAt(movido, HOY)).toBe(overduePeriodsAt(quieto, HOY));
+    });
+
+    it("un adelanto fechado a futuro no entra en la secuencia", () => {
+      const futuro = conAdel([{ date: addDays(HOY, 5), pos: 1 }]);
+      expect(fechas(futuro)).toEqual([NATURAL]);
+      expect(remainingDebt(futuro)).toBeCloseTo(remainingDebt(mk()), 2);
+    });
+
+    // Lo que hacen las flechitas de la línea de tiempo.
+    describe("reorderAdvance: mover un slot", () => {
+      /** Aplica el movimiento y devuelve la secuencia resultante, como hace la UI. */
+      const mover = (l: Loan, idx: number, dir: -1 | 1) => {
+        const movido = reorderAdvance(l, idx, dir, HOY, overduePeriodsAt(l, HOY));
+        expect(movido).not.toBeNull();
+        return fechas({ ...l, advancedAt: packAdvances(movido!) });
+      };
+
+      it("sube un lugar al adelanto que estaba último", () => {
+        expect(mover(conAdel([ADEL]), 0, -1)).toEqual([ADEL, NATURAL]);
+      });
+
+      it("va y vuelve al mismo lugar", () => {
+        const l = conAdel([ADEL]);
+        const subido = reorderAdvance(l, 0, -1, HOY, 2)!;
+        expect(mover({ ...l, advancedAt: packAdvances(subido) }, 0, 1)).toEqual([NATURAL, ADEL]);
+      });
+
+      it("intercambia con el adelanto que estaba en el destino", () => {
+        // Sin el intercambio, el desplazado se iba al final de la secuencia: eso no es
+        // "moverse un lugar".
+        const l = conAdel([ADEL, ADEL2]);
+        expect(fechas(l)).toEqual([NATURAL, ADEL, ADEL2]);
+        expect(mover(l, 1, -1)).toEqual([NATURAL, ADEL2, ADEL]);
+      });
+
+      it("no hace nada en los bordes ni con un adelanto que no está en la secuencia", () => {
+        const l = conAdel([{ date: ADEL, pos: 1 }]);
+        expect(reorderAdvance(l, 0, -1, HOY, 2)).toBeNull();
+        const ultimo = conAdel([ADEL]);
+        expect(reorderAdvance(ultimo, 0, 1, HOY, 2)).toBeNull();
+        expect(reorderAdvance(conAdel([{ date: addDays(HOY, 5) }]), 0, -1, HOY, 1)).toBeNull();
+        expect(reorderAdvance(mk(), 0, -1, HOY, 1)).toBeNull();
+      });
+
+      it("sin ciclos corridos no hay slots entre los cuales elegir", () => {
+        const sinCiclos = mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 12) });
+        expect(reorderAdvance(sinCiclos, 0, -1, HOY, 0)).toBeNull();
+      });
+    });
+  });
+
+  describe("medios ciclos (halfAdvancedAt)", () => {
+    // Vence 25/06 y re-vence 25/07 y 25/08 (hoy). El cliente vino el 05/07, unos días
+    // después del vencimiento: por fecha, ese medio adelanta el re-vencimiento de julio.
+    const VINO = "2026-07-05", JULIO = "2026-07-25", AGOSTO = "2026-08-25";
+    const conMedio = (halfAdvancedAt: Loan["halfAdvancedAt"], o: Partial<Loan> = {}) =>
+      mk({ startDate: "2026-05-25", dueDate: "2026-06-25", halfAdvancedAt, ...o });
+
+    it("por default adelanta el re-vencimiento del ciclo en que cae su fecha", () => {
+      // Julio cobra la mitad que quedaba (5.775) y agosto el ciclo entero.
+      expect(porFecha(conMedio([VINO])))
+        .toEqual({ "2026-06-25": 10000, [VINO]: 5500, [JULIO]: 5775, [AGOSTO]: 12127.5 });
+    });
+
+    it("con `pos` adelanta el re-vencimiento que eligió el usuario", () => {
+      // Julio vuelve a cobrar el ciclo entero y la mitad se le descuenta a agosto. El cargo
+      // sigue fechado el día que el cliente vino, pero entra al recorrido en el slot que le
+      // fijaron: por eso se cobra sobre otro saldo.
+      expect(porFecha(conMedio([{ date: VINO, pos: 2 }])))
+        .toEqual({ "2026-06-25": 10000, [JULIO]: 11000, [VINO]: 6050, [AGOSTO]: 6352.5 });
+    });
+
+    it("sin pagos en el medio la deuda total no cambia", () => {
+      expect(remainingDebt(conMedio([{ date: VINO, pos: 2 }])))
+        .toBeCloseTo(remainingDebt(conMedio([VINO])), 2);
+    });
+
+    it("con un pago en el medio sí cambia la plata", () => {
+      // Ahí está la diferencia de mover un medio ciclo: cobrado antes del pago, capitaliza
+      // sobre el saldo grande; cobrado después, sobre lo que quedó.
+      const pago = { payments: [{ id: "p", amount: 50000, date: "2026-08-01", timelinePos: 1 }] };
+      expect(remainingDebt(conMedio([VINO], pago))).toBeCloseTo(78402.5, 2);
+      expect(remainingDebt(conMedio([{ date: VINO, pos: 2 }], pago))).toBeCloseTo(80902.5, 2);
+    });
+
+    it("movido al ciclo abierto, es el próximo vencimiento el que cobra la mitad", () => {
+      // `nextCycleFraction` es lo que la notificación usa para no prometer el mes entero.
+      expect(nextCycleFraction(conMedio([VINO]))).toBe(1);
+      expect(nextCycleFraction(conMedio([{ date: VINO, pos: 3 }]))).toBe(0.5);
+    });
+
+    it("el tope de uno por período sigue el slot efectivo, no la fecha", () => {
+      // Movido a agosto, julio queda libre para cobrarle otro medio y agosto topeado,
+      // aunque la fecha del medio siga cayendo en julio.
+      const movido = conMedio([{ date: VINO, pos: 2 }]);
+      expect(halfCycleCharged(movido, VINO)).toBe(false);
+      expect(halfCycleCharged(movido, "2026-08-05")).toBe(true);
+      // Sin mover, al revés.
+      expect(halfCycleCharged(conMedio([VINO]), VINO)).toBe(true);
+      expect(halfCycleCharged(conMedio([VINO]), "2026-08-05")).toBe(false);
+    });
+
+    it("la planilla sigue cerrando con la deuda", () => {
+      // La identidad que cuida toda la suite: el último saldo de la ficha es la deuda.
+      for (const l of [conMedio([{ date: VINO, pos: 2 }]), conAdel([{ date: ADEL, pos: 1 }])]) {
+        const filas = loanLedger(l);
+        expect(filas[filas.length - 1].saldo).toBeCloseTo(remainingDebt(l), 2);
+      }
+    });
   });
 });
 
