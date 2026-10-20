@@ -12,7 +12,7 @@ import {
   X, Trash2, CalendarCheck, Pencil, Check, PlusCircle,
 } from "lucide-react";
 import { formatDate, formatInterest, loanPeriodDate, myShare, todayISO } from "../../lib/utils.js";
-import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, periodInterest, extraImpactsBySlot } from "../../lib/calcs.js";
+import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
 import type { ResolvedLoan } from "../../types";
@@ -29,7 +29,7 @@ type ExtraEvent  = { type: "extra"; id: string; date: string; amount: number; no
 type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; isPaid?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
-  timelinePos: number; interestInPayment: number; totalInterestAccrued: number;
+  timelinePos: number; naturalPos: number; interestInPayment: number; totalInterestAccrued: number;
 };
 type TimelineEvent = StartEvent | DueEvent | ExtraEvent | MoraEvent | PaymentEvent;
 
@@ -213,7 +213,13 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         date: p.date,
         amount: Number(p.amount),
         note: p.note,
-        timelinePos: p.timelinePos ?? 0,
+        // El slot efectivo sale de `resolvePaymentPos`, igual que en el recorrido de la
+        // deuda. Con `p.timelinePos ?? 0` un pago sin posición guardada se dibujaba en el
+        // ciclo 0 mientras la deuda lo aplicaba en el que le toca por fecha.
+        timelinePos: resolvePaymentPos(p, currentCompoundPeriods, loan),
+        // Dónde caería por su sola fecha: si el slot efectivo no coincide, es porque
+        // alguien lo movió a mano, y eso es lo que marca el badge "Reordenado".
+        naturalPos: resolvePaymentPos({ ...p, timelinePos: undefined }, currentCompoundPeriods, loan),
         interestInPayment: interestAfter - interestBefore,
         totalInterestAccrued,
       });
@@ -222,9 +228,22 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     const dateMs = (dateStr: string) => new Date(dateStr + "T00:00:00").getTime();
     events.sort((a, b) => {
       const getSortKey = (ev: TimelineEvent): number => {
-        if (ev.type === "payment" && ev.timelinePos > 0) {
-          return dateMs(loanPeriodDate(loan, loan.dueDate, ev.timelinePos)) + 500;
+        // Un pago se dibuja donde el recorrido de la deuda lo aplica: justo después de la
+        // capitalización de su slot, no en su fecha. De eso depende que el reordenado
+        // signifique algo — mover un pago de slot tiene que moverlo de lugar en la lista.
+        //
+        // El slot 0 ("entró después del vencimiento, antes del primer re-vencimiento")
+        // ordenaba por la fecha del pago, así que uno fechado antes del vencimiento se iba
+        // al tope de la línea, arriba de todo. Entre eso y el slot 1 (que sí anclaba a su
+        // ciclo) no quedaba ninguna posición intermedia: las flechas sólo podían mandarlo
+        // al principio o al final, nunca entre los dos vencimientos.
+        if (ev.type === "payment" && currentCompoundPeriods > 0 && loan.dueDate) {
+          return dateMs(paymentAnchorDate(loan, { ...ev, timelinePos: ev.timelinePos }, currentCompoundPeriods)) + 500;
         }
+        // Sin ciclos corridos no hay slots entre los cuales elegir (el reordenado está
+        // deshabilitado) y el vencimiento puede ser futuro, así que manda la fecha y los
+        // pagos se leen cronológicos.
+        //
         // El adicional entra después de la capitalización del día (ver `extraSlot`), así
         // que en un empate de fecha va detrás de la mora y antes de los pagos.
         const tieBreak: Record<TimelineEvent["type"], number> = { start: 0, due: 10, mora: 20, extra: 25, payment: 30 };
@@ -233,7 +252,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       return getSortKey(a) - getSortKey(b);
     });
     return events;
-  }, [loan, overdueTimelinePeriods]);
+  }, [loan, overdueTimelinePeriods, currentCompoundPeriods]);
 
   const nextOverdueDate =
     loan._status === "overdue" && loan.dueDate
@@ -245,7 +264,9 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
   const movePayment = (paymentId: string, direction: "up" | "down") => {
     const payment = (loan.payments || []).find((p) => p.id === paymentId);
     if (!payment) return;
-    const currentPos = payment.timelinePos ?? 0;
+    // Desde el slot EFECTIVO, no desde `?? 0`: un pago sin posición guardada ya está en el
+    // ciclo que le da su fecha, y partir de 0 hacía que la primera flecha no moviera nada.
+    const currentPos = resolvePaymentPos(payment, currentCompoundPeriods, loan);
     const newPos =
       direction === "down"
         ? Math.min(currentPos + 1, currentCompoundPeriods)
@@ -537,7 +558,10 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
             if (ev.type === "payment") {
               const canMoveDown = currentCompoundPeriods > 0 && ev.timelinePos < currentCompoundPeriods;
               const canMoveUp = ev.timelinePos > 0;
-              const isReordered = ev.timelinePos > 0;
+              // Reordenado = alguien lo corrió de donde caía por fecha. Antes era
+              // `timelinePos > 0`, que marcaba como movido a cualquier pago posterior a un
+              // re-vencimiento y dejaba sin marcar a los que sí se habían movido a mano.
+              const isReordered = ev.timelinePos !== ev.naturalPos;
               const payId = `pay-${ev.id}`;
               const isConfirmingDelete = pendingDelete === payId;
               const isEditing = editingPaymentId === ev.id;

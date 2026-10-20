@@ -264,6 +264,26 @@ export function resolvePaymentPos(
   return overduePeriods;
 }
 
+/**
+ * Fecha a la que se ancla un pago en la línea de tiempo del detalle: la capitalización de
+ * su slot, que es el punto donde `debtWalk` lo aplica. El slot 0 cae en el vencimiento (el
+ * pago entra después de reconocerse el interés contratado) y el slot N en su
+ * re-vencimiento.
+ *
+ * Es lo que le da sentido al reordenado: un pago se dibuja donde la deuda lo aplica, no en
+ * su fecha. Ordenando el slot 0 por la fecha del pago, uno fechado antes del vencimiento
+ * se iba al tope de la línea y no quedaba ninguna posición entre el vencimiento y el
+ * primer re-vencimiento — las flechas sólo podían mandarlo al principio o al final.
+ *
+ * Sin ciclos corridos no hay slots entre los cuales elegir y el vencimiento puede ser
+ * futuro, así que ahí manda la fecha del pago y la lista se lee cronológica.
+ */
+export function paymentAnchorDate(loan: Loan, p: Payment, overduePeriods: number): string {
+  if (!loan.dueDate || overduePeriods <= 0) return p.date;
+  const pos = resolvePaymentPos(p, overduePeriods, loan);
+  return pos > 0 ? loanPeriodDate(loan, loan.dueDate, pos) : loan.dueDate;
+}
+
 /** Total acumulado de la deuda (capital + todo el interés capitalizado), sin descontar
  *  pagos. Es `remainingDebt` con los pagos apagados: misma reconstrucción, misma fuente. */
 export function compoundReturn(loan: Loan): number {

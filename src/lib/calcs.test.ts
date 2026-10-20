@@ -8,7 +8,7 @@ import {
   remainingDebt, remainingDebtAt, loanCapitalAt, interestAccruals, upcomingInterest,
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
-  closedLoanOutcome, overduePeriodsAt,
+  closedLoanOutcome, overduePeriodsAt, resolvePaymentPos, paymentAnchorDate,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
@@ -1043,5 +1043,123 @@ describe("overduePeriodsAt: los ciclos que la pantalla tiene que mostrar", () =>
     // después es un re-vencimiento, o sea una fila de mora.
     const posteriores = interestAccruals(l).filter((ev) => ev.date > l.dueDate).length;
     expect(overduePeriodsAt(l, HOY)).toBe(posteriores);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reordenar un pago = decir de qué lado de una capitalización entró la plata. No es
+// cosmético: el interés del ciclo se cobra sobre el saldo del momento, así que mover un
+// pago de slot cambia la deuda. La línea de tiempo tiene que dibujarlo donde `debtWalk`
+// lo aplica, o el control miente.
+describe("reordenado de pagos (timelinePos)", () => {
+  // El Clemensiau real: vence 10/07, re-vence 10/08, pago fechado ANTES del vencimiento.
+  const conCiclo = (pos?: number) => mk({
+    amount: 7186, interestMode: "fixed", fixedInterest: 600,
+    startDate: "2026-06-10", dueDate: "2026-07-10",
+    payments: [{ id: "p", amount: 3450, date: "2026-07-02", ...(pos === undefined ? {} : { timelinePos: pos }) }],
+  });
+  const pagoDe = (l: Loan) => (l.payments || [])[0];
+
+  describe("para qué existe: el slot cambia la plata", () => {
+    it("en porcentaje, pagar antes del re-vencimiento deja menos deuda", () => {
+      const antes = mk({
+        amount: 7186, interestRate: 8,
+        startDate: "2026-06-10", dueDate: "2026-07-10",
+        payments: [{ id: "p", amount: 3450, date: "2026-07-02", timelinePos: 0 }],
+      });
+      const despues = { ...antes, payments: [{ id: "p", amount: 3450, date: "2026-07-02", timelinePos: 1 }] };
+      expect(remainingDebt(antes)).toBeLessThan(remainingDebt(despues));
+      // El interés del ciclo se cobra sobre el saldo con el pago ya aplicado.
+      expect(remainingDebt(despues) - remainingDebt(antes)).toBeCloseTo(3450 * 0.08, 2);
+    });
+
+    it("en interés fijo el slot no mueve la deuda, porque el cargo no depende del saldo", () => {
+      expect(remainingDebt(conCiclo(0))).toBeCloseTo(remainingDebt(conCiclo(1)), 2);
+    });
+  });
+
+  describe("dónde se dibuja el pago", () => {
+    it("el slot 0 se ancla al vencimiento, no a la fecha del pago", () => {
+      const l = conCiclo(0);
+      // El pago es del 02/07 y el vencimiento del 10/07: por fecha quedaba ARRIBA del
+      // vencimiento, al tope de la línea, y no había manera de ponerlo entre los dos
+      // vencimientos. Ese era el bug.
+      expect(paymentAnchorDate(l, pagoDe(l), 1)).toBe("2026-07-10");
+      expect(paymentAnchorDate(l, pagoDe(l), 1)).not.toBe("2026-07-02");
+    });
+
+    it("el slot 1 se ancla a su re-vencimiento", () => {
+      const l = conCiclo(1);
+      expect(paymentAnchorDate(l, pagoDe(l), 1)).toBe("2026-08-10");
+    });
+
+    // La propiedad que el usuario pedía: que exista un lugar EN EL MEDIO.
+    it("hay una posición entre el vencimiento y el primer re-vencimiento", () => {
+      const enMedio = paymentAnchorDate(conCiclo(0), pagoDe(conCiclo(0)), 1);
+      const alFinal = paymentAnchorDate(conCiclo(1), pagoDe(conCiclo(1)), 1);
+      const vencimiento = "2026-07-10", reVencimiento = "2026-08-10";
+      expect(enMedio >= vencimiento).toBe(true);
+      expect(enMedio < reVencimiento).toBe(true);
+      expect(alFinal > enMedio).toBe(true);
+    });
+
+    it("sin ciclos corridos manda la fecha del pago y la lista se lee cronológica", () => {
+      // Acá el vencimiento todavía no llegó: anclar ahí pondría un pago pasado debajo de
+      // una fila futura.
+      const activo = mk({
+        startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20),
+        payments: [{ id: "p", amount: 1000, date: addDays(HOY, -3) }],
+      });
+      expect(paymentAnchorDate(activo, pagoDe(activo), 0)).toBe(addDays(HOY, -3));
+    });
+
+    it("un préstamo sin vencimiento ordena por fecha", () => {
+      const l = mk({ noDueDate: true, dueDate: "", startDate: addDays(HOY, -40),
+        payments: [{ id: "p", amount: 1000, date: addDays(HOY, -3) }] });
+      expect(paymentAnchorDate(l, pagoDe(l), 2)).toBe(addDays(HOY, -3));
+    });
+  });
+
+  describe("un pago sin posición guardada", () => {
+    // La timeline lo dibujaba en el slot 0 (`p.timelinePos ?? 0`) mientras la deuda lo
+    // aplicaba en el que le da la fecha: la fila y el saldo de al lado discrepaban.
+    it("cae en el ciclo que le da su fecha, no en el cero", () => {
+      const l = mk({
+        startDate: "2026-06-10", dueDate: "2026-07-10",
+        payments: [{ id: "p", amount: 3450, date: "2026-08-15" }],
+      });
+      expect(pagoDe(l).timelinePos).toBeUndefined();
+      expect(resolvePaymentPos(pagoDe(l), 2, l)).toBe(1);
+      expect(paymentAnchorDate(l, pagoDe(l), 2)).toBe("2026-08-10");
+    });
+
+    it("anterior al primer re-vencimiento cae en el slot 0", () => {
+      const l = conCiclo(undefined);
+      expect(resolvePaymentPos(pagoDe(l), 1, l)).toBe(0);
+    });
+
+    it("una posición guardada le gana a la fecha: es la decisión del usuario", () => {
+      const l = mk({
+        startDate: "2026-06-10", dueDate: "2026-07-10",
+        payments: [{ id: "p", amount: 3450, date: "2026-08-15", timelinePos: 0 }],
+      });
+      expect(resolvePaymentPos(pagoDe(l), 2, l)).toBe(0);
+      expect(paymentAnchorDate(l, pagoDe(l), 2)).toBe("2026-07-10");
+    });
+  });
+
+  // El ancla tiene que caer SIEMPRE dentro del tramo de su slot: después de la
+  // capitalización que lo precede y antes de la siguiente. Si esto se rompe, el pago se
+  // dibuja en el tramo equivocado y el reordenado deja de tener sentido.
+  it.each([0, 1, 2, 3])("el ancla del slot %i cae dentro de su tramo", (pos) => {
+    const l = mk({
+      startDate: "2026-04-10", dueDate: "2026-05-10", interestRate: 8,
+      payments: [{ id: "p", amount: 1000, date: "2026-05-01", timelinePos: pos }],
+    });
+    const ciclos = 3;
+    const ancla = paymentAnchorDate(l, pagoDe(l), ciclos);
+    const desde = pos === 0 ? l.dueDate : loanPeriodDate(l, l.dueDate, pos);
+    expect(ancla).toBe(desde);
+    if (pos < ciclos) expect(ancla < loanPeriodDate(l, l.dueDate, pos + 1)).toBe(true);
   });
 });
