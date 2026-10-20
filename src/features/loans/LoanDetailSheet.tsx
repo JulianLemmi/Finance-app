@@ -6,8 +6,8 @@ import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
   MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle,
 } from "lucide-react";
-import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, loanElapsedPeriods, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
-import { nextPeriodInterest, extraDebtImpact } from "../../lib/calcs.js";
+import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
+import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt } from "../../lib/calcs.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { uid } from "../../lib/utils.js";
@@ -73,12 +73,16 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   const daysOverdue =
     loan._status === "overdue" ? Math.max(0, daysBetween(loan.dueDate, todayISO())) : 0;
   const advCycles = advancedCycles(loan);
-  // Próximo vencimiento: en los vencidos y en los que tienen adelantos manuales el próximo
-  // se corre según ciclos ya devengados; en los activos sin adelantos es el propio dueDate.
-  const nextDueDate = (loan._status === "overdue" || advCycles > 0) ? getNextRenewalDate(loan) : loan.dueDate;
   // Ciclos ya capitalizados (los naturales por vencimiento + los adelantados a mano):
-  // define cuántas filas de "mora" se ven en la timeline.
-  const currentCompoundPeriods = (daysOverdue > 0 ? loanElapsedPeriods(loan, loan.dueDate, todayISO()) : 0) + advCycles;
+  // define cuántas filas de "mora" se ven en la timeline. Sale de `overduePeriodsAt`, el
+  // mismo contador que usa el motor de la deuda, y NO de `_status`: un préstamo vencido al
+  // que le pagaron lo suficiente vuelve a "active" pero sigue re-venciendo. Cuando esto se
+  // gateaba por el estado, el header mostraba una deuda con el ciclo adentro y la línea de
+  // tiempo no mostraba el ciclo.
+  const currentCompoundPeriods = overduePeriodsAt(loan, todayISO());
+  // Próximo vencimiento: si ya hay ciclos corridos (por mora o por adelanto) el próximo se
+  // corre con ellos; si no corrió ninguno, es el propio dueDate.
+  const nextDueDate = currentCompoundPeriods > 0 ? getNextRenewalDate(loan) : loan.dueDate;
   const monthsOverdue = Math.floor(daysOverdue / 30);
   const extraDaysOverdue = daysOverdue % 30;
   const overdueLabel =

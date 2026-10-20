@@ -11,7 +11,7 @@ import {
   AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
   X, Trash2, CalendarCheck, Pencil, Check, PlusCircle,
 } from "lucide-react";
-import { formatDate, formatInterest, loanPeriodDate, myShare, advancedCycles, todayISO } from "../../lib/utils.js";
+import { formatDate, formatInterest, loanPeriodDate, myShare, todayISO } from "../../lib/utils.js";
 import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, periodInterest, extraImpactsBySlot } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
@@ -132,8 +132,11 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
   const cur = state.settings.currency;
 
   const overdueTimelinePeriods = useMemo<MoraEvent[]>(() => {
+    // `currentCompoundPeriods` ya cuenta los ciclos que el motor cobró (ver
+    // `overduePeriodsAt`), así que alcanza como guarda. Acá había además un filtro por
+    // `_status !== "overdue"`: escondía la mora de los préstamos que volvieron a "active"
+    // por haber pagado el interés, aunque el ciclo se les hubiera cobrado igual.
     if (!loan.dueDate || currentCompoundPeriods === 0) return [];
-    if (loan._status !== "overdue" && advancedCycles(loan) === 0) return [];
 
     const payments = loan.payments || [];
     const getPos = (p: typeof payments[number]) =>

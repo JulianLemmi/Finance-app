@@ -8,7 +8,7 @@ import {
   remainingDebt, remainingDebtAt, loanCapitalAt, interestAccruals, upcomingInterest,
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
-  closedLoanOutcome,
+  closedLoanOutcome, overduePeriodsAt,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
@@ -942,5 +942,106 @@ describe("closedLoanOutcome: qué dejó un préstamo cerrado", () => {
       payments: [{ id: "p", amount: 180000, date: addDays(HOY, -5) }],
     });
     expect(closedLoanOutcome(res(l)).prestado).toBeCloseTo(150000, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cuántos ciclos ya se cobraron. Es el número del que cuelga la línea de tiempo del
+// detalle: una fila de mora por ciclo. Tiene que salir del calendario y de la deuda,
+// nunca del estado que muestra la card.
+describe("overduePeriodsAt: los ciclos que la pantalla tiene que mostrar", () => {
+  it("un préstamo que todavía no venció no tiene ciclos", () => {
+    const l = mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20) });
+    expect(overduePeriodsAt(l, HOY)).toBe(0);
+  });
+
+  it("el día del vencimiento todavía no corrió ningún ciclo", () => {
+    // Pasa a "overdue" ese mismo día (isOverdue compara con <=), pero el re-vencimiento
+    // recién cae un ciclo después: cobrar mora acá sería cobrar dos veces el mismo ciclo.
+    const l = mk({ startDate: addCalendarMonths(HOY, -1), dueDate: HOY });
+    expect(resolveStatus(l)).toBe("overdue");
+    expect(overduePeriodsAt(l, HOY)).toBe(0);
+  });
+
+  it("cuenta un ciclo por cada re-vencimiento transcurrido", () => {
+    const l = mk({ startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3) });
+    expect(overduePeriodsAt(l, HOY)).toBe(3);
+  });
+
+  it("suma los adelantos manuales ya hechos, no los fechados a futuro", () => {
+    const l = mk({
+      startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20),
+      advancedAt: [addDays(HOY, -2), addDays(HOY, 5)],
+    });
+    expect(overduePeriodsAt(l, HOY)).toBe(1);
+  });
+
+  it("sin fecha de vencimiento no hay ciclos que contar", () => {
+    expect(overduePeriodsAt(mk({ noDueDate: true, dueDate: "" }), HOY)).toBe(0);
+  });
+
+  // LA REGRESIÓN. Un préstamo vencido al que le pagaron lo suficiente vuelve a "active"
+  // (resolveStatus: la deuda quedó por debajo del capital), pero el re-vencimiento se le
+  // cobra igual. La línea de tiempo contaba los ciclos mirando `_status` y se quedaba en
+  // cero: el header mostraba una deuda con el ciclo adentro y abajo no había fila que lo
+  // explicara. Pasa sobre todo en los refinanciados, donde el capital nuevo ya trae el
+  // interés del eslabón anterior capitalizado y el umbral de "volver a activo" es alto.
+  describe("un vencido que volvió a 'active' por pagar el interés", () => {
+    // El Clemensiau real: $7.186 refinanciados, $600 fijos por ciclo, un pago de $3.450
+    // imputado al primer ciclo de mora.
+    const reabierto = mk({
+      amount: 7186, interestMode: "fixed", fixedInterest: 600, interestRate: 7,
+      refinancedFromId: "anterior", sharedWith: "Papá", myPercent: 34.4,
+      startDate: "2026-06-10", dueDate: "2026-07-10",
+      payments: [{ id: "p", amount: 3450, date: "2026-08-02", timelinePos: 1 }],
+    });
+
+    it("el estado vuelve a activo aunque el vencimiento ya pasó", () => {
+      expect(resolveStatus(reabierto)).toBe("active");
+      expect(isOverdue(reabierto)).toBe(true);
+    });
+
+    it("sigue contando el ciclo que se le cobró", () => {
+      expect(overduePeriodsAt(reabierto, HOY)).toBe(1);
+    });
+
+    it("la deuda tiene ese ciclo adentro", () => {
+      // 7186 + 600 (contratado) + 600 (re-vencimiento) − 3450 = 4936.
+      // Sin el re-vencimiento daría 4336: esa diferencia es la fila que faltaba.
+      expect(remainingDebt(reabierto)).toBeCloseTo(4936, 2);
+      expect(remainingDebt(reabierto)).not.toBeCloseTo(4336, 2);
+    });
+
+    it("el próximo vencimiento es futuro, no la fecha vencida", () => {
+      expect(getNextRenewalDate(reabierto)).toBe("2026-09-10");
+      expect(getNextRenewalDate(reabierto) > HOY).toBe(true);
+    });
+  });
+
+  // La identidad que mantiene honesta a la pantalla: una fila de mora por cada cargo que
+  // el motor metió en la deuda después del vencimiento.
+  it.each([
+    ["vencido simple", mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2) })],
+    ["vencido con pago parcial", mk({
+      startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      payments: [{ id: "p", amount: 5000, date: addDays(HOY, -20) }],
+    })],
+    ["interés fijo reabierto", mk({
+      amount: 7186, interestMode: "fixed", fixedInterest: 600,
+      startDate: "2026-06-10", dueDate: "2026-07-10",
+      payments: [{ id: "p", amount: 3450, date: "2026-08-02", timelinePos: 1 }],
+    })],
+    ["quincenal atrasado", mk({
+      paymentType: "15", startDate: addDays(HOY, -75), dueDate: addDays(HOY, -60),
+    })],
+    ["con adicional de capital", mk({
+      startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
+      extras: [{ id: "e", amount: 30000, date: addDays(HOY, -15) }],
+    })],
+  ])("los ciclos contados son los cargos que la deuda cobró: %s", (_caso, l) => {
+    // interestAccruals fecha el interés contratado EN el vencimiento; todo lo que venga
+    // después es un re-vencimiento, o sea una fila de mora.
+    const posteriores = interestAccruals(l).filter((ev) => ev.date > l.dueDate).length;
+    expect(overduePeriodsAt(l, HOY)).toBe(posteriores);
   });
 });

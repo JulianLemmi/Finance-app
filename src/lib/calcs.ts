@@ -2,9 +2,17 @@ import { CALC, BUSINESS_RULES } from "./constants.js";
 import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate } from "./utils.js";
 import type { Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
-/** Ciclos ya capitalizados a `asOf`: los re-vencimientos naturales más los adelantos
- *  manuales. Sin fecha de vencimiento no hay ciclos que capitalizar. */
-function overduePeriodsAt(loan: Loan, asOf: string): number {
+/**
+ * Ciclos ya capitalizados a `asOf`: los re-vencimientos naturales más los adelantos
+ * manuales. Sin fecha de vencimiento no hay ciclos que capitalizar.
+ *
+ * Mira SÓLO el calendario, nunca `_status`, y de eso depende que la pantalla coincida con
+ * la deuda. Un préstamo vencido al que le pagaron lo suficiente vuelve a `"active"` (ver
+ * `resolveStatus`) y sin embargo sigue re-venciendo: el motor le cobra el ciclo igual. La
+ * UI que contaba los ciclos por el estado se quedaba en cero y escondía cargos que la
+ * deuda del header ya tenía adentro.
+ */
+export function overduePeriodsAt(loan: Loan, asOf: string): number {
   if (!loan.dueDate) return 0;
   return loanElapsedPeriods(loan, loan.dueDate, asOf) + advancedCyclesUpTo(loan, asOf);
 }
