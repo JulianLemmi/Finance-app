@@ -565,8 +565,51 @@ export function remainingDebtAt(loan: Loan, asOf: string): number {
 // que `capitalInvested` (financials): los vencidos aportan toda su deuda capitalizada,
 // los activos el principal acotado a lo que aún se debe. Refinanciados, ya cobrados y
 // los que todavía no arrancaron no aportan. Con asOf = hoy, la suma == capitalInvested.
-export function loanCapitalAt(loan: Loan, asOf: string): number {
-  if (loan.status === "refinanced") return 0;
+/**
+ * Cuándo dejó de estar vivo cada eslabón refinanciado: el día en que arrancó el préstamo
+ * que lo reemplazó. Es el único dato que permite resolver una cadena **por fecha**, y sin
+ * él la curva de capital miente en los dos sentidos.
+ *
+ * La fecha sale de `loanDeployedFrom` del sucesor, no de su `startDate` crudo: con los
+ * intereses pagos por adelantado un préstamo puede arrancar con fecha futura, y ahí la
+ * plata ya estaba en la calle desde el alta.
+ *
+ * Si un eslabón quedó huérfano (el sucesor se borró), cae en su propia fecha de cierre
+ * —el último pago, o el vencimiento si ya pasó— que es la misma convención de
+ * `interestAccruals`.
+ */
+export function refinancedAtByLoan(loans: Loan[]): ReadonlyMap<string, string> {
+  const porOrigen = new Map<string, string>();
+  for (const l of loans) {
+    const origen = l.refinancedFromId;
+    if (!origen) continue;
+    const desde = loanDeployedFrom(l);
+    const previo = porOrigen.get(origen);
+    // Con varios sucesores (no debería pasar), vale el más temprano.
+    if (!previo || (desde && desde < previo)) porOrigen.set(origen, desde);
+  }
+  return porOrigen;
+}
+
+/** Fecha de cierre propia de un préstamo, sin mirar la cadena. */
+function ownCloseDate(loan: Loan): string {
+  const today = todayISO();
+  const lastPayment = (loan.payments || []).reduce((max, p) => ((p.date || "") > max ? p.date! : max), "");
+  return lastPayment || (loan.dueDate && loan.dueDate < today ? loan.dueDate : today);
+}
+
+/**
+ * Capital desplegado a una fecha. `refinancedAt` es el día en que este préstamo fue
+ * reemplazado por otro (ver `refinancedAtByLoan`): hasta ahí su plata estaba en la calle
+ * y tiene que verse en la curva; desde ahí la cuenta el sucesor.
+ *
+ * Mandar a cero un refinanciado para CUALQUIER fecha —como hacía antes— le borraba el
+ * capital a toda la historia hacia atrás: un préstamo de $100.000 entregado en mayo y
+ * refinanciado en junio desaparecía de mayo, cuando esa plata sí estaba prestada. Y como
+ * el sucesor todavía no existía en mayo, no lo cubría nadie: el gráfico mostraba un pozo.
+ */
+export function loanCapitalAt(loan: Loan, asOf: string, refinancedAt?: string): number {
+  if (loan.status === "refinanced" && asOf >= (refinancedAt || ownCloseDate(loan))) return 0;
   const desplegadoDesde = loanDeployedFrom(loan);
   if (desplegadoDesde && desplegadoDesde > asOf) return 0;
   // A hoy la clasificación tiene que ser EXACTAMENTE la del header (`resolveStatus`), o la

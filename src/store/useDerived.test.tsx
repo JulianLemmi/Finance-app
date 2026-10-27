@@ -928,3 +928,73 @@ describe("reducer: medio ciclo", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La curva de "Capital invertido" tiene que ver la plata de una cadena de refinanciación
+// en los meses en que estuvo prestada. Como un eslabón refinanciado valía cero para
+// CUALQUIER fecha, el capital desaparecía de todos los meses anteriores al cambio — y el
+// sucesor todavía no existía, así que no lo cubría nadie.
+describe("cadena de refinanciación en los gráficos", () => {
+  // Prestado hace 4 meses, refinanciado hace 2. La misma plata, dos registros.
+  const viejo = mk({
+    id: "V", amount: 100000, status: "refinanced",
+    startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3),
+  });
+  const nuevo = mk({
+    id: "N", amount: 110000, refinancedFromId: "V",
+    startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+  });
+  const conCadena = (loans: Loan[] = [viejo, nuevo]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  it("los meses anteriores al cambio muestran el capital del eslabón viejo", () => {
+    const d = derive(conCadena());
+    // El mes del préstamo original: la plata estaba en la calle, la curva tiene que verla.
+    const mesViejo = d.months.find((m) => m.key === viejo.startDate.slice(0, 7))!;
+    expect(mesViejo.capitalInvested).toBeGreaterThan(0);
+  });
+
+  it("la curva no tiene pozos: ningún mes con plata prestada queda en cero", () => {
+    const d = derive(conCadena());
+    const desde = viejo.startDate.slice(0, 7);
+    for (const m of d.months.filter((x) => x.key >= desde)) {
+      expect(m.capitalInvested).toBeGreaterThan(0);
+    }
+  });
+
+  it("no cuenta los dos eslabones a la vez", () => {
+    // Si se contaran los dos, el capital de la cadena duplicaría al del préstamo vigente.
+    const d = derive(conCadena());
+    const soloNuevo = derive(conCadena([nuevo]));
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.capitalInvested).toBeCloseTo(
+      soloNuevo.months[soloNuevo.months.length - 1].capitalInvested, 2);
+  });
+
+  it("la card sigue coincidiendo con la última barra", () => {
+    const d = derive(conCadena());
+    expect(d.capitalInvested).toBeCloseTo(d.months[d.months.length - 1].capitalInvested, 2);
+  });
+
+  it("el ROI no se diluye contando la cadena dos veces en el denominador", () => {
+    // El eslabón viejo dejaba de ser base recién cuando lo cobraban: como nunca lo cobran
+    // (la deuda rodó al nuevo), quedaba en el denominador para siempre.
+    const conViejo = derive(conCadena());
+    const sinViejo = derive(conCadena([nuevo]));
+    const mes = (d: Derived) => d.months[d.months.length - 1];
+    expect(mes(conViejo).roi).toBeCloseTo(mes(sinViejo).roi, 6);
+  });
+
+  it("archivar la cadena no mueve la curva", () => {
+    const abierta = derive(conCadena());
+    const guardada = derive(conCadena([{ ...viejo, archived: true }, { ...nuevo, archived: true }]));
+    abierta.months.forEach((m, i) => {
+      expect(guardada.months[i].capitalInvested).toBeCloseTo(m.capitalInvested, 2);
+      expect(guardada.months[i].capital).toBeCloseTo(m.capital, 2);
+      expect(guardada.months[i].accrued).toBeCloseTo(m.accrued, 2);
+    });
+    expect(guardada.capitalInvested).toBeCloseTo(abierta.capitalInvested, 2);
+  });
+});

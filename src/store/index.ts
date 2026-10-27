@@ -5,6 +5,7 @@ import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
   loanIntegrityErrors, loanCapitalAt, interestAccruals, upcomingInterest, halfCycleCharged,
+  refinancedAtByLoan,
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
@@ -449,6 +450,11 @@ export function useDerived(state: AppState): Derived {
     return dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : todayISO();
   }, [loansResolved, state.income, state.expenses]);
 
+  // Cuándo dejó de estar vivo cada eslabón refinanciado. Lo comparten la card de capital
+  // invertido y la curva del gráfico: resolver la cadena por fecha es lo que evita que el
+  // capital de un refinanciado desaparezca de los meses en que SÍ estaba prestado.
+  const refinancedAt = useMemo(() => refinancedAtByLoan(loansResolved), [loansResolved]);
+
   // Stage 3: financial aggregates
   const financials = useMemo(() => {
     const { activeLoans, overdueLoans, paidLoans, refinancedLoans } = loanGroups;
@@ -470,7 +476,7 @@ export function useDerived(state: AppState): Derived {
     // y la curva no, así que la card y la última barra mostraban números distintos para la
     // misma plata. Compartiendo la función la identidad se cumple por construcción.
     const capitalInvested = loansResolved.reduce(
-      (a, l) => a + myShare(l) * loanCapitalAt(l, todayStr),
+      (a, l) => a + myShare(l) * loanCapitalAt(l, todayStr, refinancedAt.get(l.id)),
       0
     );
     // Ganancia esperada (aún no realizada): sólo de los activos. En los vencidos el
@@ -718,6 +724,11 @@ export function useDerived(state: AppState): Derived {
           // Mismo criterio que `loanCapitalAt`: la plata puede estar prestada aunque
           // startDate sea futuro (cliente con los intereses pagos por adelantado).
           if (loanDeployedFrom(l) > cutoff) return false;
+          // Un eslabón refinanciado deja de ser base el día que arranca su sucesor: de ahí
+          // en más la misma plata la cuenta el nuevo. Sin este corte la cadena entera
+          // quedaba en el denominador para siempre y el ROI de cada mes salía diluido.
+          const cerro = refinancedAt.get(l.id);
+          if (cerro && cutoff >= cerro) return false;
           const paidUpTo = (l.payments || [])
             .filter((p) => p.date <= cutoff)
             .reduce((s, p) => s + Number(p.amount), 0);
@@ -729,7 +740,7 @@ export function useDerived(state: AppState): Derived {
       // Capital de la curva: incluye el interés capitalizado por vencimientos y
       // re-vencimientos acumulados a esa fecha (no sólo el principal prestado).
       const capitalAtMonth = loansResolved
-        .reduce((acc, l) => acc + myShare(l) * loanCapitalAt(l, cutoff), 0);
+        .reduce((acc, l) => acc + myShare(l) * loanCapitalAt(l, cutoff, refinancedAt.get(l.id)), 0);
       m.capitalInvested = capitalAtMonth;
       // Capital total de la curva: efectivo + invertido + activos - pasivos (igual que
       // totalCapital del header). Activos y pasivos se aplican a todos los meses por igual

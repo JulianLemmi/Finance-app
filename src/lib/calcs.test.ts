@@ -9,7 +9,8 @@ import {
   nextPeriodInterest, compoundReturn, expectedReturn, expectedProfit, resolveStatus,
   paidAmount, calcProjection, projectHorizon, DAYS_PER_MONTH, isOverdue, daysUntilDue, validateLoan, loanIntegrityErrors,
   closedLoanOutcome, overduePeriodsAt, resolvePaymentPos, paymentAnchorDate,
-  nextCycleFraction, halfCycleCharged, loanLedger, unaccruedInterest, cycleSequence,
+  nextCycleFraction, halfCycleCharged, loanLedger, unaccruedInterest,
+  refinancedAtByLoan, cycleSequence,
   reorderAdvance,
 } from "./calcs.js";
 import {
@@ -1646,5 +1647,86 @@ describe("loanLedger: la planilla del préstamo", () => {
     expect(filas[0].kind).toBe("capital");
     const intereses = filas.filter((f) => f.kind === "interes").map((f) => f.date);
     expect([...intereses].sort()).toEqual(intereses);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Una cadena de refinanciación es la MISMA plata pasando por varios registros. La curva
+// de capital tiene que verla continua: el eslabón viejo cuenta hasta el día que arranca
+// el nuevo, y ni un día más. Mandar a cero un refinanciado para cualquier fecha le borra
+// el capital a toda la historia hacia atrás; dejarlo contar para siempre lo duplica.
+describe("cadena de refinanciación en la curva de capital", () => {
+  // A ($100k, prestado el 01/05) se refinancia el 01/06 en B ($110k).
+  const A = mk({ id: "A", amount: 100000, startDate: "2026-05-01", dueDate: "2026-06-01", status: "refinanced" });
+  const B = mk({ id: "B", amount: 110000, startDate: "2026-06-01", dueDate: "2026-07-01", refinancedFromId: "A" });
+  const cadena = [A, B];
+  const mapa = refinancedAtByLoan(cadena);
+  const curva = (f: string) => cadena.reduce((s, l) => s + loanCapitalAt(l, f, mapa.get(l.id)), 0);
+
+  it("sabe cuándo cerró cada eslabón: el día que arrancó su sucesor", () => {
+    expect(mapa.get("A")).toBe("2026-06-01");
+    expect(mapa.has("B")).toBe(false);
+  });
+
+  // EL BUG: todo mayo mostraba cero, con $100.000 en la calle.
+  it("el eslabón viejo cuenta en los meses en que la plata estaba prestada", () => {
+    expect(loanCapitalAt(A, "2026-05-10", mapa.get("A"))).toBeCloseTo(100000, 2);
+    expect(loanCapitalAt(A, "2026-05-31", mapa.get("A"))).toBeCloseTo(100000, 2);
+  });
+
+  it("deja de contar el día que arranca el sucesor", () => {
+    expect(loanCapitalAt(A, "2026-06-01", mapa.get("A"))).toBe(0);
+    expect(loanCapitalAt(A, "2026-07-15", mapa.get("A"))).toBe(0);
+  });
+
+  // La propiedad que importa: la curva no tiene pozos ni picos en el traspaso.
+  it("la curva es continua: nunca cae a cero mientras la plata está prestada", () => {
+    for (const f of ["2026-05-02", "2026-05-15", "2026-05-31", "2026-06-01", "2026-06-15", "2026-07-01"]) {
+      expect(curva(f)).toBeGreaterThan(0);
+    }
+  });
+
+  it("en el traspaso cuenta un solo eslabón, no los dos", () => {
+    // El día del cambio sólo vale el nuevo; el día anterior sólo el viejo.
+    expect(loanCapitalAt(A, "2026-06-01", mapa.get("A"))).toBe(0);
+    expect(loanCapitalAt(B, "2026-06-01")).toBeCloseTo(110000, 2);
+    expect(loanCapitalAt(B, "2026-05-31")).toBe(0);
+    expect(curva("2026-05-31")).toBeCloseTo(100000, 2);
+    expect(curva("2026-06-01")).toBeCloseTo(110000, 2);
+  });
+
+  it("un eslabón huérfano cae en su propia fecha de cierre", () => {
+    // Si se borró el sucesor, el viejo no puede quedar contando para siempre.
+    const solo = refinancedAtByLoan([A]);
+    expect(solo.has("A")).toBe(false);
+    expect(loanCapitalAt(A, "2026-05-15", solo.get("A"))).toBeCloseTo(100000, 2);
+    expect(loanCapitalAt(A, "2026-06-01", solo.get("A"))).toBe(0);
+  });
+
+  it("con un sucesor de fecha futura vale la fecha de alta, no el startDate", () => {
+    // Mismo criterio que `loanDeployedFrom`: con los intereses pagos por adelantado un
+    // préstamo arranca con fecha futura, pero la plata ya estaba en la calle.
+    const futuro = mk({ id: "C", refinancedFromId: "A", startDate: addDays(HOY, 10),
+      createdAt: new Date(2026, 4, 20).getTime() });
+    expect(refinancedAtByLoan([A, futuro]).get("A")).toBe("2026-05-20");
+  });
+
+  it("un préstamo que no es parte de una cadena no cambia", () => {
+    const suelto = mk({ id: "S", startDate: "2026-05-01", dueDate: "2026-06-01" });
+    expect(loanCapitalAt(suelto, "2026-05-15")).toBe(loanCapitalAt(suelto, "2026-05-15", undefined));
+  });
+
+  it("una cadena de tres eslabones tampoco deja huecos", () => {
+    const x1 = mk({ id: "X1", amount: 100000, startDate: "2026-04-01", dueDate: "2026-05-01", status: "refinanced" });
+    const x2 = mk({ id: "X2", amount: 110000, startDate: "2026-05-01", dueDate: "2026-06-01", status: "refinanced", refinancedFromId: "X1" });
+    const x3 = mk({ id: "X3", amount: 121000, startDate: "2026-06-01", dueDate: "2026-07-01", refinancedFromId: "X2" });
+    const tres = [x1, x2, x3];
+    const m = refinancedAtByLoan(tres);
+    for (const f of ["2026-04-15", "2026-05-01", "2026-05-15", "2026-06-01", "2026-06-20"]) {
+      const total = tres.reduce((s, l) => s + loanCapitalAt(l, f, m.get(l.id)), 0);
+      expect(total).toBeGreaterThan(0);
+      // Y nunca más de un eslabón a la vez: el máximo posible es el capital del vigente.
+      expect(tres.filter((l) => loanCapitalAt(l, f, m.get(l.id)) > 0).length).toBe(1);
+    }
   });
 });
