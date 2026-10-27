@@ -114,7 +114,7 @@ src/
 ```
 
 ### Tests (`npm test`)
-Cuatro suites, ~1635 tests, corren en ~4 s:
+Cuatro suites, ~1640 tests, corren en ~4 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
@@ -152,7 +152,7 @@ deuda = capital vigente + devengado − pagado        (una vez cerrado el primer
 
 Dos consecuencias que antes no se cumplían:
 - **El interés de un ciclo se cobra sobre el saldo real, con los pagos ya aplicados.** Si el cliente paga antes del re-vencimiento, se le cobra menos. Cuando el devengado componía sobre un saldo que ignoraba los pagos, el cliente que paga los intereses al día —el caso más común de la cartera— aparecía generando mucho más de lo real: 6 meses al 10% pagando $10k por mes daban $94.871 de devengado contra $77.715 cobrados de verdad, y el error crecía con la antigüedad del préstamo.
-- **Un ciclo adelantado (`advancedAt`) devenga en su fecha**, incluso si el préstamo todavía no venció. Antes el devengado se cortaba antes de mirar los adelantos y esa ganancia quedaba invisible hasta que llegaba el vencimiento, igual que pasaba con las refinanciaciones anticipadas.
+- **Un ciclo adelantado (`advancedAt`) devenga en el VENCIMIENTO QUE PAGA, no el día en que el cliente vino.** Cobrar el 27/10 el vencimiento del 07/11 es ganancia de noviembre: fechándolo el día del cobro, el gráfico mensual le sumaba ese ciclo al mes en curso y la ganancia salía inflada (en la cartera real, octubre pasaba de $10.000 a $21.000). Los naturales conservan su fecha de calendario y los adelantos toman los vencimientos que siguen (`naturalTotal + k`), así que un adelanto se devenga **a futuro** — y `interestAccruals` lo deja pasar igual mientras el préstamo siga abierto, porque la plata ya entró y la deuda ya lo capitalizó; descartarlo rompería `deuda = capital + devengado − pagado`. El slot (`CycleSlot.date` vs `paidAt`) separa las dos cosas: `date` es el vencimiento que cierra —manda a qué mes va la ganancia— y `paidAt` el día del cobro, con el que la línea de tiempo dibuja la fila donde el cliente efectivamente vino. Reordenar un adelanto ya no mueve fechas (un vencimiento es un hecho del calendario): mueve el orden en que componen, o sea qué monto cae en cada fecha.
 
 El barrido `it.each` "el devengado no supera lo cobrado de verdad" cubre las 480 variantes y es la red de esto: 73 tests fallan si el devengado vuelve a componer sin pagos.
 

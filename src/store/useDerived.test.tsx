@@ -6,7 +6,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useDerived, initialState, reducer } from "./index.js";
-import { addCalendarMonths, addDays, myShare, getNextRenewalDate, monthKey } from "../lib/utils.js";
+import { addCalendarMonths, addDays, myShare, getNextRenewalDate, monthKey, loanPeriodDate, loanPrincipalAt } from "../lib/utils.js";
+import { interestAccruals, remainingDebt, paidAmount } from "../lib/calcs.js";
 import type { AppState, Loan, Derived } from "../types";
 
 const HOY = "2026-08-25";
@@ -996,5 +997,62 @@ describe("cadena de refinanciación en los gráficos", () => {
       expect(guardada.months[i].accrued).toBeCloseTo(m.accrued, 2);
     });
     expect(guardada.capitalInvested).toBeCloseTo(abierta.capitalInvested, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cobrar hoy un vencimiento del mes que viene es ganancia del MES QUE VIENE. Fechando el
+// adelanto el día del cobro, el gráfico le sumaba ese ciclo al mes en curso: en la cartera
+// real, octubre pasaba de $10.000 a $21.000 por un ciclo que vencía el 07/11.
+describe("un adelanto cobrado antes de tiempo va al mes que vence", () => {
+  // Venció el mes pasado y re-vence el que viene. Hoy se cobra ese re-vencimiento.
+  const base = mk({
+    id: "A", amount: 100000, interestRate: 10,
+    startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+  });
+  const conAdelanto = { ...base, advancedAt: [HOY] } as Loan;
+  const soloUno = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+  const mesDe = (d: Derived, key: string) => d.months.find((m) => m.key === key);
+
+  it("el mes del cobro no se infla con el ciclo que todavía no venció", () => {
+    const sin = derive(soloUno([base]));
+    const con = derive(soloUno([conAdelanto]));
+    const mesActual = HOY.slice(0, 7);
+    expect(mesDe(con, mesActual)!.accrued).toBeCloseTo(mesDe(sin, mesActual)!.accrued, 2);
+  });
+
+  it("la ganancia queda fechada en el vencimiento que el adelanto paga", () => {
+    const eventos = interestAccruals(conAdelanto);
+    const delAdelanto = eventos[eventos.length - 1];
+    expect(delAdelanto.date).toBe(loanPeriodDate(base, base.dueDate, 2));
+    expect(delAdelanto.date > HOY).toBe(true);
+  });
+
+  it("no se pierde: el total devengado es el mismo", () => {
+    // Lo único que cambia es el mes. La plata está toda.
+    const total = interestAccruals(conAdelanto).reduce((s, e) => s + e.amount, 0);
+    // Contratado 10.000 + re-vencimiento corrido 11.000 + el adelantado 12.100.
+    expect(total).toBeCloseTo(33100, 2);
+  });
+
+  it("la deuda sigue cerrando con capital + devengado − pagado", () => {
+    // Si el devengado se descartara por caer a futuro, esta identidad se rompería.
+    const devengado = interestAccruals(conAdelanto).reduce((s, e) => s + e.amount, 0);
+    expect(remainingDebt(conAdelanto))
+      .toBeCloseTo(loanPrincipalAt(conAdelanto) + devengado - paidAmount(conAdelanto), 2);
+  });
+
+  it("adelantar sigue corriendo el próximo vencimiento y la deuda", () => {
+    // El arreglo es de fechas de devengado, no cambia lo que cobra el adelanto.
+    expect(remainingDebt(conAdelanto)).toBeCloseTo(133100, 2);
+    expect(getNextRenewalDate(conAdelanto)).toBe(loanPeriodDate(base, base.dueDate, 3));
+  });
+
+  it("un préstamo cerrado no arrastra ciclos a futuro", () => {
+    const cerrado = { ...conAdelanto, status: "refinanced" as const };
+    expect(interestAccruals(cerrado).every((e) => e.date <= HOY)).toBe(true);
   });
 });

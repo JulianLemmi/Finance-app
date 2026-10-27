@@ -23,6 +23,9 @@ interface Accrual {
   date: string;
   amount: number;
   contracted?: boolean;
+  /** Ciclo cobrado por adelantado (`advancedAt`). Se fecha en el vencimiento que consume,
+   *  no el día que el cliente vino a pagar, así que puede caer en el futuro. */
+  advanced?: boolean;
 }
 
 /** Resultado de reconstruir la deuda: el saldo y, de paso, cada cargo de interés que lo
@@ -132,8 +135,13 @@ export function extraImpactsBySlot(loan: Loan, asOf: string, overduePeriods: num
 export interface CycleSlot {
   /** Posición en el recorrido, 1..overduePeriods. */
   slot: number;
-  /** Fecha de la capitalización: la del adelanto, o la del re-vencimiento natural. */
+  /** Fecha en que el ciclo se devenga: el vencimiento que cierra. En un adelanto es el
+   *  vencimiento que ese adelanto está pagando, NO el día en que el cliente vino —de eso
+   *  depende a qué mes va la ganancia. */
   date: string;
+  /** Sólo en los adelantos: el día en que se cobró. La línea de tiempo lo usa para
+   *  dibujar la fila donde el cliente efectivamente vino. */
+  paidAt?: string;
   /** Índice en `advanceEntries(loan.advancedAt)` si este ciclo es un adelanto manual. */
   advanceIndex?: number;
   /** El usuario le fijó la posición a mano (`pos`), no es la que le tocaba por default. */
@@ -192,13 +200,26 @@ export function cycleSequence(loan: Loan, asOf: string, overduePeriods: number):
     if (slot !== undefined) filled[slot] = { slot, date: adv.date, advanceIndex: adv.advanceIndex };
   });
 
-  // 3) Lo que sobra son los re-vencimientos naturales: el k-ésimo natural vence en
-  //    `loanPeriodDate(..., k)`, sin importar en qué slot haya quedado.
+  // 3) Cada ciclo se devenga en el vencimiento que cierra. Los naturales son los primeros
+  //    del calendario: el k-ésimo natural vence en `loanPeriodDate(..., k)`, sin importar
+  //    en qué slot haya quedado (moverlo de lugar no cambia el día en que venció).
+  //
+  //    Un adelanto paga un vencimiento que TODAVÍA NO LLEGÓ, así que le tocan los que
+  //    siguen: con 2 naturales corridos, el primer adelanto paga el vencimiento 3. Antes
+  //    el adelanto se devengaba el día en que el cliente vino a pagar, y el gráfico
+  //    mensual le sumaba ese ciclo al mes del cobro: cobrar en octubre el vencimiento de
+  //    noviembre pasaba la ganancia de octubre de $10.000 a $21.000.
+  const naturalTotal = n - advances.length;
   let natural = 0;
+  let advanced = 0;
   const out: CycleSlot[] = [];
   for (let i = 1; i <= n; i++) {
     const hit = filled[i];
-    if (hit) { out.push(hit); continue; }
+    if (hit) {
+      advanced += 1;
+      out.push({ ...hit, date: loanPeriodDate(loan, loan.dueDate, naturalTotal + advanced), paidAt: hit.date });
+      continue;
+    }
     natural += 1;
     out.push({ slot: i, date: loanPeriodDate(loan, loan.dueDate, natural) });
   }
@@ -404,8 +425,12 @@ function debtWalkDetailed(
       : 0;
     interest += extraInterest(extraCapital);
     balance += interest + extraCapital;
-    const date = sequence[i - 1]?.date || loanPeriodDate(loan, loan.dueDate, i);
-    if (interest > 0) accruals.push({ date, amount: interest });
+    const cycle = sequence[i - 1];
+    const date = cycle?.date || loanPeriodDate(loan, loan.dueDate, i);
+    // Un adelanto paga un vencimiento que todavía no llegó, así que su devengado queda
+    // fechado a futuro. `interestAccruals` lo deja pasar igual: la plata ya entró y el
+    // ciclo ya está capitalizado en la deuda — sólo que la ganancia es del mes que cierra.
+    if (interest > 0) accruals.push({ date, amount: interest, advanced: !!cycle?.paidAt });
     chargeHalves(i + 1);
     payments.filter((p) => getPos(p) === i).forEach((p) => {
       balance = Math.max(0, balance - Number(p.amount));
@@ -668,6 +693,14 @@ export function interestAccruals(loan: Loan): { date: string; amount: number }[]
   for (const ev of accruals) {
     if (!ev.date || !(ev.amount > 0)) continue;
     if (ev.date <= horizon) {
+      events.push({ date: ev.date, amount: ev.amount });
+      continue;
+    }
+    // Un ciclo adelantado se devenga en el vencimiento que paga, que por definición
+    // todavía no llegó. Se cuenta igual —la plata entró y la deuda ya lo capitalizó—, o
+    // la identidad `deuda = capital + devengado − pagado` dejaría de cerrar. Sólo mientras
+    // el préstamo siga abierto: uno cerrado no tiene ciclos por delante.
+    if (!closed && ev.advanced) {
       events.push({ date: ev.date, amount: ev.amount });
       continue;
     }

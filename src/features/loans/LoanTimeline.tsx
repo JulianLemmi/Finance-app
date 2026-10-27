@@ -30,7 +30,7 @@ type ExtraEvent  = { type: "extra"; id: string; date: string; amount: number; no
  *  re-vencimiento que adelanta (el que cobra la mitad que quedaba) y `halfIndex` su lugar
  *  en `loan.halfAdvancedAt`, con el que la fila se borra o se mueve. */
 type HalfEvent   = { type: "half"; date: string; slot: number; halfIndex: number; pinned?: boolean; total: number; added: number };
-type MoraEvent   = { type: "mora"; period: number; date: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; pinned?: boolean; isPaid?: boolean };
+type MoraEvent   = { type: "mora"; period: number; date: string; accrualDate?: string; total: number; added: number; isCurrent: boolean; isAdvanced?: boolean; advIndex?: number; pinned?: boolean; isPaid?: boolean };
 type PaymentEvent = {
   type: "payment"; id: string; date: string; amount: number; note?: string;
   timelinePos: number; naturalPos: number; interestInPayment: number; totalInterestAccrued: number;
@@ -197,7 +197,11 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
       result.push({
         type: "mora",
         period: i,
-        date: cycle?.date || loanPeriodDate(loan, loan.dueDate, i),
+        // En un adelanto la fila va el día en que el cliente vino (`paidAt`), aunque su
+        // ganancia se devengue en el vencimiento que paga: la línea de tiempo es el
+        // relato de lo que pasó, no el calendario contable.
+        date: cycle?.paidAt || cycle?.date || loanPeriodDate(loan, loan.dueDate, i),
+        accrualDate: cycle?.paidAt ? cycle.date : undefined,
         total: afterMora,
         added: added * share,
         isCurrent: i === currentCompoundPeriods,

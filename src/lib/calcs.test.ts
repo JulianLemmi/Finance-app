@@ -264,13 +264,17 @@ describe("interés devengado", () => {
   // Adelantar un ciclo le capitaliza interés a la deuda en el momento. Si el préstamo
   // todavía no venció, ese interés no aparecía en ningún lado: el devengado se cortaba
   // antes de mirar los adelantos y la ganancia quedaba invisible hasta el vencimiento.
-  it("un ciclo adelantado devenga en su fecha, aunque el préstamo no haya vencido", () => {
+  it("un ciclo adelantado devenga en el vencimiento que paga, no el día del cobro", () => {
+    // Cobrar hoy el vencimiento del mes que viene es ganancia del mes que viene: fecharlo
+    // el día del cobro le sumaba ese ciclo al mes en curso y la ganancia salía inflada.
     const l = mk({ startDate: addDays(HOY, -10), dueDate: addDays(HOY, 20), advancedAt: [addDays(HOY, -2)] });
     const eventos = interestAccruals(l);
     expect(eventos).toHaveLength(1);
-    expect(eventos[0].date).toBe(addDays(HOY, -2));
+    expect(eventos[0].date).toBe(loanPeriodDate(l, l.dueDate, 1));
+    expect(eventos[0].date > HOY).toBe(true);
     expect(eventos[0].amount).toBeCloseTo(11000, 2);
-    // El ciclo contratado sigue sin devengarse: su vencimiento no llegó.
+    // Se cuenta igual aunque la fecha no haya llegado: la plata entró y la deuda ya lo
+    // capitalizó. El ciclo contratado sigue sin devengarse: su vencimiento tampoco llegó.
     expect(remainingDebt(l) - Number(l.amount) - sumAccruals(l)).toBeCloseTo(10000, 2);
   });
 
@@ -1318,7 +1322,8 @@ describe("reordenar adelantos", () => {
   // ANTES del re-vencimiento natural, pero sin reordenar el recorrido lo deja último.
   const ADEL = "2026-07-28", ADEL2 = "2026-08-05", NATURAL = "2026-08-25";
   const conAdel = (advancedAt: Loan["advancedAt"]) => mk({ advancedAt });
-  const fechas = (l: Loan) => cycleSequence(l, HOY, overduePeriodsAt(l, HOY)).map((s) => s.date);
+  const fechas = (l: Loan) =>
+    cycleSequence(l, HOY, overduePeriodsAt(l, HOY)).map((s) => s.paidAt ?? s.date);
   /** Cuánto se devengó en cada fecha: es lo que decide a qué mes va la ganancia. */
   const porFecha = (l: Loan) =>
     Object.fromEntries(interestAccruals(l).map((e) => [e.date, Number(e.amount.toFixed(2))]));
@@ -1326,7 +1331,8 @@ describe("reordenar adelantos", () => {
   describe("ciclos enteros (advancedAt)", () => {
     it("por default el adelanto va al final de la secuencia", () => {
       const seq = cycleSequence(conAdel([ADEL]), HOY, 2);
-      expect(seq.map((s) => s.date)).toEqual([NATURAL, ADEL]);
+      // Identificados por el dia del cobro; `date` es el vencimiento que cada uno paga.
+      expect(seq.map((s) => s.paidAt ?? s.date)).toEqual([NATURAL, ADEL]);
       expect(seq[0].advanceIndex).toBeUndefined();
       expect(seq[1].advanceIndex).toBe(0);
       expect(seq[1].pinned).toBeUndefined();
@@ -1334,7 +1340,7 @@ describe("reordenar adelantos", () => {
 
     it("con `pos` queda fijado en su slot y el natural se corre para dejarle el lugar", () => {
       const seq = cycleSequence(conAdel([{ date: ADEL, pos: 1 }]), HOY, 2);
-      expect(seq.map((s) => s.date)).toEqual([ADEL, NATURAL]);
+      expect(seq.map((s) => s.paidAt ?? s.date)).toEqual([ADEL, NATURAL]);
       expect(seq[0].advanceIndex).toBe(0);
       expect(seq[0].pinned).toBe(true);
       // El re-vencimiento natural sigue siendo el primero del calendario aunque haya caído
@@ -1351,13 +1357,36 @@ describe("reordenar adelantos", () => {
       expect(sumAccruals(movido)).toBeCloseTo(sumAccruals(quieto), 2);
     });
 
-    it("mueve a qué fecha se devenga cada ciclo", () => {
-      // Sin reordenar, el ciclo chico cae en el re-vencimiento de agosto y el grande (que
-      // compone sobre él) el 28/07, cuando el cliente vino: la ganancia de agosto se iba a
-      // julio y la lista se leía al revés.
-      expect(porFecha(conAdel([ADEL]))).toEqual({ "2026-07-25": 10000, [NATURAL]: 11000, [ADEL]: 12100 });
-      // Reordenado: primero el adelanto, después el re-vencimiento.
-      expect(porFecha(conAdel([{ date: ADEL, pos: 1 }]))).toEqual({ "2026-07-25": 10000, [ADEL]: 11000, [NATURAL]: 12100 });
+    it("mueve qué monto se devenga en cada vencimiento", () => {
+      // Las FECHAS no se mueven: un vencimiento es un hecho del calendario, y el adelanto
+      // paga el que sigue (25/09). Lo que cambia al reordenar es el orden en que componen,
+      // o sea qué monto cae en cada fecha.
+      const VENC_ADELANTADO = "2026-09-25";
+      expect(porFecha(conAdel([ADEL])))
+        .toEqual({ "2026-07-25": 10000, [NATURAL]: 11000, [VENC_ADELANTADO]: 12100 });
+      expect(porFecha(conAdel([{ date: ADEL, pos: 1 }])))
+        .toEqual({ "2026-07-25": 10000, [VENC_ADELANTADO]: 11000, [NATURAL]: 12100 });
+    });
+
+    it("el adelanto paga el vencimiento que sigue a los naturales ya corridos", () => {
+      const seq = cycleSequence(conAdel([ADEL]), HOY, 2);
+      // Un natural corrido (25/08) + un adelanto: el adelanto paga el siguiente, 25/09.
+      expect(seq[0].date).toBe(NATURAL);
+      expect(seq[0].paidAt).toBeUndefined();
+      expect(seq[1].date).toBe("2026-09-25");
+      expect(seq[1].paidAt).toBe(ADEL);
+    });
+
+    it("dos adelantos pagan los dos vencimientos que siguen", () => {
+      const seq = cycleSequence(conAdel([ADEL, ADEL2]), HOY, 3);
+      expect(seq.map((s) => s.date)).toEqual([NATURAL, "2026-09-25", "2026-10-25"]);
+      expect(seq.map((s) => s.paidAt)).toEqual([undefined, ADEL, ADEL2]);
+    });
+
+    it("reordenar no cambia a qué mes va el total devengado", () => {
+      // Los montos se permutan entre fechas, pero el total del período no se mueve.
+      const quieto = conAdel([ADEL]), movido = conAdel([{ date: ADEL, pos: 1 }]);
+      expect(sumAccruals(movido)).toBeCloseTo(sumAccruals(quieto), 2);
     });
 
     it("dos adelantos se intercambian sin perder ninguno", () => {
