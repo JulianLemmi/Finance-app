@@ -436,6 +436,12 @@ export interface MonthPace {
   daysInMonth: number;
   /** Etiqueta del mes anterior ("sep"), para rotular la comparación. */
   previousLabel: string;
+  /** Ganancia YA COBRADA que se devenga después de este mes: ciclos adelantados que pagan
+   *  un vencimiento futuro. No aparece en ninguna barra del gráfico —la ventana termina en
+   *  el mes en curso— así que sin decirlo parece plata perdida. 0 si no hay. */
+  collectedAhead: number;
+  /** Etiqueta del primer mes al que va esa ganancia ("nov"). Vacío si `collectedAhead` es 0. */
+  collectedAheadLabel: string;
 }
 
 export interface Derived {

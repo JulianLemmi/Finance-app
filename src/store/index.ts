@@ -779,6 +779,22 @@ export function useDerived(state: AppState): Derived {
       previousLabel = months[prev].label;
     }
 
+    // Plata YA COBRADA que se devenga después de este mes: ciclos adelantados que pagan un
+    // vencimiento futuro. No está en ninguna barra del gráfico —la ventana termina en el
+    // mes en curso— y sin decirlo parece que se perdió. Es el único devengado que puede
+    // caer a futuro (ver `interestAccruals`), así que alcanza con mirar la fecha.
+    let collectedAhead = 0;
+    let collectedAheadKey = "";
+    for (const l of loansResolved) {
+      const share = myShare(l);
+      for (const ev of interestAccruals(l)) {
+        if (ev.date <= monthEnd) continue;
+        collectedAhead += share * ev.amount;
+        const k = monthKey(ev.date);
+        if (!collectedAheadKey || k < collectedAheadKey) collectedAheadKey = k;
+      }
+    }
+
     // Proyección del cierre: no una extrapolación lineal del acumulado (el devengado entra
     // a saltos, en cada vencimiento — extrapolar 6 días que incluyen un vencimiento grande
     // promete el triple), sino el interés que efectivamente falta devengar hasta fin de mes
@@ -801,6 +817,8 @@ export function useDerived(state: AppState): Derived {
       dayOfMonth,
       daysInMonth,
       previousLabel,
+      collectedAhead,
+      collectedAheadLabel: collectedAheadKey ? getMonthLabel(collectedAheadKey) : "",
     };
 
     return { months, monthPace };

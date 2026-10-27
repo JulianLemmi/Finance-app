@@ -696,6 +696,15 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
                             Usá "Extender" para mover esta fecha
                           </div>
                         )}
+                        {/* La fila va el día en que el cliente vino, pero la ganancia se
+                            devenga en el vencimiento que ese adelanto paga. Decirlo acá es
+                            lo que explica por qué el mes del cobro no la muestra. */}
+                        {adv && ev.accrualDate && (
+                          <div className="mt-0.5 text-[10px] text-zinc-600">
+                            Paga el vencimiento del {formatDate(ev.accrualDate)} · la ganancia
+                            cuenta en ese mes
+                          </div>
+                        )}
                       </div>
                       <div className="sm:text-right">
                         <div className={`text-sm font-semibold tabular-nums ${totalTone}`}>

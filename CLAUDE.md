@@ -114,7 +114,7 @@ src/
 ```
 
 ### Tests (`npm test`)
-Cuatro suites, ~1640 tests, corren en ~4 s:
+Cuatro suites, ~1650 tests, corren en ~4 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
@@ -190,6 +190,8 @@ La card "Ritmo del mes" de Inicio contesta "¿voy mejor o peor que el mes pasado
 - **La proyección de cierre NO es una regla de tres.** El devengado entra a saltos, en cada vencimiento: extrapolar 25 días a 31 prometería un 24% más de un préstamo que este mes ya no devenga nada. Se suma el interés que efectivamente falta (`upcomingInterest` hasta fin de mes) más el sueldo fijo que todavía no se acreditó.
 
 `deltaPct` es `null` cuando el mes anterior no tiene base: dividir por cero mostraría Infinity en pantalla.
+
+`collectedAhead` es la contracara de fechar los adelantos en el vencimiento que pagan: plata **ya cobrada** cuya ganancia cae después de este mes, así que no está en ninguna barra (la ventana del gráfico termina en el mes en curso) y sin decirlo parece perdida. La card de Inicio la muestra aparte, con el mes al que va. Son los únicos devengados que pueden caer a futuro, así que alcanza con filtrar por fecha; hay un test que afirma que lo que el mes en curso dejó de contar es exactamente esto.
 
 ### Sueldo fijo virtual (`settings.fixedIncomeAmount` / `fixedIncomeDay`)
 Ingreso fijo mensual **virtual**: helpers `salaryForMonth` / `totalSalary` en `store/index.ts`. Se suma al ingreso de cada mes (desde la primera actividad registrada, sólo si la fecha de cobro ya pasó) y por eso aparece en: `months[].income` (gráfico "Mes actual", balance/ahorro mensual), `totalIncome` (cards Ingresos/Balance de Finanzas) y `fixedIncomeThisMonth` (sumado a "Ganancia mensual" del inicio). **No** crea transacción (`state.income`), **no** afecta `cashOnHand`/capital, y **no** entra en las métricas de interés de préstamos (`nextProfitTotal` "Ganancia por cobrar", ROI).

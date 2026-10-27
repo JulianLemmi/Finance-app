@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useDerived, initialState, reducer } from "./index.js";
-import { addCalendarMonths, addDays, myShare, getNextRenewalDate, monthKey, loanPeriodDate, loanPrincipalAt } from "../lib/utils.js";
+import { addCalendarMonths, addDays, myShare, getNextRenewalDate, monthKey, loanPeriodDate, loanPrincipalAt, getMonthLabel } from "../lib/utils.js";
 import { interestAccruals, remainingDebt, paidAmount } from "../lib/calcs.js";
 import type { AppState, Loan, Derived } from "../types";
 
@@ -1054,5 +1054,68 @@ describe("un adelanto cobrado antes de tiempo va al mes que vence", () => {
   it("un préstamo cerrado no arrastra ciclos a futuro", () => {
     const cerrado = { ...conAdelanto, status: "refinanced" as const };
     expect(interestAccruals(cerrado).every((e) => e.date <= HOY)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plata ya cobrada que se devenga después de este mes. Un ciclo adelantado paga un
+// vencimiento futuro, así que su ganancia no está en ninguna barra del gráfico —la
+// ventana termina en el mes en curso— y sin decirlo parece que se perdió.
+describe("monthPace.collectedAhead: lo cobrado que cuenta el mes que viene", () => {
+  const base = mk({
+    id: "A", amount: 100000, interestRate: 10,
+    startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
+  });
+  const soloUno = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  it("sin adelantos no hay nada adelante", () => {
+    const p = derive(soloUno([base])).monthPace;
+    expect(p.collectedAhead).toBe(0);
+    expect(p.collectedAheadLabel).toBe("");
+  });
+
+  it("un adelanto cobrado hoy suma lo que va al mes siguiente", () => {
+    const p = derive(soloUno([{ ...base, advancedAt: [HOY] } as Loan])).monthPace;
+    expect(p.collectedAhead).toBeCloseTo(12100, 2);
+    expect(p.collectedAheadLabel).toBe(getMonthLabel(addCalendarMonths(HOY, 1).slice(0, 7)));
+  });
+
+  it("es exactamente lo que el mes en curso dejó de contar", () => {
+    // La prueba de que no se perdió: lo que salió de la barra está acá.
+    const sin = derive(soloUno([base]));
+    const con = derive(soloUno([{ ...base, advancedAt: [HOY] } as Loan]));
+    const total = (d: Derived) =>
+      d.months.reduce((s, m) => s + m.accrued, 0) + d.monthPace.collectedAhead;
+    expect(total(con) - total(sin)).toBeCloseTo(12100, 2);
+    // Y el mes en curso quedó igual que sin el adelanto.
+    const mesActual = (d: Derived) => d.months[d.months.length - 1].accrued;
+    expect(mesActual(con)).toBeCloseTo(mesActual(sin), 2);
+  });
+
+  it("un ciclo que vence dentro de este mes no cuenta como adelante", () => {
+    // Ése sí entra en la barra del mes, así que no hay nada que aclarar.
+    const dentro = mk({ id: "B", startDate: addCalendarMonths(HOY, -1), dueDate: addDays(HOY, -2) });
+    expect(derive(soloUno([dentro])).monthPace.collectedAhead).toBe(0);
+  });
+
+  it("se prorratea por mi parte en un préstamo compartido", () => {
+    const entero = derive(soloUno([{ ...base, advancedAt: [HOY] } as Loan])).monthPace;
+    const mitad = derive(soloUno([
+      { ...base, advancedAt: [HOY], sharedWith: "Papá", myPercent: 50 } as Loan,
+    ])).monthPace;
+    expect(mitad.collectedAhead).toBeCloseTo(entero.collectedAhead / 2, 2);
+  });
+
+  it("suma los adelantos de varios préstamos y rotula el mes más cercano", () => {
+    const otro = mk({
+      id: "C", amount: 50000, startDate: addCalendarMonths(HOY, -2),
+      dueDate: addCalendarMonths(HOY, -1), advancedAt: [HOY],
+    });
+    const p = derive(soloUno([{ ...base, advancedAt: [HOY] } as Loan, otro])).monthPace;
+    expect(p.collectedAhead).toBeGreaterThan(12100);
+    expect(p.collectedAheadLabel).toBe(getMonthLabel(addCalendarMonths(HOY, 1).slice(0, 7)));
   });
 });

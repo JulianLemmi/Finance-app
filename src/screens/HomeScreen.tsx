@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp, Wallet,
   Briefcase, Activity, CalendarClock, ChevronRight, ChevronDown, CheckCircle2, Search,
-  Banknote, Sun, Gauge, History,
+  Banknote, Sun, Gauge, History, FastForward,
 } from "lucide-react";
 import { formatShortDate, getNextRenewalDate, addDays, todayISO, formatInterest, formatCompact } from "../lib/utils.js";
 import { upcomingInterest } from "../lib/calcs.js";
@@ -317,6 +317,24 @@ export default function HomeScreen() {
                   <Money value={pace.projected} hide={hide} currency={cur} className="tabular-nums text-emerald-400" />
                 </div>
               </div>
+
+              {/* Un ciclo adelantado se devenga en el vencimiento que paga, así que cobrar
+                  hoy el mes que viene es ganancia del mes que viene. Esa plata no está en
+                  ninguna barra todavía —el gráfico termina en el mes en curso— y sin
+                  decirlo parece que se perdió. */}
+              {pace.collectedAhead > 0 && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-sky-900/30 bg-sky-950/15 px-3 py-2.5 text-[11px] text-sky-200/85">
+                  <FastForward className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Además ya cobraste{" "}
+                    <span className="font-semibold tabular-nums">
+                      <Money value={pace.collectedAhead} hide={hide} currency={cur} />
+                    </span>{" "}
+                    de vencimientos que cierran en {pace.collectedAheadLabel}: entran en la
+                    ganancia de ese mes, no en la de {currentMonthLabel}.
+                  </span>
+                </div>
+              )}
             </Card>
 
             {/* Histórico. `accumulatedProfit` es ganancia REALIZADA: lo que dejaron los
