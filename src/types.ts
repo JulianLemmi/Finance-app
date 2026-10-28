@@ -98,6 +98,9 @@ export interface LoanVehicle {
   hasCedula?: boolean;
   /** Si la deuda del 08 está al día. */
   debt08UpToDate?: boolean;
+  /** Cuánto se debe, cuando `debt08UpToDate` es `false`. Es deuda del auto con el
+   *  registro, no del cliente conmigo: no entra en ninguna cuenta del préstamo. */
+  debt08Amount?: number;
 }
 
 export interface Loan {

@@ -1263,6 +1263,49 @@ describe("datos del auto en garantía", () => {
     con.months.forEach((m, i) => expect(m.accrued).toBeCloseTo(sin.months[i].accrued, 2));
   });
 
+describe("el monto de la deuda 08", () => {
+    const soloUno2 = (loans: Loan[]): AppState => ({
+      ...initialState, loaded: true, loans,
+      settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+    });
+    const crear = (vehicle: Loan["vehicle"]) =>
+      reducer(soloUno2([]), {
+        type: "ADD_LOAN",
+        payload: mk({ id: "V", guarantyType: "vehicle", vehicle }),
+      }).loans[0].vehicle;
+
+    it("se guarda cuando la deuda no está al día", () => {
+      expect(crear({ debt08UpToDate: false, debt08Amount: 48500 }))
+        .toEqual({ debt08UpToDate: false, debt08Amount: 48500 });
+    });
+
+    it("convive con el resto de los datos del auto", () => {
+      const v = crear({ model: "Gol", plate: "AA111BB", hasCedula: true,
+                        debt08UpToDate: false, debt08Amount: 12000 });
+      expect(v).toEqual({ model: "Gol", plate: "AA111BB", hasCedula: true,
+                          debt08UpToDate: false, debt08Amount: 12000 });
+    });
+
+    it("no entra en ninguna cuenta del préstamo", () => {
+      // Es deuda del auto con el registro, no del cliente conmigo.
+      const sin = derive(soloUno2([mk({ id: "V", guarantyType: "vehicle" })]));
+      const con = derive(soloUno2([mk({ id: "V", guarantyType: "vehicle",
+        vehicle: { debt08UpToDate: false, debt08Amount: 99999 } })]));
+      expect(con.capitalInvested).toBeCloseTo(sin.capitalInvested, 2);
+      expect(con.totalCapital).toBeCloseTo(sin.totalCapital, 2);
+      expect(con.nextProfitTotal).toBeCloseTo(sin.nextProfitTotal, 2);
+      expect(con.totalLiabilities).toBeCloseTo(sin.totalLiabilities, 2);
+    });
+
+    it("sobrevive a editar el préstamo", () => {
+      const base = mk({ id: "V", guarantyType: "vehicle",
+        vehicle: { debt08UpToDate: false, debt08Amount: 7000 } });
+      const s = reducer(soloUno2([base]), { type: "UPDATE_LOAN", payload: { id: "V", amount: 1 } });
+      expect(s.loans[0].vehicle!.debt08Amount).toBe(7000);
+    });
+  });
+
+
   it("un préstamo sin auto no inventa el campo", () => {
     const s = reducer(soloUno([]), { type: "ADD_LOAN", payload: mk({ id: "B" }) });
     expect(s.loans[0].vehicle).toBeUndefined();

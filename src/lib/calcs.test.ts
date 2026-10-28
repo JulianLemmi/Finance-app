@@ -18,6 +18,7 @@ import {
   getLoanCycleDays, todayISO, todayDate, myShare, daysBetween, loanDeployedFrom,
   loanPrincipalAt, loanEffectiveRate, packAdvances,
 } from "./utils.js";
+import { limpiarVehiculo } from "./vehicle.js";
 import type { Loan, ResolvedLoan } from "../types";
 
 const HOY = "2026-08-25";
@@ -1757,5 +1758,53 @@ describe("cadena de refinanciación en la curva de capital", () => {
       // Y nunca más de un eslabón a la vez: el máximo posible es el capital del vigente.
       expect(tres.filter((l) => loanCapitalAt(l, f, m.get(l.id)) > 0).length).toBe(1);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Normalización de los datos del auto. La regla del monto existe para evitar una
+// contradicción fácil de producir: volver la deuda a "al día" dejando el importe viejo
+// mostraría "Deuda 08 al día: Sí · Debe US$48.500".
+describe("limpiarVehiculo", () => {
+  it("guarda el monto cuando la deuda no está al día", () => {
+    expect(limpiarVehiculo({ debt08UpToDate: false, debt08Amount: 48500 }))
+      .toEqual({ debt08UpToDate: false, debt08Amount: 48500 });
+  });
+
+  it("descarta el monto si la deuda está al día", () => {
+    expect(limpiarVehiculo({ debt08UpToDate: true, debt08Amount: 48500 }))
+      .toEqual({ debt08UpToDate: true });
+  });
+
+  it("descarta el monto si nadie dijo si está al día", () => {
+    expect(limpiarVehiculo({ debt08Amount: 48500 })).toBeUndefined();
+  });
+
+  it("ignora un monto en cero o inválido", () => {
+    for (const monto of [0, -5, NaN, undefined]) {
+      expect(limpiarVehiculo({ debt08UpToDate: false, debt08Amount: monto as number }))
+        .toEqual({ debt08UpToDate: false });
+    }
+  });
+
+  it("un sí/no sin tocar no se guarda como 'no'", () => {
+    const v = limpiarVehiculo({ model: "Gol" })!;
+    expect(v).toEqual({ model: "Gol" });
+    expect("hasCedula" in v).toBe(false);
+    expect("debt08UpToDate" in v).toBe(false);
+  });
+
+  it("limpia los textos y pone la patente en mayúsculas", () => {
+    expect(limpiarVehiculo({ model: "  Gol  ", version: " 1.6 ", plate: " ab123cd " }))
+      .toEqual({ model: "Gol", version: "1.6", plate: "AB123CD" });
+  });
+
+  it("un auto sin nada cargado no se guarda", () => {
+    expect(limpiarVehiculo({})).toBeUndefined();
+    expect(limpiarVehiculo({ model: "", version: "   ", plate: "" })).toBeUndefined();
+  });
+
+  it("guarda 'no' cuando el usuario lo eligió a propósito", () => {
+    expect(limpiarVehiculo({ hasCedula: false })).toEqual({ hasCedula: false });
   });
 });

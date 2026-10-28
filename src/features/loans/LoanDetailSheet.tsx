@@ -404,6 +404,16 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
                       </span>
                     </div>
                   ) : null)}
+                  {/* Cuánto se debe va en su propia fila, no apretado contra el "No":
+                      es un importe y se lee como el resto de los importes de la pantalla. */}
+                  {loan.vehicle.debt08Amount !== undefined && (
+                    <div className="flex items-center justify-between gap-3 border-t border-zinc-800/60 pt-2.5 text-xs">
+                      <span className="shrink-0 text-zinc-500">Debe</span>
+                      <span className="font-semibold tabular-nums text-rose-300">
+                        <Money value={loan.vehicle.debt08Amount} hide={hide} currency={cur} />
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

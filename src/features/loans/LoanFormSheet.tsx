@@ -11,28 +11,13 @@ import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
 import { validateLoan, expectedProfit } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
+import { limpiarVehiculo } from "../../lib/vehicle.js";
 import type { Loan, LoanVehicle, Payment, PaymentType, GuarantyType, LoanStatus, Settings, InterestMode } from "../../types";
 
-/** Deja sólo los campos cargados: un auto con todo vacío no se guarda como `{}`. */
-function limpiarVehiculo(v: LoanVehicle): LoanVehicle | undefined {
-  const out: LoanVehicle = {};
-  const model = v.model?.trim();
-  const version = v.version?.trim();
-  const plate = v.plate?.trim().toUpperCase();
-  if (model) out.model = model;
-  if (version) out.version = version;
-  if (plate) out.plate = plate;
-  // Los sí/no se guardan sólo si el usuario los tocó: "no" y "no lo cargué" son cosas
-  // distintas, y mostrar "Sin cédula" por omisión sería inventarle un dato al préstamo.
-  if (typeof v.hasCedula === "boolean") out.hasCedula = v.hasCedula;
-  if (typeof v.debt08UpToDate === "boolean") out.debt08UpToDate = v.debt08UpToDate;
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 /**
- * Sí / No / sin cargar. Un dato del auto que no se completó no es "no": si fuera un
- * switch de dos estados, un préstamo recién creado diría "Sin cédula" sin que nadie lo
- * haya mirado. Tocar la opción ya elegida la deselecciona y vuelve a "sin cargar".
+ * Sí / No / sin cargar. Un dato del auto que no se completó no es "no": con un switch de
+ * dos estados, un préstamo recién creado diría "Sin cédula" sin que nadie lo haya mirado.
+ * Tocar la opción ya elegida la deselecciona y vuelve a "sin cargar".
  */
 function TriEstado({ label, value, onChange }: {
   label: string;
@@ -502,8 +487,23 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
                     onChange={(v) => updateField("vehicle", { ...form.vehicle, hasCedula: v })} />
                   <TriEstado label="Deuda 08 al día"
                     value={form.vehicle.debt08UpToDate}
-                    onChange={(v) => updateField("vehicle", { ...form.vehicle, debt08UpToDate: v })} />
+                    onChange={(v) => updateField("vehicle", {
+                      ...form.vehicle,
+                      debt08UpToDate: v,
+                      // Al volver a "Sí" o a sin cargar, el monto deja de tener sentido.
+                      debt08Amount: v === false ? form.vehicle.debt08Amount : undefined,
+                    })} />
                 </div>
+                {/* El monto sólo se pregunta cuando hay algo que deber. */}
+                {form.vehicle.debt08UpToDate === false && (
+                  <Input label="¿Cuánto debe?" type="number" inputMode="decimal" placeholder="0"
+                    value={form.vehicle.debt08Amount ?? ""}
+                    onChange={(e) => updateField("vehicle", {
+                      ...form.vehicle,
+                      debt08Amount: e.target.value === "" ? undefined : Number(e.target.value),
+                    })}
+                    Icon={Banknote} />
+                )}
                 <p className="text-[11px] text-zinc-500">
                   Queda guardado en el préstamo y se ve en el detalle. No entra en ninguna cuenta.
                 </p>
