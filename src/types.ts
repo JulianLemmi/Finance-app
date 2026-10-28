@@ -82,6 +82,24 @@ export type AdvanceRecord = ISODate | AdvanceEntry;
 
 export type InterestMode = "percent" | "fixed";
 
+/**
+ * Datos del auto que queda en garantía. Todo opcional: lo que no se carga no se muestra.
+ * Es registro para tener a mano cuando hay que ir a buscar el auto, no entra en ninguna
+ * cuenta ni en ninguna métrica.
+ */
+export interface LoanVehicle {
+  /** Marca y modelo: "Volkswagen Suran". */
+  model?: string;
+  /** Versión o motorización: "1.6 Highline". */
+  version?: string;
+  /** Patente, guardada en mayúsculas. */
+  plate?: string;
+  /** Si el auto tiene la cédula. */
+  hasCedula?: boolean;
+  /** Si la deuda del 08 está al día. */
+  debt08UpToDate?: boolean;
+}
+
 export interface Loan {
   id: string;
   clientId: string;
@@ -118,6 +136,10 @@ export interface Loan {
   contacts: Contact[];
   guarantyType: GuarantyType;
   guarantyDetail: string;
+  /** Datos del auto que queda en garantía. Se cargan prendiendo "Datos del auto" en el
+   *  formulario y son sólo registro: no entran en ninguna cuenta. `guarantyDetail` sigue
+   *  siendo la etiqueta corta que se ve en los listados. */
+  vehicle?: LoanVehicle;
   status: LoanStatus;
   compoundInterest: boolean;
   noDueDate: boolean;

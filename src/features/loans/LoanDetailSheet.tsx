@@ -363,6 +363,51 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               ))}
             </div>
 
+            {/* ── Datos del auto en garantía ── */}
+            {loan.vehicle && (
+              <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-4">
+                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
+                  <CarIcon className="h-3.5 w-3.5" />
+                  Datos del auto
+                </div>
+                <div className="mt-3 space-y-2.5">
+                  {([
+                    ["Modelo", loan.vehicle.model],
+                    ["Versión", loan.vehicle.version],
+                  ] as const).map(([k, v]) => v ? (
+                    <div key={k} className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="shrink-0 text-zinc-500">{k}</span>
+                      <span className="truncate text-right font-medium text-zinc-200">{v}</span>
+                    </div>
+                  ) : null)}
+                  {loan.vehicle.plate && (
+                    <div className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="shrink-0 text-zinc-500">Patente</span>
+                      {/* La patente se lee de un lado al otro: monoespaciada y separada. */}
+                      <span className="rounded-md border border-zinc-700/70 bg-zinc-950/60 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.12em] text-zinc-100">
+                        {loan.vehicle.plate}
+                      </span>
+                    </div>
+                  )}
+                  {/* Sólo se muestran los sí/no que el usuario cargó: un dato en blanco no
+                      es "no", y pintarlo en rojo sería afirmar algo que nadie verificó. */}
+                  {([
+                    ["Cédula", loan.vehicle.hasCedula],
+                    ["Deuda 08 al día", loan.vehicle.debt08UpToDate],
+                  ] as const).map(([k, v]) => typeof v === "boolean" ? (
+                    <div key={k} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="shrink-0 text-zinc-500">{k}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        v ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+                      }`}>
+                        {v ? "Sí" : "No"}
+                      </span>
+                    </div>
+                  ) : null)}
+                </div>
+              </div>
+            )}
+
             {/* ── Tu parte (préstamo compartido) ── */}
             {loan.sharedWith && (
               <div className="rounded-2xl border border-blue-900/30 bg-blue-950/15 p-4">

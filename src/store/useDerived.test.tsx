@@ -1216,3 +1216,72 @@ describe("monthBreakdowns: de dónde sale cada vela", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Los datos del auto son registro, no cuenta: tienen que sobrevivir al reducer y al
+// backup sin tocar una sola métrica.
+describe("datos del auto en garantía", () => {
+  const auto = {
+    model: "Volkswagen Suran", version: "1.6 Highline", plate: "AB123CD",
+    hasCedula: true, debt08UpToDate: false,
+  };
+  const conAuto = mk({ id: "A", guarantyType: "vehicle", vehicle: auto });
+  const soloUno = (loans: Loan[]): AppState => ({
+    ...initialState, loaded: true, loans,
+    settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
+  });
+
+  it("se guarda al crear el préstamo", () => {
+    const s = reducer(soloUno([]), { type: "ADD_LOAN", payload: conAuto });
+    expect(s.loans[0].vehicle).toEqual(auto);
+  });
+
+  it("sobrevive a editar el préstamo", () => {
+    const s = reducer(soloUno([conAuto]), {
+      type: "UPDATE_LOAN", payload: { id: "A", amount: 50000 },
+    });
+    expect(s.loans[0].vehicle).toEqual(auto);
+    expect(s.loans[0].amount).toBe(50000);
+  });
+
+  it("sobrevive a sumar capital y a registrar un pago", () => {
+    let s = reducer(soloUno([conAuto]), {
+      type: "ADD_LOAN_EXTRA", payload: { loanId: "A", extra: { id: "e", amount: 1000, date: HOY } },
+    });
+    s = reducer(s, {
+      type: "ADD_PAYMENT", payload: { loanId: "A", payment: { id: "p", amount: 500, date: HOY } },
+    });
+    expect(s.loans[0].vehicle).toEqual(auto);
+  });
+
+  it("no mueve ninguna métrica", () => {
+    const sin = derive(soloUno([mk({ id: "A", guarantyType: "vehicle" })]));
+    const con = derive(soloUno([conAuto]));
+    expect(con.capitalInvested).toBeCloseTo(sin.capitalInvested, 2);
+    expect(con.nextProfitTotal).toBeCloseTo(sin.nextProfitTotal, 2);
+    expect(con.totalCapital).toBeCloseTo(sin.totalCapital, 2);
+    con.months.forEach((m, i) => expect(m.accrued).toBeCloseTo(sin.months[i].accrued, 2));
+  });
+
+  it("un préstamo sin auto no inventa el campo", () => {
+    const s = reducer(soloUno([]), { type: "ADD_LOAN", payload: mk({ id: "B" }) });
+    expect(s.loans[0].vehicle).toBeUndefined();
+  });
+
+  it("acepta datos parciales: todo es opcional", () => {
+    const parcial = mk({ id: "C", guarantyType: "vehicle", vehicle: { plate: "XY999ZZ" } });
+    const s = reducer(soloUno([]), { type: "ADD_LOAN", payload: parcial });
+    expect(s.loans[0].vehicle).toEqual({ plate: "XY999ZZ" });
+  });
+
+  it("'sin cargar' no es lo mismo que 'no'", () => {
+    // Un sí/no que nadie tocó queda ausente. Guardarlo como false haría que el detalle
+    // afirmara "Sin cédula" sobre un auto que nadie miró.
+    const s = reducer(soloUno([]), {
+      type: "ADD_LOAN",
+      payload: mk({ id: "D", guarantyType: "vehicle", vehicle: { model: "Gol" } }),
+    });
+    expect(s.loans[0].vehicle!.hasCedula).toBeUndefined();
+    expect(s.loans[0].vehicle!.debt08UpToDate).toBeUndefined();
+  });
+});

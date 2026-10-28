@@ -4,14 +4,68 @@
 import { useState, useEffect, useRef } from "react";
 import {
   User as UserIcon, Tag, Banknote, TrendingUp, Calendar, Clock, Hash,
-  CalendarClock, Shield, FileText, HelpCircle, Users, Car as CarIcon,
+  CalendarClock, Shield, FileText, HelpCircle, Users, Car as CarIcon, Check,
 } from "lucide-react";
 import { uid, todayISO, addDays, addCalendarMonths, formatMoney, formatDate } from "../../lib/utils.js";
 import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
 import { validateLoan, expectedProfit } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
-import type { Loan, Payment, PaymentType, GuarantyType, LoanStatus, Settings, InterestMode } from "../../types";
+import type { Loan, LoanVehicle, Payment, PaymentType, GuarantyType, LoanStatus, Settings, InterestMode } from "../../types";
+
+/** Deja sólo los campos cargados: un auto con todo vacío no se guarda como `{}`. */
+function limpiarVehiculo(v: LoanVehicle): LoanVehicle | undefined {
+  const out: LoanVehicle = {};
+  const model = v.model?.trim();
+  const version = v.version?.trim();
+  const plate = v.plate?.trim().toUpperCase();
+  if (model) out.model = model;
+  if (version) out.version = version;
+  if (plate) out.plate = plate;
+  // Los sí/no se guardan sólo si el usuario los tocó: "no" y "no lo cargué" son cosas
+  // distintas, y mostrar "Sin cédula" por omisión sería inventarle un dato al préstamo.
+  if (typeof v.hasCedula === "boolean") out.hasCedula = v.hasCedula;
+  if (typeof v.debt08UpToDate === "boolean") out.debt08UpToDate = v.debt08UpToDate;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Sí / No / sin cargar. Un dato del auto que no se completó no es "no": si fuera un
+ * switch de dos estados, un préstamo recién creado diría "Sin cédula" sin que nadie lo
+ * haya mirado. Tocar la opción ya elegida la deselecciona y vuelve a "sin cargar".
+ */
+function TriEstado({ label, value, onChange }: {
+  label: string;
+  value?: boolean;
+  onChange: (v: boolean | undefined) => void;
+}) {
+  const opciones: { v: boolean; texto: string; on: string }[] = [
+    { v: true, texto: "Sí", on: "border-emerald-700/70 bg-emerald-950/40 text-emerald-300" },
+    { v: false, texto: "No", on: "border-rose-800/60 bg-rose-950/30 text-rose-300" },
+  ];
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="flex gap-2">
+        {opciones.map((o) => (
+          <button key={o.texto} type="button"
+            aria-pressed={value === o.v}
+            onClick={() => onChange(value === o.v ? undefined : o.v)}
+            className={`flex-1 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+              value === o.v ? o.on : "border-zinc-800/70 bg-zinc-900/50 text-zinc-500 hover:bg-zinc-900"
+            }`}>
+            {o.texto}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** El bloque cuenta sólo si está prendido Y la garantía es un auto: cambiar la garantía a
+ *  efectivo no puede dejar los datos de un auto colgados en el préstamo. */
+const vehicleHabilitado = (f: { vehicleOn: boolean; guarantyType: GuarantyType }) =>
+  f.vehicleOn && f.guarantyType === "vehicle";
 
 interface LoanFormState {
   id: string;
@@ -38,6 +92,10 @@ interface LoanFormState {
   parkingFee: string | number;
   parkingRecipient: string;
   parkingPayments: Payment[];
+  /** Prende el bloque "Datos del auto". Vive sólo en el formulario: lo que se guarda es
+   *  `vehicle`, y que haya datos cargados es lo que lo vuelve a prender al editar. */
+  vehicleOn: boolean;
+  vehicle: LoanVehicle;
   createdAt?: number;
 }
 
@@ -67,6 +125,7 @@ function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
     compoundInterest: false, noDueDate: false,
     sharedWith: "", myPercent: "",
     parkingFee: "", parkingRecipient: "", parkingPayments: [],
+    vehicleOn: false, vehicle: {},
   };
 }
 
@@ -82,7 +141,11 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
     if (!open) return;
     const base = emptyLoan(settingsRef.current);
     if (editingLoan) {
-      setForm({ ...base, ...editingLoan });
+      setForm({
+        ...base, ...editingLoan,
+        vehicle: editingLoan.vehicle ?? {},
+        vehicleOn: !!editingLoan.vehicle,
+      });
       return;
     }
     if (refinancingFrom) {
@@ -120,6 +183,9 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
         myPercent: refinancingFrom.myPercent ? String(refinancingFrom.myPercent) : "",
         parkingFee: refinancingFrom.parkingFee ? String(refinancingFrom.parkingFee) : "",
         parkingRecipient: refinancingFrom.parkingRecipient ?? "",
+        // El auto es el mismo: lo que cambia es el préstamo.
+        vehicle: refinancingFrom.vehicle ?? {},
+        vehicleOn: !!refinancingFrom.vehicle,
         notes: `Refinanciación del préstamo previo (${refinancingFrom.dueDate || refinancingFrom.startDate}).`,
       });
       return;
@@ -192,8 +258,12 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
     }
     const myPercent = Number(form.myPercent);
     const parkingFee = Number(form.parkingFee);
+    // `vehicleOn` es estado de formulario y no viaja al préstamo.
+    const { vehicleOn: _on, vehicle: vehicleForm, ...formSinUI } = form;
     const payload = {
-      ...form, id: form.id || uid("loan"), clientId,
+      ...formSinUI,
+      vehicle: vehicleHabilitado(form) ? limpiarVehiculo(vehicleForm) : undefined,
+      id: form.id || uid("loan"), clientId,
       amount: Number(form.amount), interestRate: Number(form.interestRate),
       interestMode: form.interestMode,
       fixedInterest: form.interestMode === "fixed" ? Number(form.fixedInterest || 0) : undefined,
@@ -386,6 +456,61 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
             </p>
           )}
         </div>
+
+        {/* ── Datos del auto ── */}
+        {form.guarantyType === "vehicle" && (
+          <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-4 space-y-3">
+            <button type="button"
+              onClick={() => updateField("vehicleOn", !form.vehicleOn)}
+              className="flex w-full items-center justify-between gap-3 text-left">
+              <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-zinc-400">
+                <CarIcon className="h-3.5 w-3.5 shrink-0" />
+                Datos del auto
+                <span className="text-[10px] font-normal text-zinc-600">(opcional)</span>
+              </div>
+              <span
+                aria-hidden
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                  form.vehicleOn ? "border-amber-600 bg-amber-600" : "border-zinc-700 bg-zinc-900"
+                }`}
+              >
+                {form.vehicleOn && <Check className="h-3 w-3 text-amber-50" />}
+              </span>
+            </button>
+
+            {form.vehicleOn && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input label="Modelo" placeholder="Volkswagen Suran"
+                    value={form.vehicle.model ?? ""}
+                    onChange={(e) => updateField("vehicle", { ...form.vehicle, model: e.target.value })}
+                    Icon={CarIcon} />
+                  <Input label="Versión" placeholder="1.6 Highline"
+                    value={form.vehicle.version ?? ""}
+                    onChange={(e) => updateField("vehicle", { ...form.vehicle, version: e.target.value })}
+                    Icon={Tag} />
+                </div>
+                <Input label="Patente" placeholder="AB 123 CD"
+                  value={form.vehicle.plate ?? ""}
+                  onChange={(e) => updateField("vehicle", { ...form.vehicle, plate: e.target.value.toUpperCase() })}
+                  Icon={Hash} />
+                {/* Tres estados a propósito: sí, no, y sin cargar. Marcar "no" por defecto
+                    sería inventarle un dato al préstamo. */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <TriEstado label="Cédula"
+                    value={form.vehicle.hasCedula}
+                    onChange={(v) => updateField("vehicle", { ...form.vehicle, hasCedula: v })} />
+                  <TriEstado label="Deuda 08 al día"
+                    value={form.vehicle.debt08UpToDate}
+                    onChange={(v) => updateField("vehicle", { ...form.vehicle, debt08UpToDate: v })} />
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  Queda guardado en el préstamo y se ve en el detalle. No entra en ninguna cuenta.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Estacionamiento (autos) ── */}
         {form.guarantyType === "vehicle" && (
