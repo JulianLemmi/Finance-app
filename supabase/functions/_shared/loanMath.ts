@@ -138,7 +138,7 @@ export function loanElapsedPeriods(loan: Loan, anchor: string, asOf: string): nu
 /** Cantidad de ciclos adelantados manualmente hasta `asOf` (inclusive).
  *  Un adelanto fechado a futuro todavia no capitalizo nada, asi que no cuenta: espeja
  *  advancedCycles/advancedCyclesUpTo de src/lib/utils.ts. */
-function advancedCycles(loan: Loan, asOf: string): number {
+export function advancedCycles(loan: Loan, asOf: string): number {
   return advanceDates(loan.advancedAt).filter((d) => d <= asOf).length;
 }
 

@@ -9,7 +9,7 @@ import {
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
-  Loan, Transaction, ResolvedLoan, MonthPace,
+  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown,
 } from "../types";
 
 export const initialState: AppState = {
@@ -694,6 +694,11 @@ export function useDerived(state: AppState): Derived {
     // anterior. En el mes actual los dos coinciden (interestAccruals no fecha eventos a
     // futuro), y hay un test que lo afirma.
     const accruedToDate = months.map(() => 0);
+    // Quién aportó cuánto al devengado de cada mes. Es lo que explica la vela: sin esto,
+    // la barra dice "US$2.354" y no hay manera de saber de qué clientes salió.
+    const accruedByClient: Map<string, number>[] = months.map(() => new Map());
+    type ExpCatKeyLocal = keyof typeof EXPENSE_CATEGORIES;
+    const breakdowns: MonthBreakdown[] = [];
     loansResolved.forEach((l) => {
       // accrued: interés devengado por vencimiento/re-vencimiento, lo paguen o no.
       // Es el rendimiento económico real del mes y alimenta el ROI histórico.
@@ -703,6 +708,8 @@ export function useDerived(state: AppState): Derived {
         const i = monthIdx[monthKey(ev.date)];
         if (i === undefined) return;
         months[i].accrued += share * ev.amount;
+        const quien = (l.clientName || "Sin nombre").trim();
+        accruedByClient[i].set(quien, (accruedByClient[i].get(quien) || 0) + share * ev.amount);
         if (Number(ev.date.slice(8, 10)) <= dayOfMonth) accruedToDate[i] += share * ev.amount;
       });
     });
@@ -739,8 +746,15 @@ export function useDerived(state: AppState): Derived {
         .reduce((acc, l) => acc + myShare(l) * loanPrincipalAt(l, cutoff), 0);
       // Capital de la curva: incluye el interés capitalizado por vencimientos y
       // re-vencimientos acumulados a esa fecha (no sólo el principal prestado).
-      const capitalAtMonth = loansResolved
-        .reduce((acc, l) => acc + myShare(l) * loanCapitalAt(l, cutoff, refinancedAt.get(l.id)), 0);
+      const capitalPorPrestamo = loansResolved
+        .map((l) => ({
+          label: (l.clientName || "Sin nombre").trim(),
+          detail: l.alias?.trim() || undefined,
+          amount: myShare(l) * loanCapitalAt(l, cutoff, refinancedAt.get(l.id)),
+          kind: "loan" as const,
+        }))
+        .filter((c) => Math.abs(c.amount) > 0.005);
+      const capitalAtMonth = capitalPorPrestamo.reduce((acc, c) => acc + c.amount, 0);
       m.capitalInvested = capitalAtMonth;
       // Capital total de la curva: efectivo + invertido + activos - pasivos (igual que
       // totalCapital del header). Activos y pasivos se aplican a todos los meses por igual
@@ -751,6 +765,35 @@ export function useDerived(state: AppState): Derived {
       m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
       // Ganancia del mes para el gráfico "Mes actual": interés devengado + sueldo fijo.
       m.monthGain = m.accrued + m.salary;
+
+      // De dónde sale cada vela. Cada lista tiene que sumar EXACTAMENTE la barra que
+      // explica — hay tests que lo afirman: un desglose que no cierra con su barra es
+      // peor que no tenerlo, porque invita a confiar en él.
+      const i = monthIdx[m.key];
+      const gasto = (k: ExpCatKeyLocal) => state.expenses
+        .filter((e) => monthKey(e.date) === m.key && e.category === k)
+        .reduce((s, e) => s + Number(e.amount || 0), 0);
+      breakdowns.push({
+        key: m.key,
+        label: m.label,
+        accrued: [
+          ...[...accruedByClient[i].entries()]
+            .map(([label, amount]) => ({ label, amount, kind: "loan" as const }))
+            .sort((a, b) => b.amount - a.amount),
+          ...(m.salary > 0 ? [{ label: "Sueldo fijo", amount: m.salary, kind: "salary" as const }] : []),
+        ],
+        expenses: (Object.keys(EXPENSE_CATEGORIES) as ExpCatKeyLocal[])
+          .map((k) => ({ label: EXPENSE_CATEGORIES[k].label as string, amount: gasto(k), kind: "expense" as const }))
+          .filter((c) => c.amount > 0)
+          .sort((a, b) => b.amount - a.amount),
+        capital: [...capitalPorPrestamo].sort((a, b) => b.amount - a.amount),
+        total: [
+          { label: "Prestado", amount: capitalAtMonth, kind: "loan" as const },
+          { label: "Efectivo", amount: Number(state.settings.cashOnHand || 0), kind: "cash" as const },
+          { label: "Activos", amount: totalAssets, kind: "asset" as const },
+          { label: "Pasivos", amount: -totalLiabilities, kind: "liability" as const },
+        ].filter((c) => Math.abs(c.amount) > 0.005),
+      });
     });
 
     // Ritmo del mes: el mes en curso contra el MISMO TRAMO del anterior. Comparar el
@@ -821,7 +864,7 @@ export function useDerived(state: AppState): Derived {
       collectedAheadLabel: collectedAheadKey ? getMonthLabel(collectedAheadKey) : "",
     };
 
-    return { months, monthPace };
+    return { months, monthPace, monthBreakdowns: breakdowns };
   }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
 
   // Stage 5: client stats

@@ -8,13 +8,13 @@
 // misma cartera y fallan ante cualquier desvío.
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import * as edge from "../../supabase/functions/_shared/loanMath.ts";
-import { buildDigest, fmtDate } from "../../supabase/functions/_shared/digest.ts";
+import { buildDigest, fmtDate, nextCollectionDate as edgeNextCollection } from "../../supabase/functions/_shared/digest.ts";
 import {
   getLoanCycleDays, loanPeriodDate, loanElapsedPeriods, getNextRenewalDate,
   addCalendarMonths, addDays, daysBetween,
   loanPrincipalAt,
 } from "./utils.js";
-import { remainingDebt, resolveStatus, expectedProfit, expectedReturn, paidAmount } from "./calcs.js";
+import { remainingDebt, resolveStatus, expectedProfit, expectedReturn, paidAmount, nextCollectionDate } from "./calcs.js";
 import type { Loan } from "../types";
 
 const HOY = "2026-08-25";
@@ -245,18 +245,56 @@ describe("el resumen que sale por push", () => {
     expect(d.body).toContain("↻");
   });
 
-  it("el que paga los intereses al día no se anuncia como atrasado", () => {
-    // Este es el bug que motivó estos tests. El cliente pagó lo suficiente como para
-    // cubrir el interés acumulado, así que para la app el préstamo volvió a estar
-    // "activo" — pero el digest lo seguía viendo atrasado y le anunciaba al usuario la
-    // fecha del re-vencimiento, que no es la que muestra la pantalla.
+  it("el que paga los intereses al día avisa igual, en su re-vencimiento", () => {
+    // El cliente pagó lo suficiente como para cubrir el interés acumulado, así que para la
+    // app el préstamo volvió a estar "activo" — pero su vencimiento YA PASÓ y lo que viene
+    // es el re-vencimiento. El digest anunciaba el vencimiento original, el filtro de
+    // ventana lo descartaba por pasado, y ese préstamo no avisaba NUNCA. En la cartera real
+    // eran cuatro de cinco: pasa sobre todo en los refinanciados, donde el capital ya trae
+    // capitalizado el interés del eslabón anterior y el umbral para volver a "active" es alto.
     const l = mk({ id: "i", clientName: "AlDia",
                    startDate: addCalendarMonths(HOY, -2), dueDate: addCalendarMonths(HOY, -1),
                    payments: [{ id: "p", amount: 20000, date: addCalendarMonths(HOY, -1) }] });
     expect(resolveStatus(l)).toBe("active");
     expect(edge.resolveStatus(l, HOY)).toBe("active");
-    // Con ventana amplia, para que el re-vencimiento entre si el bug volviera.
-    expect(buildDigest([l], HOY, 400)).toBeNull();
+    expect(l.dueDate < HOY).toBe(true);
+
+    const d = buildDigest([l], HOY, 400)!;
+    expect(d).not.toBeNull();
+    expect(d.items[0].date).toBe(nextCollectionDate(l));
+    expect(d.items[0].date > HOY).toBe(true);
+    expect(d.items[0].renewal).toBe(true);
+  });
+
+  it("un préstamo que todavía no venció avisa en su propio vencimiento", () => {
+    // La otra mitad de la regla: mientras no haya pasado y no haya corrido ningún ciclo,
+    // la fecha de cobro es el dueDate, no el re-vencimiento siguiente.
+    const l = mk({ id: "f", clientName: "Futuro", startDate: addDays(HOY, -10), dueDate: addDays(HOY, 5) });
+    const d = buildDigest([l], HOY, 30)!;
+    expect(d.items[0].date).toBe(addDays(HOY, 5));
+    expect(d.items[0].renewal).toBe(false);
+  });
+
+  it("ningún préstamo vivo de la cartera queda sin avisar", () => {
+    // El caso que reportó el usuario: cuatro de sus cinco préstamos vivos eran eslabones
+    // refinanciados y ninguno le llegaba.
+    const vivos = casos
+      .map(([, l]) => l)
+      .filter((l) => ["active", "overdue"].includes(resolveStatus(l)))
+      .filter((l) => l.dueDate && !l.noDueDate && !l.archived);
+    // La invariante no es "entra a la ventana" —un préstamo que vence en dos años queda
+    // fuera y está bien— sino que TODOS tengan una fecha de cobro futura. Anunciar una
+    // fecha pasada es lo que los hacía desaparecer: el filtro de ventana los descartaba.
+    // Se nombra al culpable, porque "34 no es 35" no dice cuál quedó sin aviso.
+    const conFechaPasada = vivos
+      .map((l) => ({ l, next: edgeNextCollection(l, HOY) }))
+      .filter(({ next }) => !next || next.date < HOY);
+    expect(conFechaPasada.map(({ l, next }) =>
+      `${l.clientName} (vence ${l.dueDate} → anuncia ${next?.date ?? "nada"})`)).toEqual([]);
+
+    // Y para los que sí caen en la ventana, la fecha es la misma que muestra la pantalla.
+    const d = buildDigest(vivos, HOY, 400)!;
+    expect(d.items.every((i) => i.date >= HOY)).toBe(true);
   });
 
   it("la fecha anunciada es siempre la misma que muestra la app", () => {
@@ -265,10 +303,10 @@ describe("el resumen que sale por push", () => {
     for (const [nombre, l] of casos) {
       const d = buildDigest([l], HOY, 400);
       if (!d) continue;
-      const esperada = resolveStatus(l) === "overdue" && l.dueDate !== HOY
-        ? getNextRenewalDate(l)
-        : l.dueDate;
-      expect(`${nombre}: ${d.items[0].date}`).toBe(`${nombre}: ${esperada}`);
+      // La referencia sale de la MISMA función que usa la pantalla, no de una copia de la
+      // regla acá: cuando el test tenía la suya, la pantalla cambió, la copia quedó vieja
+      // y el test siguió verde mientras el push anunciaba otra fecha.
+      expect(`${nombre}: ${d.items[0].date}`).toBe(`${nombre}: ${nextCollectionDate(l)}`);
     }
   });
 

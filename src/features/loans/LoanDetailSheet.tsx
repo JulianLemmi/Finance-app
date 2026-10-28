@@ -7,7 +7,7 @@ import {
   MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle, FileSpreadsheet,
 } from "lucide-react";
 import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
-import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt, halfCycleCharged, periodInterest } from "../../lib/calcs.js";
+import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt, halfCycleCharged, periodInterest, nextCollectionDate } from "../../lib/calcs.js";
 
 /** Fraccion de ciclo que cobra un medio adelanto. */
 const HALF_CYCLE_FRACTION = 0.5;
@@ -93,9 +93,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   // no el ciclo siguiente. Con la condición puesta sólo en los ciclos corridos, un vencido
   // al que todavía no le llegó el re-vencimiento (venció hace 13 días, el ciclo cierra a
   // los 30) anunciaba como "próximo" su dueDate, que ya había pasado.
-  const nextDueDate = loan.dueDate && loan.dueDate > todayISO() && currentCompoundPeriods === 0
-    ? loan.dueDate
-    : getNextRenewalDate(loan);
+  const nextDueDate = nextCollectionDate(loan);
   // Lo que suma el adelanto según el modo. `nextPeriodInterest` ya descuenta lo que se haya
   // cobrado por adelantado, así que el medio ciclo se calcula sobre el ciclo entero.
   const halfCount = (loan.halfAdvancedAt || []).length;

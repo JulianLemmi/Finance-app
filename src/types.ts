@@ -444,6 +444,34 @@ export interface MonthPace {
   collectedAheadLabel: string;
 }
 
+/** Un renglón del desglose de una vela: de dónde salió esa parte del monto. */
+export interface MonthContribution {
+  /** El cliente, o el concepto ("Sueldo fijo", "Efectivo", "Activos", una categoría de gasto). */
+  label: string;
+  /** Dato secundario cuando el nombre solo no alcanza (el alias del préstamo). */
+  detail?: string;
+  amount: number;
+  kind: "loan" | "salary" | "cash" | "asset" | "liability" | "expense";
+}
+
+/**
+ * De dónde sale cada barra de los gráficos de Inicio, para el mes `key`. Cada lista suma
+ * EXACTAMENTE la barra que explica —hay tests que lo afirman— porque un desglose que no
+ * cierra con su barra es peor que no tenerlo: invita a confiar en él.
+ */
+export interface MonthBreakdown {
+  key: string;
+  label: string;
+  /** Aporte de cada cliente al devengado, más el sueldo fijo. Suma `monthGain`. */
+  accrued: MonthContribution[];
+  /** Gastos del mes por categoría. Suma `expense`. */
+  expenses: MonthContribution[];
+  /** Capital desplegado por préstamo al cierre del mes. Suma `capitalInvested`. */
+  capital: MonthContribution[];
+  /** Componentes del patrimonio: prestado, efectivo, activos y pasivos. Suma `capital`. */
+  total: MonthContribution[];
+}
+
 export interface Derived {
   loansResolved: ResolvedLoan[];
   activeLoans: ResolvedLoan[];
@@ -485,6 +513,7 @@ export interface Derived {
   cashFlow30d: CashFlowPoint[];
   months: MonthData[];
   monthPace: MonthPace;
+  monthBreakdowns: MonthBreakdown[];
   clientStats: ResolvedClient[];
 }
 

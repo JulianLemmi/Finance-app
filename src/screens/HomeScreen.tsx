@@ -1,7 +1,7 @@
 // Pantalla principal: capital total, préstamos próximos a vencer, agenda del día,
 // mapa de vencimientos (30 días), gráficos de evolución y actividad reciente. El
 // reloj vive en LiveClock aislado para que sólo ese componente haga re-render cada segundo.
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Eye, EyeOff, Bell, Plus, Pencil, Sparkles, Target, TrendingUp, Wallet,
   Briefcase, Activity, CalendarClock, ChevronRight, ChevronDown, CheckCircle2, Search,
@@ -12,6 +12,8 @@ import { upcomingInterest } from "../lib/calcs.js";
 import { UI_LIMITS, CHART_COLORS, MONTH_COLORS, BUSINESS_RULES } from "../lib/constants.js";
 import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
+import { useLongPress } from "../lib/hooks.js";
+import ChartDetailSheet, { type ChartDetailKind } from "../components/ChartDetailSheet.jsx";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, StatCard, ChartTooltip,
   DeltaPill, Badge, IconButton, ChartContainer,
@@ -89,6 +91,30 @@ export default function HomeScreen() {
 
   const lastMonthIdx = derived.months.length - 1;
   const currentMonthLabel = derived.months[lastMonthIdx]?.label ?? "";
+
+  // Mantener apretada una vela abre su desglose. Recharts informa qué barra está activa
+  // en los handlers del gráfico; el long-press vive en el div que lo envuelve, porque las
+  // barras no reciben los eventos de puntero sostenido.
+  const [chartDetail, setChartDetail] = useState<{ kind: ChartDetailKind; idx: number } | null>(null);
+  const useBarDetail = (kind: ChartDetailKind) => {
+    const idx = useRef<number | null>(null);
+    // Recharts tipa el índice activo como `number | string` (admite categorías con
+    // nombre), así que se normaliza antes de guardarlo.
+    const track = (s: { activeTooltipIndex?: number | string | null } | null) => {
+      const raw = s?.activeTooltipIndex;
+      const i = typeof raw === "string" ? Number(raw) : raw;
+      if (typeof i === "number" && Number.isFinite(i) && i >= 0) idx.current = i;
+    };
+    const { pressing, handlers } = useLongPress(
+      () => { if (idx.current !== null) setChartDetail({ kind, idx: idx.current }); },
+      undefined,
+      { delayMs: 500, feedbackAfterMs: 200 }
+    );
+    return { track, pressing, handlers };
+  };
+  const capitalDetail = useBarDetail("total");
+  const balanceDetail = useBarDetail("accrued");
+  const invertidoDetail = useBarDetail("capital");
 
   const pace = derived.monthPace;
   // Cuánto del cierre del mes pasado ya lleva el mes en curso. Es la lectura de un
@@ -506,9 +532,11 @@ export default function HomeScreen() {
                 </span>
               </div>
             </div>
+            <div {...capitalDetail.handlers} className={capitalDetail.pressing ? "opacity-70 transition-opacity" : ""}>
             <ChartContainer className="h-52 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%">
+                <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
+                  onMouseMove={capitalDetail.track} onMouseDown={capitalDetail.track} onClick={capitalDetail.track} onTouchStart={capitalDetail.track} onTouchMove={capitalDetail.track}>
                   <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                   {/* El capital puede ser negativo si los pasivos superan al patrimonio,
@@ -530,6 +558,7 @@ export default function HomeScreen() {
                 </BarChart>
               )}
             </ChartContainer>
+            </div>
           </Card>
 
           <Card className="p-5">
@@ -549,9 +578,11 @@ export default function HomeScreen() {
             <div className="mb-3 text-[10px] text-zinc-600">
               Neto de {currentMonthLabel} · barra destacada
             </div>
+            <div {...balanceDetail.handlers} className={balanceDetail.pressing ? "opacity-70 transition-opacity" : ""}>
             <ChartContainer className="h-44 min-w-0">
               {({ width, height }) => (
-                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="6%">
+                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="6%"
+                  onMouseMove={balanceDetail.track} onMouseDown={balanceDetail.track} onClick={balanceDetail.track} onTouchStart={balanceDetail.track} onTouchMove={balanceDetail.track}>
                   <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }} />
                   {/* Con "auto" el dominio calza justo con los datos y la etiqueta del gasto
@@ -585,6 +616,7 @@ export default function HomeScreen() {
                 </BarChart>
               )}
             </ChartContainer>
+            </div>
             <div className="mt-2">
               <ChartLegend items={[
                 { label: "Ingresos", color: CHART_COLORS.income as string },
@@ -612,9 +644,11 @@ export default function HomeScreen() {
               { label: "Capital total", color: CHART_COLORS.reference as string },
             ]} />
           </div>
+          <div {...invertidoDetail.handlers} className={invertidoDetail.pressing ? "opacity-70 transition-opacity" : ""}>
           <ChartContainer className="h-52 min-w-0">
             {({ width, height }) => (
-              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%">
+              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
+                onMouseMove={invertidoDetail.track} onMouseDown={invertidoDetail.track} onClick={invertidoDetail.track} onTouchStart={invertidoDetail.track} onTouchMove={invertidoDetail.track}>
                 <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
                 <YAxis
@@ -637,6 +671,7 @@ export default function HomeScreen() {
               </ComposedChart>
             )}
           </ChartContainer>
+          </div>
         </Card>
 
         <VencimientosHeatmap />
@@ -709,6 +744,13 @@ export default function HomeScreen() {
       {quickPayLoan && (
         <PaymentSheet open={!!quickPayLoan} onClose={() => setQuickPayLoan(null)} loan={quickPayLoan} />
       )}
+
+      <ChartDetailSheet
+        open={!!chartDetail}
+        onClose={() => setChartDetail(null)}
+        kind={chartDetail?.kind ?? "accrued"}
+        breakdown={chartDetail ? derived.monthBreakdowns[chartDetail.idx] ?? null : null}
+      />
     </>
   );
 }

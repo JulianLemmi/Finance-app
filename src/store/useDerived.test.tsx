@@ -1119,3 +1119,100 @@ describe("monthPace.collectedAhead: lo cobrado que cuenta el mes que viene", () 
     expect(p.collectedAheadLabel).toBe(getMonthLabel(addCalendarMonths(HOY, 1).slice(0, 7)));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El desglose de una vela explica de dónde salió su monto. La regla que lo hace confiable
+// es una sola: CADA LISTA SUMA EXACTAMENTE SU BARRA. Un desglose que no cierra es peor
+// que no tenerlo, porque invita a creerle.
+describe("monthBreakdowns: de dónde sale cada vela", () => {
+  const conGastos: AppState = {
+    ...estado,
+    expenses: [
+      { id: "e1", type: "expense", amount: 2000, category: "comida", description: "", date: HOY, createdAt: 0 },
+      { id: "e2", type: "expense", amount: 500, category: "transporte", description: "", date: HOY, createdAt: 0 },
+    ],
+    settings: { ...estado.settings, fixedIncomeAmount: 300, fixedIncomeDay: 1 },
+  };
+
+  it("hay un desglose por cada barra del gráfico", () => {
+    const d = derive();
+    expect(d.monthBreakdowns).toHaveLength(d.months.length);
+    d.months.forEach((m, i) => expect(d.monthBreakdowns[i].key).toBe(m.key));
+  });
+
+  it.each([
+    ["accrued", "monthGain"],
+    ["expenses", "expense"],
+    ["capital", "capitalInvested"],
+    ["total", "capital"],
+  ] as const)("el desglose de %s suma la barra de %s", (lista, barra) => {
+    const d = derive(conGastos);
+    d.monthBreakdowns.forEach((b, i) => {
+      const suma = b[lista].reduce((s, c) => s + c.amount, 0);
+      expect(`${b.key}: ${suma.toFixed(2)}`).toBe(`${b.key}: ${d.months[i][barra].toFixed(2)}`);
+    });
+  });
+
+  it("el devengado se abre por cliente, con nombre y monto", () => {
+    const d = derive();
+    const conDatos = d.monthBreakdowns.filter((b) => b.accrued.length > 0);
+    expect(conDatos.length).toBeGreaterThan(0);
+    for (const b of conDatos) {
+      for (const c of b.accrued) {
+        expect(c.label.length).toBeGreaterThan(0);
+        expect(Number.isFinite(c.amount)).toBe(true);
+      }
+      // Los clientes que aportaron tienen que estar entre los de la cartera.
+      const clientes = new Set(estado.loans.map((l) => l.clientName.trim()));
+      for (const c of b.accrued.filter((x) => x.kind === "loan")) {
+        expect(clientes.has(c.label)).toBe(true);
+      }
+    }
+  });
+
+  it("el sueldo fijo va aparte, no mezclado con un cliente", () => {
+    const d = derive(conGastos);
+    const sueldos = d.monthBreakdowns.flatMap((b) => b.accrued.filter((c) => c.kind === "salary"));
+    expect(sueldos.length).toBeGreaterThan(0);
+    expect(sueldos.every((c) => c.label === "Sueldo fijo")).toBe(true);
+  });
+
+  it("el patrimonio se abre en prestado, efectivo, activos y pasivos", () => {
+    const d = derive();
+    const ultimo = d.monthBreakdowns[d.monthBreakdowns.length - 1];
+    expect(ultimo.total.map((c) => c.kind).sort()).toEqual(["asset", "cash", "liability", "loan"]);
+    // El pasivo resta: tiene que venir negativo o la suma no cerraría.
+    expect(ultimo.total.find((c) => c.kind === "liability")!.amount).toBeLessThan(0);
+  });
+
+  it("un cliente compartido aporta sólo mi parte", () => {
+    const d = derive();
+    const compartido = estado.loans.find((l) => l.id === "compartido")!;
+    const aportes = d.monthBreakdowns
+      .flatMap((b) => b.capital)
+      .filter((c) => c.label === compartido.clientName.trim());
+    for (const a of aportes) {
+      expect(a.amount).toBeLessThanOrEqual(Number(compartido.amount) * myShare(compartido) + 0.01);
+    }
+  });
+
+  it("no lista renglones en cero", () => {
+    const d = derive(conGastos);
+    for (const b of d.monthBreakdowns) {
+      for (const lista of [b.accrued, b.expenses, b.capital, b.total]) {
+        expect(lista.every((c) => Math.abs(c.amount) > 0)).toBe(true);
+      }
+    }
+  });
+
+  it("archivar no cambia ningún desglose", () => {
+    // Misma regla que el resto de las métricas: archivar saca de la agenda, no de las cuentas.
+    const abierto = derive();
+    const guardado = derive({ ...estado, loans: estado.loans.map((l) => ({ ...l, archived: true })) });
+    abierto.monthBreakdowns.forEach((b, i) => {
+      const suma = (x: typeof b.accrued) => x.reduce((s, c) => s + c.amount, 0);
+      expect(suma(guardado.monthBreakdowns[i].accrued)).toBeCloseTo(suma(b.accrued), 2);
+      expect(suma(guardado.monthBreakdowns[i].capital)).toBeCloseTo(suma(b.capital), 2);
+    });
+  });
+});

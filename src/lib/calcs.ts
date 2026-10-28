@@ -1,5 +1,5 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, advanceDates, advanceEntries, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate } from "./utils.js";
+import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, advanceDates, advanceEntries, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, getNextRenewalDate } from "./utils.js";
 import type { AdvanceEntry, Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 /**
@@ -985,6 +985,25 @@ function fullNextPeriodInterest(loan: Loan): number {
   if (loan.interestMode === "fixed") return capitalPending > 0 ? Number(loan.fixedInterest || 0) : 0;
   const rate = Number(loan.interestRate) / 100;
   return capitalPending * rate;
+}
+
+/**
+ * La próxima fecha en la que se espera cobrarle a este préstamo.
+ *
+ * El `dueDate` sólo vale mientras no haya pasado Y no haya corrido ningún ciclo; de ahí en
+ * más manda `getNextRenewalDate`. Decidirlo por el ESTADO no alcanza: un préstamo al que le
+ * pagaron lo suficiente vuelve a `"active"` (`resolveStatus`) con el vencimiento ya pasado,
+ * y anunciar esa fecha es anunciar algo que ya ocurrió. Pasa sobre todo en los
+ * refinanciados, donde el umbral para volver a "active" es alto.
+ *
+ * Es la única definición: la usan el detalle del préstamo y el digest del push (replicada
+ * en `_shared/digest.ts`). Cuando cada uno tenía la suya, la notificación anunciaba una
+ * fecha distinta de la que mostraba la pantalla — o directamente no anunciaba nada.
+ */
+export function nextCollectionDate(loan: Loan, asOf: string = todayISO()): string {
+  if (!loan.dueDate) return "";
+  if (loan.dueDate >= asOf && overduePeriodsAt(loan, asOf) === 0) return loan.dueDate;
+  return getNextRenewalDate(loan);
 }
 
 export function loanProgress(loan: Loan): number {

@@ -6,7 +6,7 @@
  * el usuario en la notificación, y tiene que ser la misma que muestra la app.
  */
 import {
-  Loan, getNextRenewalDate, resolveStatus, loanElapsedPeriods, daysBetween, addDays,
+  Loan, getNextRenewalDate, resolveStatus, loanElapsedPeriods, advancedCycles, daysBetween, addDays,
 } from "./loanMath.ts";
 
 export type DigestItem = { name: string; date: string; days: number; renewal: boolean };
@@ -29,7 +29,16 @@ export function nextCollectionDate(loan: Loan, today: string): { date: string; r
   const status = resolveStatus(loan, today);
   if (status !== "active" && status !== "overdue") return null;
   if (!loan.dueDate) return null; // los préstamos sin vencimiento no entran al digest
-  if (status === "active" || loan.dueDate === today) {
+
+  // El `dueDate` sólo sirve como próxima fecha de cobro mientras no haya pasado y no haya
+  // corrido ningún ciclo. Mirando el ESTADO en vez del calendario, un préstamo al que le
+  // pagaron lo suficiente vuelve a "active" (`resolveStatus`) y anunciaba su vencimiento
+  // original —ya vencido hace semanas—; el filtro de ventana de `buildDigest` lo
+  // descartaba por pasado y ese préstamo no avisaba NUNCA. Pasa sobre todo en los
+  // refinanciados: su capital ya trae el interés del eslabón anterior capitalizado, así
+  // que el umbral para volver a "active" queda alto y es fácil cruzarlo.
+  const corridos = loanElapsedPeriods(loan, loan.dueDate, today) + advancedCycles(loan, today);
+  if (loan.dueDate >= today && corridos === 0) {
     return { date: loan.dueDate, renewal: false };
   }
   const next = getNextRenewalDate(loan, today);
