@@ -2,7 +2,8 @@
 // arrastre vertical para cerrar (drag-to-dismiss) desde el header/handle.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { registrarOverlay } from "../../lib/overlay.js";
+import { registrarOverlay, type CapaOverlay } from "../../lib/overlay.js";
+import { atraparTab } from "../../lib/focus.js";
 import { IconButton } from "./button.jsx";
 
 type SheetSize = "sm" | "md" | "lg" | "xl";
@@ -41,6 +42,14 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
   const [blurListo, setBlurListo] = useState(false);
   const closingRef = useRef(false);
   const dragStart = useRef<number | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const capaRef = useRef<CapaOverlay | null>(null);
+  const closeTimer = useRef<number | undefined>(undefined);
+  // `onClose` por ref: los padres lo pasan casi siempre como una función en línea, o sea
+  // nueva en cada render. Si `requestClose` dependiera de él, el efecto del teclado se
+  // volvía a montar en cada render del padre.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   // Algunos sheets quedan montados con open=false: resetear al reabrir.
   useEffect(() => {
@@ -52,22 +61,33 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
     }
   }, [open]);
 
+  // Si el sheet se desmonta durante la animación de salida, el `onClose` pendiente no
+  // tiene que dispararse: llegaría a un padre que ya no es el mismo (por ejemplo cerrando
+  // el modal SIGUIENTE).
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
   const requestClose = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
     setClosing(true);
-    window.setTimeout(() => onClose?.(), CLOSE_MS);
-  }, [onClose]);
+    closeTimer.current = window.setTimeout(() => onCloseRef.current?.(), CLOSE_MS);
+  }, []);
 
+  // La capa: se registra al ABRIR y se da de baja al cerrar, y nada más. Antes esto vivía
+  // en el mismo efecto que el teclado, que dependía de `requestClose` y se rehacía en cada
+  // render del padre: cada vez se apagaba el desenfoque, se des-registraba la capa (el
+  // fondo animado se reanudaba un instante) y se reiniciaba el temporizador de OPEN_MS.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && requestClose();
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    // El overlay tapa la pantalla con un desenfoque: avisamos para que el fondo animado
-    // se frene mientras tanto (ver lib/overlay.ts).
-    const liberarOverlay = registrarOverlay();
+    // Quién tenía el foco al abrir (el botón que disparó el sheet): se lo devolvemos al cerrar.
+    const opener = document.activeElement as HTMLElement | null;
+    // Registra la capa en la pila (ver lib/overlay.ts): frena el fondo animado, bloquea el
+    // scroll del body y le dice a Escape cuál es la de arriba.
+    const capa = registrarOverlay();
+    capaRef.current = capa;
+    // El foco entra al diálogo, salvo que algo de adentro ya lo tenga (un `autoFocus`).
+    const panel = panelRef.current;
+    if (panel && !panel.contains(document.activeElement)) panel.focus();
     // El `backdrop-filter` de pantalla completa recién se aplica cuando la animación de
     // entrada terminó. Desenfocar mientras el sheet entra y el navegador está armando su
     // contenido es lo más caro del momento más caro: con el desenfoque desde el frame 0,
@@ -76,11 +96,23 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
     const tBlur = window.setTimeout(() => setBlurListo(true), OPEN_MS);
     return () => {
       window.clearTimeout(tBlur);
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-      liberarOverlay();
+      capa.liberar();
+      capaRef.current = null;
       setBlurListo(false);
+      if (opener && opener.isConnected) opener.focus();
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Con sheets apilados sólo reacciona el de arriba: antes un Escape cerraba todos.
+      if (!capaRef.current?.esLaDeArriba()) return;
+      if (e.key === "Escape") requestClose();
+      else if (e.key === "Tab" && panelRef.current) atraparTab(e, panelRef.current);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, requestClose]);
 
   if (!open) return null;
@@ -121,6 +153,7 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <button
         aria-label="cerrar"
+        tabIndex={-1}
         onClick={requestClose}
         className={`absolute inset-0 bg-black/60${blurListo ? " backdrop-blur-sm" : ""}`}
         style={{
@@ -130,7 +163,9 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
         }}
       />
       <div
-        className={`relative flex h-[92vh] w-full flex-col rounded-t-3xl border border-zinc-800/80 bg-zinc-950 shadow-[0_-12px_60px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.04)] sm:h-auto sm:max-h-[88vh] sm:rounded-3xl ${widths[size]}`}
+        ref={panelRef}
+        tabIndex={-1}
+        className={`relative flex h-[92vh] w-full flex-col outline-none rounded-t-3xl border border-zinc-800/80 bg-zinc-950 shadow-[0_-12px_60px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.04)] sm:h-auto sm:max-h-[88vh] sm:rounded-3xl ${widths[size]}`}
         style={{
           animation: closing ? undefined : "fa-sheet 340ms cubic-bezier(.22,1.18,.36,1)",
           transform: panelTransform,

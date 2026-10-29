@@ -92,7 +92,8 @@ src/
 ├── FinanceApp.tsx             # root: auth gate (SetupScreen → LoginScreen → AuthedApp)
 ├── main.tsx                  # entry point
 ├── components/
-│   ├── ui/                   # primitivos tipados: badge, button, card, chart, delta, form, sheet
+│   ├── ui/                   # primitivos tipados: badge, button, card, chart (+ chartHelpers), delta, form,
+│   │                         # sheet, delete (InlineDelete/ConfirmDelete), formFooter (FormFooter)
 │   ├── ui.tsx                # barrel re-export de ui/
 │   ├── BottomTabBar.tsx
 │   ├── DolarBlue.tsx         # widget cotización dólar (bluelytics API)
@@ -102,6 +103,9 @@ src/
 │   ├── GlobalStyles.tsx      # CSS global + tema claro via .theme-light
 │   ├── LockScreen.tsx        # PIN obligatorio (alta + ingreso) / biométrico (WebAuthn)
 │   ├── ModalRoot.tsx         # monta el sheet activo según state.ui.modal
+│   ├── ModalBoundary.tsx     # ErrorBoundary de los sheets: un error ahí no tira abajo la app
+│   ├── StorageAlert.tsx      # aviso de guardado fallido / sin espacio
+│   ├── LoadFailed.tsx        # pantalla "no pude leer tus datos" con Reintentar
 │   ├── NetworkStatus.tsx     # pill offline/online con estado transitorio
 │   ├── PortfolioAnalytics.tsx # cobrabilidad, heatmap 30 días, cash flow
 │   └── WelcomeSplash.tsx     # splash 2.8 s al iniciar
@@ -110,7 +114,10 @@ src/
 │   ├── assets/AssetSheet.tsx
 │   ├── cars/CarFormSheet.tsx
 │   ├── clients/ClientFormSheet.tsx + ClientDetailSheet.tsx
-│   └── loans/                # LoanFormSheet, LoanDetailSheet, PaymentSheet,
+│   └── loans/                # LoanDetailSheet (compone) + sus secciones y sheets de operación:
+│                             #   LoanSummaryCard, LoanStatsGrid, VehicleCard, SharedShareCard, ParkingCard,
+│                             #   ContactsSection, DeleteLoanSection / ExtendSheet, ExtraCapitalSheet, AdvanceSheet
+│                             # LoanFormSheet (+ loanForm.ts: estado y payload), PaymentSheet, LoanLedgerSheet,
 │                             # LoanTimeline, PaymentHistory, LoanChain, PhotoGallery
 ├── sheets/TransactionSheet.tsx
 ├── lib/
@@ -122,12 +129,17 @@ src/
 │   ├── lock.ts               # PIN PBKDF2-SHA256 v2 + WebAuthn biométrico
 │   ├── push.ts               # Web Push VAPID, subscribe/unsubscribe/test
 │   ├── telegram.ts           # sendTelegramNotification via edge function
+│   ├── overlay.ts            # pila de capas abiertas: Escape, scroll del body y fondo animado
+│   ├── focus.ts              # atrapar el Tab dentro de un diálogo
+│   ├── loanChain.ts          # cadena de refinanciación (con guarda contra ciclos)
+│   ├── chunkReload.ts        # recarga ante un chunk viejo, una vez por minuto
+│   ├── vehicle.ts            # limpiarVehiculo (datos del auto)
 │   └── constants.js          # STORAGE_KEYS, LOAN_STATUSES, EXPENSE_CATEGORIES, etc.
 └── store/index.ts            # reducer + AppContext + useDerived
 ```
 
 ### Tests (`npm test`)
-Catorce suites, ~1780 tests, corren en ~25 s:
+Dieciocho suites, ~1820 tests, corren en ~30 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
@@ -140,6 +152,8 @@ Catorce suites, ~1780 tests, corren en ~25 s:
 - `src/lib/backup.test.ts` — el respaldo es completo (autos y pasivos) y rechaza lo que ninguna versión pudo generar.
 - `src/store/reducer.test.ts` — lo que cada acción le hace al estado (por ahora, renombrar un cliente).
 - `src/components/ModalBoundary.test.tsx` — un error en un sheet queda contenido.
+- `src/components/ui/sheet.test.tsx`, `src/lib/overlay.test.ts`, `src/lib/focus.test.ts` — la pila de capas (Escape), el foco y el ciclo de vida de los sheets.
+- `src/components/ui/formFooter.test.tsx` — el pie de los sheets de alta/edición (confirmación de borrado).
 - **Los tests con `@testing-library` necesitan `cleanup()` explícito en `afterEach`**: el proyecto no usa `globals`, así que no limpia solo entre tests. Sin eso los componentes y hooks de tests anteriores siguen montados y responden a los mismos eventos de `window` (se vieron 8 llamadas en vez de 1).
 
 **Si `npx vitest run` falla con "no tests" en TODAS las suites a la vez, no es el código**: es el agotamiento de memoria del equipo (los workers de V8 no llegan a arrancar, "Zone Allocation failed"). Reintentar, o correr con `--no-file-parallelism` y con menos cosas abiertas.
@@ -305,6 +319,11 @@ Manteniendo apretada una card en Préstamos se archiva/restaura (ver `useLongPre
 - **Toda la app queda dentro de un `ErrorBoundary`, y el bloqueo con PIN la vuelve `inert`.** El único boundary envolvía las pantallas de cada pestaña; `ModalRoot` quedaba afuera, así que un error al renderizar un sheet (un dato raro en un respaldo, una foto `null`) desmontaba TODA la app y quedaba la pantalla en blanco. Ahora `ModalBoundary` contiene el error en el sheet (aviso + "Cerrar"; su `key` cambia con el modal para que el siguiente arranque limpio) y `main.tsx` tiene un boundary raíz de último recurso. Aparte, la pantalla de bloqueo es sólo un overlay con la app montada debajo: con Tab se llegaba a los botones de atrás y Ctrl+K abría el buscador. El contenedor lleva `inert={bloqueada}` (con `contents`, para no tocar el layout) y el atajo se ignora mientras esté el PIN. Verificado en navegador con un dato realmente roto (`photos: [null]`): sin `ModalBoundary` la app cae entera.
 - **El hash v1 del PIN (SHA-256 sin sal) se migra a v2 al validarlo** (`verifyAndUpgradePin`): es el único momento en que se tiene el PIN en claro. Antes quien tenía un hash v1 quedaba con el esquema débil para siempre. La migración conserva `credentialId` (la huella).
 - **Un adicional de capital con fecha futura no se puede confirmar.** El date picker tiene `max` en hoy, pero `max` no impide TIPEAR una fecha futura; el adicional se guardaba igual y el motor no lo cuenta (todavía no está en la calle), así que el usuario veía que "no pasaba nada" con su plata.
+- **`LoanDetailSheet` es una composición, no un archivo de 1000 líneas.** Se partió en una sección o sheet por responsabilidad (`LoanSummaryCard`, `LoanStatsGrid`, `VehicleCard`, `SharedShareCard`, `ParkingCard`, `ContactsSection`, `DeleteLoanSection`, y los sheets `ExtendSheet`, `ExtraCapitalSheet`, `AdvanceSheet`), y el padre quedó en ~185 líneas con lo único que comparten: el préstamo, cuál sheet está abierto y el pie de acciones. Dos decisiones que no son obvias: (1) **cada sheet de operación es dueño de su estado y se monta sólo cuando se abre** (`{operacion === "sumar" && <ExtraCapitalSheet open .../>}`), así que arranca con los campos limpios sin resetearlos a mano —"Adelantar" quedaba pegado en "medio ciclo" al reabrirlo— y no se arma su JSX en cada render del detalle; (2) **un solo estado `operacion`** en vez de siete booleanos, porque nunca hay dos operaciones abiertas a la vez. `LoanFormSheet` ahora recibe `onSaved`: cancelar una refinanciación vuelve al detalle y sólo confirmarla lo cierra (antes `onClose` se llamaba en los dos casos y cancelar cerraba también el detalle). Las dos celdas que estaban copiadas ~16 veces son `MiniStat` e `InfoCell` (`loanDetailParts.tsx`). La extracción se verificó comparando el DOM real antes y después en siete vistas (detalle con auto, compartido, con todo, y los tres sheets): **idéntico al carácter**.
+- **El pie de los sheets de alta/edición es `FormFooter`** (`components/ui/formFooter.tsx`): "Eliminar → ¿Eliminar? Sí/No" + Cancelar + Guardar, que estaba copiado palabra por palabra en activos, pasivos y autos. El estado de la confirmación vive en el pie, que se desmonta al cerrar el sheet: con el estado en el sheet (que sigue montado con `open={false}`) podía quedar el "¿Eliminar?" puesto de la vez anterior.
+- **Los sheets y el buscador forman una PILA (`lib/overlay.ts`), y sólo la capa de arriba reacciona.** Cada capa escuchaba `Escape` en `document`, así que con el detalle de un préstamo y el sheet de cobro encima UN solo toque cerraba los dos (y el buscador sobre un sheet, igual). `registrarOverlay()` devuelve `{ liberar, esLaDeArriba }`. El mismo módulo es el **único dueño del scroll del body**: antes cada sheet guardaba el `overflow` previo y lo restauraba al cerrar, y si se cerraban en otro orden que el de apertura (confirmar una refinanciación cierra el detalle y el formulario) el último restauraba el `hidden` que el otro había guardado y el scroll quedaba bloqueado para siempre. Sigue alimentando a `DollarRain` (`hayOverlay`/`onOverlayChange`).
+- **El efecto de la capa de `Sheet` depende SÓLO de `open`; el `onClose` va por ref.** Los padres pasan `onClose` casi siempre como función en línea (nueva en cada render): si el efecto dependía de `requestClose`, cada render del padre desmontaba la capa y la volvía a montar —se apagaba el desenfoque, el fondo animado se reanudaba un instante y se reiniciaba el temporizador de `OPEN_MS`—. Lo atrapa `sheet.test.tsx` ("re-renderizar al padre con un onClose nuevo NO apaga y prende la capa"). Además el timer de la animación de salida se cancela al desmontar (si no, el `onClose` pendiente llegaba a un padre que ya no era el mismo, por ejemplo cerrando el modal SIGUIENTE).
+- **`aria-modal="true"` no hace nada por sí solo: el foco hay que manejarlo.** El `Sheet` mueve el foco al diálogo al abrir (salvo que un `autoFocus` de adentro ya lo tenga), lo **atrapa** con Tab/Shift+Tab (`lib/focus.ts`) —antes se llegaba con Tab a los botones de la app de atrás y se podían accionar con Enter— y lo devuelve a quien abrió el sheet al cerrar. El fondo clickeable (`backdrop`) lleva `tabIndex={-1}`: Escape y la X ya cierran por teclado. `enfocables` filtra por `tabIndex < 0`: el selector deja pasar un `<button tabindex="-1">` y, de ser el último del sheet, el Tab se habría atrapado en el elemento equivocado (lo encontró el test).
 - **`npx tsc --noEmit` debe pasar siempre**: correrlo antes de commitear cambios de tipos.
 - **El mapa de vencimientos muestra `_nextProfit`, igual que la card del préstamo.** Con `_profit` (el interés contratado sobre el capital) el mapa y la card se contradecían en los préstamos con pagos que ya habían cubierto interés y en los que tienen ciclos adelantados — donde además el cobro ya no cae en el `dueDate` original, así que el mapa anunciaba plata en un día en el que no se cobra nada.
 - **La próxima fecha de cobro sale de `nextCollectionDate` (`calcs.ts`), y el digest del push la replica.** El `dueDate` sólo vale mientras no haya pasado Y no haya corrido ningún ciclo; de ahí en más manda `getNextRenewalDate`. Decidirlo por el ESTADO —como hacía `_shared/digest.ts`— rompe en los préstamos que volvieron a `"active"` con el vencimiento ya pasado: el digest anunciaba esa fecha vieja, el filtro de ventana la descartaba por pasada y **ese préstamo no avisaba nunca**. En la cartera real eran cuatro de cinco, porque pasa sobre todo en los refinanciados (capital alto ⇒ umbral alto para volver a "active"). El test de paridad ahora compara contra `nextCollectionDate` en vez de re-implementar la regla: cuando tenía su propia copia, la pantalla cambió, la copia quedó vieja y el test siguió verde mientras el push mentía.

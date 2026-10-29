@@ -1,10 +1,10 @@
 // Overlay de búsqueda global (Cmd+K). Busca en préstamos, clientes y movimientos
 // en tiempo real con mínimo 2 caracteres. Abre el detalle al seleccionar un resultado.
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, Wallet, Users, ArrowUp, ArrowDown, ChevronRight } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { formatShortDate } from "../lib/utils.js";
-import { registrarOverlay } from "../lib/overlay.js";
+import { registrarOverlay, type CapaOverlay } from "../lib/overlay.js";
 import { StatusBadge, Money } from "./ui.jsx";
 import type { Transaction } from "../types";
 
@@ -22,12 +22,22 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
 
   useEffect(() => { if (open) setQuery(""); }, [open]);
-  // Mismo overlay desenfocado a pantalla completa que los sheets: frena el fondo.
-  useEffect(() => { if (open) return registrarOverlay(); }, [open]);
+  // Mismo overlay desenfocado a pantalla completa que los sheets: frena el fondo y entra
+  // en la pila de capas (ver lib/overlay.ts), que decide a cuál le toca el Escape.
+  const capaRef = useRef<CapaOverlay | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const capa = registrarOverlay();
+    capaRef.current = capa;
+    return () => { capa.liberar(); capaRef.current = null; };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      // Con un sheet abajo, un Escape cerraba el buscador Y el sheet. Sólo la capa de arriba.
+      if (e.key === "Escape" && capaRef.current?.esLaDeArriba()) onClose();
+    };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
