@@ -1076,6 +1076,8 @@ export interface LoanFormData {
   customDays?: string | number;
   startDate?: string;
   dueDate?: string;
+  sharedWith?: string;
+  myPercent?: string | number;
 }
 
 export type LoanValidationErrors = Partial<Record<keyof LoanFormData, string>>;
@@ -1105,6 +1107,18 @@ export function validateLoan(form: LoanFormData): LoanValidationErrors {
     if (form.startDate && form.dueDate && form.dueDate <= form.startDate) {
       errors.dueDate = "El vencimiento debe ser posterior a la fecha de inicio";
     }
+  }
+  // Un "Mi %" que no se puede usar se descarta al guardar (`buildLoanPayload`), y sin
+  // porcentaje `myShare` es 1: el préstamo pasaba a contar ENTERO como tuyo en el capital,
+  // la ganancia y el ROI sin ningún aviso. Se dice antes de guardar. 100 es válido: es
+  // "todo mío", lo mismo que dejarlo vacío.
+  const pctTexto = String(form.myPercent ?? "").trim();
+  if (pctTexto !== "") {
+    const pct = Number(pctTexto);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 100)
+      errors.myPercent = "Tu parte tiene que ser mayor a 0 y hasta 100";
+    else if (pct < 100 && !form.sharedWith?.trim())
+      errors.sharedWith = "Indicá con quién lo compartís; si no, cuenta entero como tuyo";
   }
   return errors;
 }

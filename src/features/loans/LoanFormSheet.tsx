@@ -348,10 +348,12 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Input label="Compartido con" placeholder="Papá"
               value={form.sharedWith}
-              onChange={(e) => updateField("sharedWith", e.target.value)} Icon={UserIcon} />
+              onChange={(e) => updateField("sharedWith", e.target.value)} Icon={UserIcon}
+              error={errors.sharedWith} />
             <Input label="Mi %" type="number" inputMode="decimal" placeholder="50"
               value={form.myPercent}
-              onChange={(e) => updateField("myPercent", e.target.value)} Icon={Hash} />
+              onChange={(e) => updateField("myPercent", e.target.value)} Icon={Hash}
+              error={errors.myPercent} />
           </div>
           {form.sharedWith.trim() && (
             <p className="text-[11px] text-zinc-500">

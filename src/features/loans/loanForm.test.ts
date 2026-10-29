@@ -5,6 +5,8 @@
 import { describe, it, expect } from "vitest";
 import { buildLoanPayload, emptyLoan, type LoanFormState } from "./loanForm.js";
 import { reducer, initialState } from "../../store/index.js";
+import { validateLoan } from "../../lib/calcs.js";
+import { myShare } from "../../lib/utils.js";
 import type { Loan } from "../../types";
 
 /** Un préstamo con historia: adelantos, cobros de estacionamiento y adicionales. */
@@ -88,6 +90,25 @@ describe("armado del payload", () => {
     expect(buildLoanPayload({ ...base(), sharedWith: "Papá", myPercent: "100" }, "c1").myPercent).toBeUndefined();
     expect(buildLoanPayload({ ...base(), sharedWith: "Papá", myPercent: "0" }, "c1").myPercent).toBeUndefined();
     expect(buildLoanPayload({ ...base(), sharedWith: "", myPercent: "50" }, "c1").myPercent).toBeUndefined();
+  });
+
+  it("si el formulario deja guardar, la parte que queda es la que se tipeó", () => {
+    // La regla vive en dos lugares: validateLoan (qué deja guardar) y buildLoanPayload (qué
+    // descarta). Si divergen vuelve la pérdida silenciosa: el préstamo se guarda contando
+    // entero como tuyo cuando tipeaste otra cosa.
+    let probados = 0;
+    for (const sharedWith of ["Papá", "", "  "]) {
+      for (const myPercent of ["", "50", "33.5", "0.5", "99.9", "100", "150", "0", "-20", "abc"]) {
+        const form = { ...base(), sharedWith, myPercent };
+        const err = validateLoan(form);
+        if (err.myPercent || err.sharedWith) continue; // el formulario no deja guardar
+        const tipeado = myPercent.trim() === "" ? 1 : Number(myPercent) / 100;
+        expect(myShare(buildLoanPayload(form, "c1"))).toBeCloseTo(tipeado, 10);
+        probados++;
+      }
+    }
+    // 6 con socio ("" y cinco valores en (0, 100]) + "" y "100" en cada una de las dos variantes sin socio.
+    expect(probados).toBe(10);
   });
 
   it("el estacionamiento sin cargo no guarda destinatario", () => {

@@ -595,6 +595,24 @@ describe("validación e integridad", () => {
                           startDate: "2026-08-10", dueDate: "2026-08-01" }).dueDate).toBeTruthy();
   });
 
+  it("'Mi %' que se descartaría al guardar se avisa antes (si no, el préstamo cuenta entero como tuyo)", () => {
+    const ok = { clientName: "A", amount: 100, interestRate: 10 };
+    // Fuera de (0, 100]: buildLoanPayload lo tira y myShare cae a 1.
+    for (const myPercent of ["150", "0", "-20", "abc"]) {
+      expect(validateLoan({ ...ok, sharedWith: "Papá", myPercent }).myPercent).toBeTruthy();
+    }
+    // Un porcentaje válido sin socio también se tiraba: el aviso va en "Compartido con".
+    const sinSocio = validateLoan({ ...ok, sharedWith: "  ", myPercent: "50" });
+    expect(sinSocio.sharedWith).toBeTruthy();
+    expect(sinSocio.myPercent).toBeUndefined();
+    // Lo que sí se puede guardar tal cual no molesta.
+    expect(validateLoan({ ...ok, sharedWith: "Papá", myPercent: "50" })).toEqual({});
+    expect(validateLoan({ ...ok, sharedWith: "Papá", myPercent: "33.5" })).toEqual({});
+    expect(validateLoan({ ...ok, sharedWith: "Papá", myPercent: "" })).toEqual({});
+    expect(validateLoan({ ...ok, sharedWith: "", myPercent: "" })).toEqual({});
+    expect(validateLoan({ ...ok, sharedWith: "", myPercent: "100" })).toEqual({}); // 100 = todo mío
+  });
+
   it("acepta un préstamo bien formado", () => {
     expect(validateLoan({ clientName: "A", amount: 100000, interestRate: 10,
                           startDate: "2026-08-01", dueDate: "2026-09-01" })).toEqual({});
