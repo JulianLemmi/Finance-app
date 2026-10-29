@@ -15,6 +15,11 @@
 //    antes.
 import { useRef, useEffect } from "react";
 
+interface DollarRainProps {
+  /** `undefined` sigue la preferencia del sistema; `true`/`false` la pisan. */
+  animated?: boolean;
+}
+
 interface Bill {
   x: number; y: number; w: number; h: number;
   speed: number; alpha: number; rot: number; rotSpeed: number;
@@ -73,11 +78,18 @@ function spriteChispa(): HTMLCanvasElement {
   return c;
 }
 
-export default function DollarRain() {
+export default function DollarRain({ animated }: DollarRainProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    // Con las animaciones reducidas el fondo se dibuja UNA vez y se queda quieto, en vez
+    // de no dibujarse. Antes se salía acá mismo y el canvas quedaba transparente para
+    // siempre: en una máquina con los efectos de Windows apagados —que es lo que Chrome
+    // informa como `prefers-reduced-motion: reduce`— no había ni un billete, y desde
+    // afuera se veía como si la animación estuviera rota. Lo que molesta de este fondo es
+    // el movimiento, no los billetes.
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const mover = animated ?? !reduce;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
@@ -152,7 +164,7 @@ export default function DollarRain() {
     };
     window.addEventListener("resize", onResize);
 
-    let raf: number;
+    let raf = 0;
     let t = 0;
     const animate = () => {
       t += 1;
@@ -182,15 +194,23 @@ export default function DollarRain() {
       }
 
       ctx.globalAlpha = 1;
-      raf = requestAnimationFrame(animate);
+      if (mover) raf = requestAnimationFrame(animate);
     };
-    animate();
+
+    if (mover) {
+      animate();
+    } else {
+      // Quieto: un solo cuadro. Se redibuja al cambiar el tamaño para no quedar estirado.
+      animate();
+      window.addEventListener("resize", animate);
+    }
 
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", animate);
     };
-  }, []);
+  }, [animated]);
 
   return <canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-0 h-full w-full" />;
 }

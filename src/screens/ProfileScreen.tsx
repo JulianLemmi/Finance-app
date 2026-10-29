@@ -53,6 +53,17 @@ export default function ProfileScreen() {
 
   useEffect(() => { isBiometricAvailable().then(setBiometricSupported); }, []);
 
+  // Para explicar por qué el fondo puede venir quieto sin que el usuario haya tocado nada.
+  const [sistemaSinAnimaciones, setSistemaSinAnimaciones] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return;
+    const leer = () => setSistemaSinAnimaciones(mq.matches);
+    leer();
+    mq.addEventListener("change", leer);
+    return () => mq.removeEventListener("change", leer);
+  }, []);
+
   const [pushState, setPushState] = useState<SubscriptionState>({ supported: false, permission: "default", subscribed: false });
   const [pushBusy, setPushBusy] = useState(false);
   const [pushStatus, setPushStatus] = useState<PushStatusKind>({ kind: "", msg: "" });
@@ -404,6 +415,14 @@ export default function ProfileScreen() {
         <Toggle label="Modo claro" hint="Cambia el tema de oscuro a claro en toda la app."
           checked={state.settings.theme === "light"}
           onChange={(v) => dispatch({ type: "UPDATE_SETTINGS", payload: { theme: v ? "light" : "dark" } })} />
+        {state.settings.theme !== "light" && (
+          <Toggle label="Fondo animado"
+            hint={sistemaSinAnimaciones
+              ? "Tu sistema tiene las animaciones reducidas, así que el fondo viene quieto. Activalo para ver los billetes cayendo igual."
+              : "Billetes cayendo detrás de la app."}
+            checked={state.settings.animatedBackground ?? !sistemaSinAnimaciones}
+            onChange={(v) => dispatch({ type: "UPDATE_SETTINGS", payload: { animatedBackground: v } })} />
+        )}
       </div>
 
       <div className="space-y-3">

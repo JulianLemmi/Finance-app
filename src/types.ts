@@ -297,6 +297,11 @@ export interface Settings {
   hideBalances: boolean;
   userName: string;
   theme: "dark" | "light";
+  /** Lluvia de billetes del fondo. `undefined` sigue la preferencia de animación del
+   *  sistema; `true`/`false` la pisan. Hace falta porque Windows con los efectos de
+   *  animación apagados le dice al navegador `prefers-reduced-motion: reduce`, y ahí el
+   *  fondo queda quieto sin que se entienda por qué. */
+  animatedBackground?: boolean;
   defaultRate: number;
   defaultDays: number;
   mpBalance: number;

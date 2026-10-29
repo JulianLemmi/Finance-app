@@ -307,7 +307,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <GlobalStyles />
       <div className={`relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']${isLight ? " theme-light" : ""}`}>
-        {!isLight && <DollarRain />}
+        {!isLight && <DollarRain animated={state.settings.animatedBackground} />}
         {!isLight && (
           <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
             <div className="absolute -right-48 -top-48 h-[520px] w-[520px] rounded-full bg-amber-900/10 blur-[130px]" />
