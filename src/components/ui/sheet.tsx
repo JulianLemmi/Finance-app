@@ -87,6 +87,11 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Apretar un control del header NO arrastra. Esto no es cosmético: abajo se hace
+    // `setPointerCapture` sobre el header, y con el puntero capturado el `pointerup` se
+    // le redirige al header, así que el navegador dispara el `click` ahí y no en el
+    // botón que se apretó. Resultado: la X de cerrar no cerraba nunca.
+    if ((e.target as HTMLElement).closest("button, a, input, select, textarea, [role='button']")) return;
     dragStart.current = e.clientY;
     setDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
