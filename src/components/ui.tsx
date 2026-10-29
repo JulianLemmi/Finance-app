@@ -8,3 +8,4 @@ export {
   ChartTooltip, ChartContainer, makeBarLabel, ChartLegend, makeBarValueLabel, niceAxisBound,
 } from "./ui/chart.jsx";
 export { Sheet } from "./ui/sheet.jsx";
+export { ConfirmDelete, InlineDelete } from "./ui/delete.jsx";

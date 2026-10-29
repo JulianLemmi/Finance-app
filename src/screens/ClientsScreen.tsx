@@ -69,7 +69,10 @@ export default function ClientsScreen() {
       const q = query.toLowerCase();
       arr = arr.filter((c) => c.name.toLowerCase().includes(q));
     }
-    return arr.sort((a, b) => {
+    // Copia antes de ordenar: sin búsqueda, `arr` ES `derived.clientStats`, y `sort` ordena
+    // en el lugar. Mutaba el array memoizado que leen también el buscador global y los
+    // sheets, sin que ningún memo que dependa de esa referencia se enterara.
+    return [...arr].sort((a, b) => {
       if (b._active.length !== a._active.length) return b._active.length - a._active.length;
       return b._debt - a._debt;
     });

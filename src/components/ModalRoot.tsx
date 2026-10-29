@@ -16,9 +16,20 @@ export default function ModalRoot() {
 
   if (!m) return null;
   if (m.type === "loan-form")
-    return <LoanFormSheet open onClose={close} editingLoan={m.payload?.editingLoan} />;
+    return (
+      <LoanFormSheet
+        open
+        onClose={close}
+        editingLoan={m.payload?.editingLoan}
+        prefillClientId={m.payload?.clientId}
+        prefillClientName={m.payload?.clientName}
+      />
+    );
   if (m.type === "loan-detail")
-    return <LoanDetailSheet open onClose={close} loanId={m.payload?.id ?? ""} />;
+    // `key`: al saltar de un préstamo a otro por la cadena de refinanciación, OPEN_MODAL sólo
+    // cambia `loanId` y React reusaría la instancia — arrastrando "¿Eliminar definitivamente?",
+    // los formularios abiertos y los inputs del préstamo anterior.
+    return <LoanDetailSheet key={m.payload?.id} open onClose={close} loanId={m.payload?.id ?? ""} />;
   if (m.type === "client-form")
     return <ClientFormSheet open onClose={close} editingClient={m.payload?.editingClient} />;
   if (m.type === "client-detail")

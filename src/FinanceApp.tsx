@@ -19,6 +19,8 @@ import WelcomeSplash from "./components/WelcomeSplash.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import LockScreen from "./components/LockScreen.jsx";
 import NetworkStatus from "./components/NetworkStatus.jsx";
+import StorageAlert from "./components/StorageAlert.jsx";
+import LoadFailed from "./components/LoadFailed.jsx";
 import FirstRunSheet from "./components/FirstRunSheet.jsx";
 
 const HomeScreen    = lazy(() => import("./screens/HomeScreen.jsx"));
@@ -217,11 +219,19 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
 
   const handleUnlock = useCallback(() => { markUnlocked(); setGate("open"); }, []);
 
+  // `loadError`: la lectura inicial FALLÓ (distinto de "el usuario no tiene datos"). Mientras
+  // esté en true la app no hidrata ni marca `loaded`, así que `useStorageSync` no escribe
+  // nada: arrancar vacío y sincronizar pisaba los datos reales con una lista casi vacía.
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryLoad = useCallback(() => { setLoadError(false); setLoadAttempt((n) => n + 1); }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const data = await storage.getAll(Object.values(STORAGE_KEYS));
       if (cancelled) return;
+      if (data === null) { setLoadError(true); return; }
       const rawLoans = (Array.isArray(data[STORAGE_KEYS.loans]) ? data[STORAGE_KEYS.loans] : []) as Record<string, unknown>[];
       const rawClients = (Array.isArray(data[STORAGE_KEYS.clients]) ? data[STORAGE_KEYS.clients] : []) as Record<string, unknown>[];
       const cleanLoans = rawLoans.map(stripComputed);
@@ -247,7 +257,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
       if (cleanClients.some((c, i) => c !== rawClients[i])) storage.set(STORAGE_KEYS.clients, cleanClients);
     })();
     return () => { cancelled = true; };
-  }, [sessionUserId]);
+  }, [sessionUserId, loadAttempt]);
 
   useStorageSync(STORAGE_KEYS.loans,    state.loans,    state.loaded);
   useStorageSync(STORAGE_KEYS.clients,  state.clients,  state.loaded);
@@ -260,26 +270,12 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
   useStorageSync(STORAGE_KEYS.liabilities, state.liabilities, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
-  const [quotaKeys, setQuotaKeys] = useState<Set<string>>(() => new Set());
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); setSearchOpen(true); }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
-
-  useEffect(() => {
-    const onQuota = (e: Event) => {
-      const key = (e as CustomEvent<{ key: string }>)?.detail?.key || "datos";
-      setQuotaKeys((prev) => {
-        if (prev.has(key)) return prev;
-        return new Set([...prev, key]);
-      });
-    };
-    window.addEventListener("finance:storage-quota-exceeded", onQuota);
-    return () => window.removeEventListener("finance:storage-quota-exceeded", onQuota);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -316,7 +312,9 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
           </div>
         )}
         <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[100rem] 2xl:px-10">
-          {!state.loaded ? (
+          {loadError ? (
+            <LoadFailed onRetry={retryLoad} />
+          ) : !state.loaded ? (
             <LoadingSkeleton />
           ) : (
             <ErrorBoundary key={activeTab}>
@@ -334,23 +332,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
           )}
         </div>
         <NetworkStatus />
-        {quotaKeys.size > 0 && (
-          <div className="fixed inset-x-0 top-3 z-40 mx-auto flex max-w-md justify-center px-3">
-            <div className="flex items-start gap-3 rounded-2xl border border-rose-900/50 bg-rose-950/90 px-4 py-3 text-xs text-rose-100 shadow-2xl backdrop-blur">
-              <span className="mt-0.5 inline-flex h-2 w-2 shrink-0 rounded-full bg-rose-400" />
-              <div className="flex-1">
-                <div className="font-medium">Sin espacio para guardar localmente</div>
-                <div className="mt-0.5 text-rose-200/80">
-                  Estas slices no se están sincronizando: <span className="font-mono">{Array.from(quotaKeys).join(", ")}</span>.
-                </div>
-              </div>
-              <button onClick={() => setQuotaKeys(new Set())}
-                className="-mr-1 -mt-1 rounded-md p-1 text-rose-300 hover:bg-rose-900/40" aria-label="Cerrar aviso">
-                <span aria-hidden>×</span>
-              </button>
-            </div>
-          </div>
-        )}
+        <StorageAlert />
         <button type="button" onClick={() => setSearchOpen(true)} aria-label="Buscar"
           className="fixed right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700/40 bg-zinc-950/85 text-zinc-300 shadow-[0_4px_18px_rgba(0,0,0,0.55)] backdrop-blur-xl transition-colors hover:bg-zinc-900 hover:text-amber-300"
           style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)" }}>

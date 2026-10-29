@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Banknote, Calendar } from "lucide-react";
 import { uid, todayISO, formatMoney } from "../../lib/utils.js";
-import { remainingDebt } from "../../lib/calcs.js";
+import { remainingDebt, quickPaymentAmount } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Textarea } from "../../components/ui.jsx";
 import type { ResolvedLoan } from "../../types";
@@ -87,7 +87,7 @@ export default function PaymentSheet({ open, onClose, loan }: PaymentSheetProps)
           {[0.25, 0.5, 1].map((f) => (
             <button
               key={f}
-              onClick={() => setAmount(String(Math.round(remaining * f)))}
+              onClick={() => setAmount(String(quickPaymentAmount(remaining, f)))}
               className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
             >
               {f === 1 ? "Total" : `${Math.round(f * 100)}%`}

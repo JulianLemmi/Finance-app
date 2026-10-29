@@ -48,9 +48,14 @@ export default function PaymentHistory({ loan }: PaymentHistoryProps) {
 
   const onSaveEdit = () => {
     if (!editingPayment) return;
+    // Un monto inválido no se guarda. Antes `Number(x) || p.amount` dejaba pasar -500 (es
+    // truthy), y `UPDATE_LOAN` —a diferencia de ADD_PAYMENT— no rechaza pagos negativos: un
+    // pago negativo SUBE la deuda. La línea de tiempo ya validaba esto; acá no.
+    const amount = Number(editingPayment.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
     const updated = (loan.payments || []).map((p) =>
       p.id === editingPayment.id
-        ? { ...p, amount: Number(editingPayment.amount) || p.amount, date: editingPayment.date || p.date, note: editingPayment.note }
+        ? { ...p, amount, date: editingPayment.date || p.date, note: editingPayment.note }
         : p
     );
     dispatch({ type: "UPDATE_LOAN", payload: { id: loan.id, payments: updated } });
@@ -88,7 +93,7 @@ export default function PaymentHistory({ loan }: PaymentHistoryProps) {
                     onChange={(e) => setEditingPayment((v) => v ? { ...v, note: e.target.value } : v)} />
                   <div className="flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setEditingPayment(null)}>Cancelar</Button>
-                    <Button variant="bronze" size="sm" onClick={onSaveEdit}>Guardar</Button>
+                    <Button variant="bronze" size="sm" onClick={onSaveEdit} disabled={!(Number(editingPayment!.amount) > 0)}>Guardar</Button>
                   </div>
                 </div>
               ) : deletingPaymentId === p.id ? (

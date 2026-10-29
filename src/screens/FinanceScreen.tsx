@@ -2,7 +2,7 @@
 // Movimientos y Categorías. Incluye gráficos de Recharts y cálculo de proyección compuesta.
 import { useState, useMemo } from "react";
 import {
-  Plus, ArrowUp, ArrowDown, Trash2, Tag, PieChart as PieChartIcon,
+  Plus, ArrowUp, ArrowDown, Tag, PieChart as PieChartIcon,
   Target, TrendingUp, Banknote, RefreshCw, Clock, Layers, HandCoins,
   CalendarRange, HelpCircle, X,
 } from "lucide-react";
@@ -13,6 +13,7 @@ import { calcProjection, projectHorizon, interestAccruals } from "../lib/calcs.j
 import { useApp } from "../store/index.js";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer, makeBarLabel,
+  InlineDelete,
 } from "../components/ui.jsx";
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
 import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, LabelList } from "recharts";
@@ -95,10 +96,7 @@ function TxRow({ tx, onDelete }: TxRowProps) {
           {isIncome ? "+" : "−"}
           <Money value={tx.amount} hide={state.settings.hideBalances} currency={state.settings.currency} />
         </div>
-        <button onClick={() => onDelete(tx)}
-          className="ml-1 hidden h-7 w-7 items-center justify-center rounded-lg text-zinc-600 transition-all hover:bg-zinc-800 hover:text-rose-400 group-hover:flex">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <InlineDelete label="Eliminar movimiento" revealOnHover onConfirm={() => onDelete(tx)} />
       </div>
     </div>
   );

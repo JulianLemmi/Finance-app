@@ -3,14 +3,13 @@
 // Mantener apretada una card (mouse o touch) la archiva/restaura sin borrar datos —
 // ver Historial en el header y useLongPress en lib/hooks.ts.
 import { useState, useMemo } from "react";
-import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ChevronDown, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ChevronDown, Archive, ArchiveRestore, Users } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
 import { formatShortDate, getNextRenewalDate, formatInterest, myShare, daysBetween, todayISO, formatMoney } from "../lib/utils.js";
 import { closedLoanOutcome } from "../lib/calcs.js";
 import { useLongPress } from "../lib/hooks.js";
 import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card, Badge } from "../components/ui.jsx";
-import { Users } from "lucide-react";
 import type { ResolvedLoan, LoanStatus } from "../types";
 
 interface LoanCardProps {
@@ -270,7 +269,9 @@ export default function LoansScreen() {
         (l) => l.clientName.toLowerCase().includes(q) || (l.alias || "").toLowerCase().includes(q)
       );
     }
-    return arr.sort((a, b) => {
+    // Copia antes de ordenar: sin filtro ni búsqueda, `arr` es el memo `visibleLoans` /
+    // `archivedLoans`, y `sort` lo ordenaría en el lugar (ver ClientsScreen).
+    return [...arr].sort((a, b) => {
       const order: Record<LoanStatus, number> = { overdue: 0, active: 1, refinanced: 2, paid: 3 };
       const oa = order[a._status] ?? 9, ob = order[b._status] ?? 9;
       if (oa !== ob) return oa - ob;

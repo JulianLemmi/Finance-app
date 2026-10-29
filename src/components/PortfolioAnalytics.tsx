@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useApp } from "../store/index.js";
 import { formatShortDate, todayISO, addDays, getNextRenewalDate, myShare, advancedCycles } from "../lib/utils.js";
 import { CHART_COLORS } from "../lib/constants.js";
-import { Card, SectionTitle, Money, ChartContainer, ChartTooltip, StatCard } from "./ui.jsx";
+import { Card, SectionTitle, Money, ChartContainer, StatCard } from "./ui.jsx";
 import type { ResolvedLoan } from "../types";
 
 function CollectabilitySection() {

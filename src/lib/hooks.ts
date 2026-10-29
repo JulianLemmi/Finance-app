@@ -4,17 +4,49 @@ import { storage } from "./storage.js";
 // Debounced sync of a single state slice to persistent storage.
 // Skips the first run after enabled becomes true to avoid re-writing data
 // that was just loaded via HYDRATE.
+//
+// El debounce no puede costar un cambio: si el usuario cierra la pestaña o manda la PWA al
+// fondo dentro de la ventana de espera, el cleanup cancelaba el timer y el último cambio
+// nunca se escribía. Por eso lo pendiente se guarda en un ref y se escribe YA cuando la
+// página se oculta (`pagehide` y `visibilitychange`), que es lo último que el navegador
+// avisa antes de congelar o cerrar la página.
 export function useStorageSync(key: string, value: unknown, enabled: boolean, delayMs = 300): void {
   const hasSyncedOnce = useRef(false);
+  const pending = useRef<{ value: unknown } | null>(null);
+
   useEffect(() => {
     if (!enabled) return;
     if (!hasSyncedOnce.current) {
       hasSyncedOnce.current = true;
       return;
     }
-    const t = setTimeout(() => storage.set(key, value), delayMs);
+    pending.current = { value };
+    const t = setTimeout(() => {
+      // Sólo si sigue pendiente: si la página se ocultó antes, el flush ya lo escribió y
+      // repetirlo mandaría el mismo guardado dos veces.
+      const p = pending.current;
+      if (!p) return;
+      pending.current = null;
+      storage.set(key, p.value);
+    }, delayMs);
     return () => clearTimeout(t);
   }, [key, value, enabled, delayMs]);
+
+  useEffect(() => {
+    const flush = () => {
+      const p = pending.current;
+      if (!p) return;
+      pending.current = null;
+      storage.set(key, p.value);
+    };
+    const onVisibility = () => { if (document.hidden) flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [key]);
 }
 
 interface PointerPos { clientX: number; clientY: number }

@@ -3,20 +3,17 @@
 // refinanciar y eliminar el préstamo, cada uno con su propio sheet interno.
 import { useState, useMemo } from "react";
 import {
-  Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock, TrendingUp,
+  Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock,
   MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle, FileSpreadsheet,
 } from "lucide-react";
-import { todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getNextRenewalDate, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
-import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt, halfCycleCharged, periodInterest, nextCollectionDate } from "../../lib/calcs.js";
-
-/** Fraccion de ciclo que cobra un medio adelanto. */
-const HALF_CYCLE_FRACTION = 0.5;
+import { uid, todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
+import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt, halfCycleCharged, periodInterest, nextCollectionDate, HALF_CYCLE_FRACTION } from "../../lib/calcs.js";
+import { refinanceChain } from "../../lib/loanChain.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
-import { uid } from "../../lib/utils.js";
 import {
   Sheet, Button, Input, Card, Badge, StatusBadge, SectionTitle,
-  Money, AnimatedMoney, ProgressBar,
+  Money, AnimatedMoney, ProgressBar, InlineDelete,
 } from "../../components/ui.jsx";
 import LoanChain from "./LoanChain.jsx";
 import PaymentSheet from "./PaymentSheet.jsx";
@@ -66,6 +63,14 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
   const loan = useMemo(
     () => derived.loansResolved.find((l) => l.id === loanId),
     [derived.loansResolved, loanId]
+  );
+  // Va ACÁ, antes del `return null`: un hook después de un return condicional cambia la
+  // cantidad de hooks entre renders. Si el préstamo desaparece con el sheet montado (por
+  // ejemplo un DELETE_LOAN que llega antes del cierre), React lanza "Rendered fewer hooks
+  // than expected". `refinanceChain` además corta los ciclos de datos corruptos.
+  const loanChain = useMemo<ResolvedLoan[]>(
+    () => (loan ? refinanceChain(derived.loansResolved, loan) : []),
+    [loan, derived.loansResolved]
   );
 
   if (!loan) return null;
@@ -136,25 +141,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
     dispatch({ type: "DELETE_LOAN", payload: loan.id });
     onClose();
   };
-
-  const loanChain = useMemo<ResolvedLoan[]>(() => {
-    const all = derived.loansResolved;
-    let root: ResolvedLoan = loan;
-    while (root.refinancedFromId) {
-      const parent = all.find((l) => l.id === root.refinancedFromId);
-      if (!parent) break;
-      root = parent;
-    }
-    const chain: ResolvedLoan[] = [root];
-    let node = root;
-    while (true) {
-      const next = all.find((l) => l.refinancedFromId === node.id);
-      if (!next) break;
-      chain.push(next);
-      node = next;
-    }
-    return chain;
-  }, [loan, derived.loansResolved]);
 
   const G = GUARANTY_TYPES[loan.guarantyType as keyof typeof GUARANTY_TYPES] || GUARANTY_TYPES.other;
 
@@ -539,12 +525,10 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
                               {formatShortDate(p.date)}{p.note ? ` · ${p.note}` : ""}
                             </div>
                           </div>
-                          <button
-                            onClick={() => dispatch({ type: "DELETE_PARKING_PAYMENT", payload: { loanId: loan.id, paymentId: p.id ?? "" } })}
-                            className="hidden shrink-0 rounded-lg p-1 text-zinc-600 transition-colors hover:text-rose-400 group-hover:block"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
+                          <InlineDelete
+                            icon="x" label="Eliminar cobro" revealOnHover
+                            onConfirm={() => dispatch({ type: "DELETE_PARKING_PAYMENT", payload: { loanId: loan.id, paymentId: p.id ?? "" } })}
+                          />
                         </div>
                       ))}
                   </div>
@@ -664,12 +648,10 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
                         <p className="text-sm text-zinc-200">{c.note}</p>
                         <p className="mt-0.5 text-[11px] text-zinc-500">{formatShortDate(c.date)}</p>
                       </div>
-                      <button
-                        onClick={() => dispatch({ type: "DELETE_CONTACT", payload: { loanId: loan.id, contactId: c.id } })}
-                        className="hidden shrink-0 rounded-lg p-1 text-zinc-600 transition-colors hover:text-rose-400 group-hover:block"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+                      <InlineDelete
+                        icon="x" label="Eliminar contacto" revealOnHover
+                        onConfirm={() => dispatch({ type: "DELETE_CONTACT", payload: { loanId: loan.id, contactId: c.id } })}
+                      />
                     </div>
                   ))}
                 </Card>

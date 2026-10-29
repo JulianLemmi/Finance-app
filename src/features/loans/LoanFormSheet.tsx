@@ -11,8 +11,8 @@ import { PAYMENT_TYPES, GUARANTY_TYPES } from "../../lib/constants.js";
 import { validateLoan, expectedProfit } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
-import { limpiarVehiculo } from "../../lib/vehicle.js";
-import type { Loan, LoanVehicle, Payment, PaymentType, GuarantyType, LoanStatus, Settings, InterestMode } from "../../types";
+import { buildLoanPayload, emptyLoan, type LoanFormState } from "./loanForm.js";
+import type { Loan, PaymentType } from "../../types";
 
 /**
  * Sí / No / sin cargar. Un dato del auto que no se completó no es "no": con un switch de
@@ -47,43 +47,6 @@ function TriEstado({ label, value, onChange }: {
   );
 }
 
-/** El bloque cuenta sólo si está prendido Y la garantía es un auto: cambiar la garantía a
- *  efectivo no puede dejar los datos de un auto colgados en el préstamo. */
-const vehicleHabilitado = (f: { vehicleOn: boolean; guarantyType: GuarantyType }) =>
-  f.vehicleOn && f.guarantyType === "vehicle";
-
-interface LoanFormState {
-  id: string;
-  clientId: string;
-  clientName: string;
-  alias: string;
-  amount: string | number;
-  interestRate: string | number;
-  interestMode: InterestMode;
-  fixedInterest: string | number;
-  startDate: string;
-  paymentType: PaymentType;
-  customDays: string | number;
-  dueDate: string;
-  guarantyType: GuarantyType;
-  guarantyDetail: string;
-  status: LoanStatus;
-  notes: string;
-  payments: Payment[];
-  compoundInterest: boolean;
-  noDueDate: boolean;
-  sharedWith: string;
-  myPercent: string | number;
-  parkingFee: string | number;
-  parkingRecipient: string;
-  parkingPayments: Payment[];
-  /** Prende el bloque "Datos del auto". Vive sólo en el formulario: lo que se guarda es
-   *  `vehicle`, y que haya datos cargados es lo que lo vuelve a prender al editar. */
-  vehicleOn: boolean;
-  vehicle: LoanVehicle;
-  createdAt?: number;
-}
-
 interface LoanFormSheetProps {
   open: boolean;
   onClose: () => void;
@@ -92,29 +55,14 @@ interface LoanFormSheetProps {
    *  adelantos ni cobros de estacionamiento) y al guardar marca el padre como
    *  "refinanciado" y crea uno nuevo con `refinancedFromId` apuntando al padre. */
   refinancingFrom?: Loan | null;
+  /** Alta desde el perfil de un cliente: el formulario arranca con ese cliente elegido.
+   *  Van como strings y no como objeto porque el efecto que arma el formulario depende de
+   *  ellos: un objeto nuevo en cada render lo reiniciaría mientras se tipea. */
+  prefillClientId?: string;
+  prefillClientName?: string;
 }
 
-function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
-  const start = todayISO();
-  const rate = defaults.defaultRate ?? 8;
-  const days = defaults.defaultDays ?? 30;
-  const paymentType: PaymentType = days === 15 ? "15" : days === 30 ? "30" : "custom";
-  return {
-    id: "", clientId: "", clientName: "", alias: "", amount: "",
-    interestRate: String(rate), interestMode: "percent", fixedInterest: "",
-    startDate: start, paymentType,
-    customDays: days,
-    dueDate: paymentType === "30" ? addCalendarMonths(start, 1) : addDays(start, days),
-    guarantyType: "cash",
-    guarantyDetail: "", status: "active", notes: "", payments: [],
-    compoundInterest: false, noDueDate: false,
-    sharedWith: "", myPercent: "",
-    parkingFee: "", parkingRecipient: "", parkingPayments: [],
-    vehicleOn: false, vehicle: {},
-  };
-}
-
-export default function LoanFormSheet({ open, onClose, editingLoan, refinancingFrom }: LoanFormSheetProps) {
+export default function LoanFormSheet({ open, onClose, editingLoan, refinancingFrom, prefillClientId, prefillClientName }: LoanFormSheetProps) {
   const { state, dispatch } = useApp();
   // Ref para no resetear el form si los defaults cambian mientras el sheet está abierto.
   const settingsRef = useRef(state.settings);
@@ -175,8 +123,8 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
       });
       return;
     }
-    setForm(base);
-  }, [open, editingLoan, refinancingFrom]);
+    setForm(prefillClientId ? { ...base, clientId: prefillClientId, clientName: prefillClientName ?? "" } : base);
+  }, [open, editingLoan, refinancingFrom, prefillClientId, prefillClientName]);
 
   const updateField = (k: keyof LoanFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -241,28 +189,7 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
         clientId = newClient.id;
       }
     }
-    const myPercent = Number(form.myPercent);
-    const parkingFee = Number(form.parkingFee);
-    // `vehicleOn` es estado de formulario y no viaja al préstamo.
-    const { vehicleOn: _on, vehicle: vehicleForm, ...formSinUI } = form;
-    const payload = {
-      ...formSinUI,
-      vehicle: vehicleHabilitado(form) ? limpiarVehiculo(vehicleForm) : undefined,
-      id: form.id || uid("loan"), clientId,
-      amount: Number(form.amount), interestRate: Number(form.interestRate),
-      interestMode: form.interestMode,
-      fixedInterest: form.interestMode === "fixed" ? Number(form.fixedInterest || 0) : undefined,
-      customDays: Number(form.customDays) || undefined,
-      sharedWith: form.sharedWith.trim() || undefined,
-      myPercent: form.sharedWith.trim() && Number.isFinite(myPercent) && myPercent > 0 && myPercent < 100 ? myPercent : undefined,
-      parkingFee: Number.isFinite(parkingFee) && parkingFee > 0 ? parkingFee : undefined,
-      parkingRecipient: parkingFee > 0 ? form.parkingRecipient.trim() || undefined : undefined,
-      // Los adelantos son propios del préstamo: no se heredan a la refinanciación.
-      advancedAt: undefined,
-      // Ídem: la refinanciación arranca sin cobros de estacionamiento heredados.
-      parkingPayments: [],
-      createdAt: form.createdAt || Date.now(),
-    };
+    const payload = buildLoanPayload(form, clientId);
     if (refinancingFrom) {
       // Marca el padre como refinanciado y crea uno nuevo apuntando a él.
       dispatch({

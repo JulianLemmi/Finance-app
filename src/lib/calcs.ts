@@ -265,8 +265,11 @@ export function reorderAdvance(
 // cobrar partido. El calendario no se toca — a diferencia de `advancedAt`, un medio ciclo
 // NO corre `getNextRenewalDate` ni abre un slot de pago propio.
 
-/** Fracción de un ciclo que cobra cada medio adelanto. */
-const HALF = 0.5;
+/** Fracción de un ciclo que cobra cada medio adelanto. Una sola copia en el frontend: la UI
+ *  (detalle y línea de tiempo) la importa de acá en vez de redeclarar un 0,5 propio, que
+ *  se desfasaría si la regla cambia. La réplica de las edge functions es
+ *  `_shared/loanMath.ts`, vigilada por el test de paridad. */
+export const HALF_CYCLE_FRACTION = 0.5;
 
 /**
  * Medios ciclos cobrados hasta `asOf`, agrupados por el re-vencimiento que adelantan.
@@ -324,7 +327,7 @@ function halfSlot(loan: Loan, e: AdvanceEntry, overduePeriods: number): number {
  * puede venir de datos viejos o importados, y cobrar negativo sería peor que no cobrar.
  */
 export function pendingCycleFraction(halves: ReadonlyMap<number, HalfCharge[]>, slot: number): number {
-  return Math.max(0, 1 - HALF * (halves.get(slot)?.length ?? 0));
+  return Math.max(0, 1 - HALF_CYCLE_FRACTION * (halves.get(slot)?.length ?? 0));
 }
 
 /**
@@ -396,7 +399,7 @@ function debtWalkDetailed(
   const halves = halfCyclesBySlot(loan, asOf, overduePeriods);
   const chargeHalves = (slot: number) => {
     for (const half of halves.get(slot) || []) {
-      const charge = balance > 0 ? HALF * periodInterest(loan, balance) : 0;
+      const charge = balance > 0 ? HALF_CYCLE_FRACTION * periodInterest(loan, balance) : 0;
       balance += charge;
       if (charge > 0) accruals.push({ date: half.date, amount: charge });
     }
@@ -1029,6 +1032,23 @@ export function daysUntilDue(loan: Loan): number | null {
   const due = parseISO(loan.dueDate);
   if (!due) return null;
   return daysBetween(todayDate(), due);
+}
+
+/**
+ * Monto de los atajos "25% / 50% / Total" del cobro. La deuda es fraccionaria (la mora
+ * compone y deja decimales), y el formulario rechaza todo lo que supere `remaining + 0,001`:
+ * con `Math.round(remaining)` una deuda de 1000,6 ofrecía "Total" = 1001, y el propio atajo
+ * disparaba "Supera el saldo restante" dejando el botón deshabilitado.
+ *
+ * El total va redondeado a milésimas: no pasa de `remaining + 0,001` y deja un residuo
+ * menor que `PAID_THRESHOLD` (0,001), así que cobrarlo cierra el préstamo. Las fracciones
+ * van a pesos enteros —números cómodos de leer— sin pasarse nunca del total.
+ */
+export function quickPaymentAmount(remaining: number, fraction: number): number {
+  if (!(remaining > 0)) return 0;
+  const total = Math.round(remaining * 1000) / 1000;
+  if (fraction >= 1) return total;
+  return Math.min(total, Math.round(remaining * fraction));
 }
 
 export function resolveStatus(loan: Loan): LoanStatus {

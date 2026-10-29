@@ -53,6 +53,17 @@ export const daysBetween = (a: string | Date, b: string | Date): number => {
 
 export const monthKey = (iso: string): string => (iso || "").slice(0, 7);
 
+/**
+ * Claves "YYYY-MM" de los últimos `count` meses, terminando en el de `now`, en orden
+ * cronológico. Se arman en hora LOCAL: `new Date(y, m, 1).toISOString()` convierte a UTC, y
+ * en una zona UTC+ el primero del mes a medianoche cae el último día del mes anterior, con
+ * lo que todo el gráfico quedaba corrido un mes. En Argentina (UTC-3) no se notaba.
+ */
+export const lastMonthKeys = (now: Date, count: number): string[] =>
+  Array.from({ length: count }, (_, k) =>
+    monthKey(toISODate(new Date(now.getFullYear(), now.getMonth() - (count - 1 - k), 1)))
+  );
+
 // Formateadores cacheados. `toLocaleString`/`toLocaleDateString` con un objeto de
 // opciones construyen un `Intl.*Format` NUEVO en cada llamada, y construirlo es lo caro
 // (formatear después sale casi gratis). En el perfil de CPU de abrir el detalle de un

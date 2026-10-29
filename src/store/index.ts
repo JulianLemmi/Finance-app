@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
-import { uid, todayISO, toISODate, monthKey, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, advanceEntries, packAdvances } from "../lib/utils.js";
+import { uid, todayISO, toISODate, monthKey, lastMonthKeys, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, advanceEntries, packAdvances } from "../lib/utils.js";
 import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
@@ -9,7 +9,7 @@ import {
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
-  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown,
+  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown, Asset, Liability,
 } from "../types";
 
 export const initialState: AppState = {
@@ -409,6 +409,19 @@ function totalSalary(firstMonth: string, currentMonth: string, amount: number, d
   return total;
 }
 
+/** Valor total de los activos. Una sola definición: la usan `financials` (card de capital) y
+ *  `chartData` (último punto de la curva), y tienen que dar el mismo número. */
+const sumAssets = (assets: readonly Asset[]): number =>
+  assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
+
+/** Lo adeudado en deudas propias: el monto original menos lo pagado, sin bajar de cero. Sólo
+ *  resta del capital total, no afecta el flujo. Misma razón que `sumAssets` para estar acá. */
+const sumLiabilities = (liabilities: readonly Liability[]): number =>
+  liabilities.reduce((a, l) => {
+    const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+    return a + Math.max(0, Number(l.amount || 0) - paid);
+  }, 0);
+
 export function useDerived(state: AppState): Derived {
   // Stage 1: resolve each loan's computed fields
   const loansResolved = useMemo<ResolvedLoan[]>(() =>
@@ -518,13 +531,9 @@ export function useDerived(state: AppState): Derived {
       .filter((l) => !l.refinancedFromId)
       .reduce((a, l) => a + myShare(l) * l._principal, 0);
     const available = Number(state.settings.cashOnHand || 0);
-    const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
-    // Deudas propias (ej: plata que le debo a mi papá): lo adeudado es el monto original
-    // menos lo ya pagado, nunca negativo. Sólo resta del capital total, no afecta el flujo.
-    const totalLiabilities = state.liabilities.reduce((a, l) => {
-      const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
-      return a + Math.max(0, Number(l.amount || 0) - paid);
-    }, 0);
+    const totalAssets = sumAssets(state.assets);
+    // Deudas propias (ej: plata que le debo a mi papá): ver `sumLiabilities`.
+    const totalLiabilities = sumLiabilities(state.liabilities);
     const workingCapital = available + capitalInvested;
     const totalCapital = workingCapital + totalAssets - totalLiabilities;
 
@@ -649,7 +658,7 @@ export function useDerived(state: AppState): Derived {
       avgRate, medianRate, medianDays, paidOnTimeCount,
       collectabilityRate, avgDaysLate, cashFlow30d,
     };
-  }, [loanGroups, loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
+  }, [loanGroups, loansResolved, refinancedAt, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
 
   // Stage 4: monthly chart data
   const chartData = useMemo(() => {
@@ -659,9 +668,7 @@ export function useDerived(state: AppState): Derived {
     // de ritmo sea contra un tramo equivalente y no contra un mes cerrado completo.
     const dayOfMonth = Number(today.slice(8, 10));
     const months: { key: string; label: string; income: number; expense: number; capital: number; capitalInvested: number; accrued: number; salary: number; monthGain: number; roi: number }[] = [];
-    for (let i = BUSINESS_RULES.CHART_HISTORY_MONTHS - 1; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = d.toISOString().slice(0, 7);
+    for (const key of lastMonthKeys(now, BUSINESS_RULES.CHART_HISTORY_MONTHS)) {
       months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, capitalInvested: 0, accrued: 0, salary: 0, monthGain: 0, roi: 0 });
     }
     const monthIdx: Record<string, number> = Object.fromEntries(months.map((m, i) => [m.key, i]));
@@ -713,11 +720,8 @@ export function useDerived(state: AppState): Derived {
         if (Number(ev.date.slice(8, 10)) <= dayOfMonth) accruedToDate[i] += share * ev.amount;
       });
     });
-    const totalAssets = state.assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
-    const totalLiabilities = state.liabilities.reduce((a, l) => {
-      const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
-      return a + Math.max(0, Number(l.amount || 0) - paid);
-    }, 0);
+    const totalAssets = sumAssets(state.assets);
+    const totalLiabilities = sumLiabilities(state.liabilities);
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
       // toISODate y no toISOString: el último día del mes se construye en hora local y
@@ -865,7 +869,7 @@ export function useDerived(state: AppState): Derived {
     };
 
     return { months, monthPace, monthBreakdowns: breakdowns };
-  }, [loansResolved, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
+  }, [loansResolved, refinancedAt, firstActivityISO, state.income, state.expenses, state.settings, state.assets, state.liabilities]);
 
   // Stage 5: client stats
   const clientStats = useMemo(() =>

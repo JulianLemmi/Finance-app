@@ -11,7 +11,7 @@ import {
   closedLoanOutcome, overduePeriodsAt, resolvePaymentPos, paymentAnchorDate,
   nextCycleFraction, halfCycleCharged, loanLedger, unaccruedInterest,
   refinancedAtByLoan, cycleSequence,
-  reorderAdvance,
+  reorderAdvance, quickPaymentAmount,
 } from "./calcs.js";
 import {
   loanPeriodDate, loanElapsedPeriods, addCalendarMonths, addDays, getNextRenewalDate,
@@ -1806,5 +1806,45 @@ describe("limpiarVehiculo", () => {
 
   it("guarda 'no' cuando el usuario lo eligió a propósito", () => {
     expect(limpiarVehiculo({ hasCedula: false })).toEqual({ hasCedula: false });
+  });
+});
+
+describe("quickPaymentAmount (atajos 25% / 50% / Total del cobro)", () => {
+  // El formulario rechaza todo lo que supere `remaining + 0,001`.
+  const sePasa = (monto: number, remaining: number) => monto > remaining + 0.001;
+
+  it("el total de una deuda fraccionaria no supera el saldo", () => {
+    // Con Math.round(1000.6) el atajo daba 1001 y disparaba "Supera el saldo restante".
+    expect(quickPaymentAmount(1000.6, 1)).toBe(1000.6);
+    expect(sePasa(quickPaymentAmount(1000.6, 1), 1000.6)).toBe(false);
+  });
+
+  it("el total deja un residuo menor que el umbral de pagado, así que cierra el préstamo", () => {
+    for (const r of [0.0004, 0.4999, 1000.6, 1000.6004, 3726.0000000000005, 4655.5555, 99999.9996]) {
+      const monto = quickPaymentAmount(r, 1);
+      expect(sePasa(monto, r)).toBe(false);
+      expect(r - monto).toBeLessThan(0.001);
+    }
+  });
+
+  it("ninguna fracción se pasa del saldo, para cualquier deuda", () => {
+    for (let i = 0; i < 400; i++) {
+      const r = Math.round((i * 137.3719 + 0.37) * 1000) / 1000;
+      for (const f of [0.25, 0.5, 1]) {
+        expect(sePasa(quickPaymentAmount(r, f), r)).toBe(false);
+      }
+    }
+  });
+
+  it("las fracciones van a pesos enteros", () => {
+    expect(quickPaymentAmount(1000.6, 0.25)).toBe(250);
+    expect(quickPaymentAmount(1000.6, 0.5)).toBe(500);
+    expect(Number.isInteger(quickPaymentAmount(4655.55, 0.5))).toBe(true);
+  });
+
+  it("sin deuda no ofrece nada", () => {
+    expect(quickPaymentAmount(0, 1)).toBe(0);
+    expect(quickPaymentAmount(-5, 0.5)).toBe(0);
+    expect(quickPaymentAmount(NaN, 1)).toBe(0);
   });
 });

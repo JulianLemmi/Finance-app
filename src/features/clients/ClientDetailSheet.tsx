@@ -56,11 +56,13 @@ export default function ClientDetailSheet({ open, onClose, clientId, onOpenLoan 
             <Button variant="ghost" Icon={Edit2} onClick={() => setEditOpen(true)}>Editar</Button>
             <Button variant="bronze" Icon={Plus}
               onClick={() => {
+                // Sin `onClose()`: OPEN_MODAL ya reemplaza el modal activo. Cerrarlo después
+                // despachaba CLOSE_MODAL y el modal quedaba en null: el formulario nunca se
+                // abría y sólo se cerraba el perfil.
                 dispatch({
                   type: "OPEN_MODAL",
                   payload: { type: "loan-form", payload: { clientId: client.id, clientName: client.name } },
                 });
-                onClose();
               }}
             >
               Nuevo préstamo

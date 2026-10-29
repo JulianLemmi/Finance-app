@@ -5,7 +5,7 @@ import { useState, useRef } from "react";
 import { Camera, X } from "lucide-react";
 import { uploadPhoto, deletePhoto } from "../../lib/storage.js";
 import { useApp } from "../../store/index.js";
-import { SectionTitle, EmptyState } from "../../components/ui.jsx";
+import { SectionTitle, EmptyState, InlineDelete } from "../../components/ui.jsx";
 import type { ResolvedLoan, Photo } from "../../types";
 
 interface PhotoGalleryProps {
@@ -64,10 +64,13 @@ export default function PhotoGallery({ loan, userId }: PhotoGalleryProps) {
                 <img src={photo.url || photo.data} alt={photo.name}
                   className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
                   onClick={() => setLightboxPhoto(photo)} />
-                <button onClick={() => removePhoto(photo)}
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 opacity-0 transition-opacity group-hover:opacity-100">
-                  <X className="h-3.5 w-3.5 text-white" />
-                </button>
+                <div className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-0.5">
+                  <InlineDelete
+                    icon="x" label="Quitar foto"
+                    buttonClassName="flex h-6 w-6 items-center justify-center rounded-full text-white opacity-70 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100"
+                    onConfirm={() => removePhoto(photo)}
+                  />
+                </div>
               </div>
             ))}
           </div>

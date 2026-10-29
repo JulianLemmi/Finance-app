@@ -28,32 +28,55 @@ export const supabase: SupabaseClient | null = SUPABASE_READY
 
 export const PHOTO_BUCKET = "loan-photos";
 
+/** Se despacha en `window` cuando el almacenamiento local se queda sin espacio. */
+export const STORAGE_QUOTA_EVENT = "finance:storage-quota-exceeded";
+/** Se despacha en `window` cuando un guardado en Supabase falla (red, permisos, sin sesión). */
+export const STORAGE_SAVE_FAILED_EVENT = "finance:storage-save-failed";
+
+const avisar = (evento: string, key: string) => {
+  if (typeof window === "undefined") return;
+  try { window.dispatchEvent(new CustomEvent(evento, { detail: { key } })); } catch {}
+};
+
+// `getSession` y no `getUser`: la sesión sale del almacenamiento local, mientras que
+// `getUser` hace una llamada de red a Supabase. Con `getUser` cada guardado de cada slice
+// costaba un viaje de ida y vuelta (hasta nueve por cambio), y si esa llamada fallaba el
+// guardado se descartaba en silencio. `autoRefreshToken` ya renueva la sesión sola.
 export async function getCurrentUserId(): Promise<string | null> {
   if (!supabase) return null;
   try {
-    const { data } = await supabase.auth.getUser();
-    return data?.user?.id ?? null;
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.user?.id ?? null;
   } catch {
     return null;
   }
 }
 
 export const storage = {
-  async getAll(keys: string[]): Promise<Record<string, unknown>> {
+  /**
+   * Lee todas las claves. Devuelve `null` cuando NO PUDO leer (red caída, sin sesión,
+   * error de permisos) y un objeto —posiblemente vacío— cuando leyó: un usuario nuevo sin
+   * datos es `{}`, un fallo es `null`.
+   *
+   * La diferencia es plata. Antes los dos casos devolvían `{}`, la app arrancaba vacía y
+   * marcaba los datos como cargados, y el primer gasto que se cargaba hacía `upsert` de
+   * una lista de UN elemento encima de la lista real guardada en Supabase.
+   */
+  async getAll(keys: string[]): Promise<Record<string, unknown> | null> {
     if (supabase) {
       try {
         const userId = await getCurrentUserId();
-        if (!userId) return {};
+        if (!userId) return null;
         const { data, error } = await supabase
           .from("user_data")
           .select("key, value")
           .eq("user_id", userId)
           .in("key", keys);
-        if (error) { console.warn("supabase getAll", error); return {}; }
+        if (error) { console.warn("supabase getAll", error); return null; }
         return Object.fromEntries((data || []).map((r: { key: string; value: unknown }) => [r.key, r.value]));
       } catch (e) {
         console.warn("storage.getAll error", e);
-        return {};
+        return null;
       }
     }
     if (typeof window !== "undefined" && window.storage?.get) {
@@ -77,15 +100,20 @@ export const storage = {
 
   async set(key: string, value: unknown): Promise<void> {
     if (supabase) {
+      // Un guardado que falla avisa (STORAGE_SAVE_FAILED_EVENT) en vez de quedarse en un
+      // `console.warn`: si el usuario cierra la app creyendo que se guardó, pierde el cambio.
       try {
         const userId = await getCurrentUserId();
-        if (!userId) return;
+        if (!userId) { avisar(STORAGE_SAVE_FAILED_EVENT, key); return; }
         const { error } = await supabase.from("user_data").upsert(
           { user_id: userId, key, value, updated_at: new Date().toISOString() },
           { onConflict: "user_id,key" }
         );
-        if (error) console.warn(`supabase set ${key}`, error);
-      } catch (e) { console.warn(`storage.set(${key}) error`, e); }
+        if (error) { console.warn(`supabase set ${key}`, error); avisar(STORAGE_SAVE_FAILED_EVENT, key); }
+      } catch (e) {
+        console.warn(`storage.set(${key}) error`, e);
+        avisar(STORAGE_SAVE_FAILED_EVENT, key);
+      }
       return;
     }
     if (typeof window !== "undefined" && window.storage?.set) {
@@ -101,20 +129,19 @@ export const storage = {
         || err?.code === 1014
         || /quota/i.test(err?.message || "");
       console.warn(`storage.set(${key}) localStorage error${quotaExceeded ? " — quota exceeded" : ""}`, e);
-      if (quotaExceeded && typeof window !== "undefined") {
-        try {
-          window.dispatchEvent(new CustomEvent("finance:storage-quota-exceeded", { detail: { key } }));
-        } catch {}
-      }
+      if (quotaExceeded) avisar(STORAGE_QUOTA_EVENT, key);
     }
   },
 };
 
 async function toBase64(file: File, photoId: string): Promise<Photo> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) =>
       resolve({ id: photoId, data: e.target?.result as string, name: file.name, createdAt: Date.now() });
+    // Sin esto, un archivo ilegible dejaba la promesa colgada para siempre y la galería en
+    // "subiendo" sin salida.
+    reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el archivo"));
     reader.readAsDataURL(file);
   });
 }

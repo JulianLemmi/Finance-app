@@ -211,6 +211,7 @@ export default function ProfileScreen() {
     else setSetupPin((p) => p.slice(0, -1));
   };
   const handleAddBiometric = async () => {
+    setLockError("");
     try {
       const credentialId = await registerBiometric();
       const cfg = getLockConfig();
@@ -405,6 +406,9 @@ export default function ProfileScreen() {
               ) : (
                 <Button variant="secondary" size="sm" Icon={Fingerprint} onClick={handleAddBiometric}>Agregar huella dactilar</Button>
               )}
+              {/* `lockError` también se dibuja dentro del teclado del PIN, pero este botón sólo
+                  existe con el teclado cerrado: sin este párrafo el error de la huella no se veía. */}
+              {lockError && <p className="mt-2 text-xs text-rose-400">{lockError}</p>}
             </div>
           )}
         </Card>

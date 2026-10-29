@@ -8,13 +8,13 @@
 // no se edita desde acá: se mueve con "Extender" y "Editar" del footer del detalle.
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ArrowDown, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
-  X, Trash2, CalendarCheck, Pencil, Check, PlusCircle,
+  AlertTriangle, TrendingUp, Clock, ChevronUp, ChevronDown, FastForward,
+  X, CalendarCheck, Pencil, Check, PlusCircle,
 } from "lucide-react";
 import { advanceEntries, formatDate, formatInterest, loanPeriodDate, myShare, packAdvances, todayISO } from "../../lib/utils.js";
-import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot, halfCyclesBySlot, pendingCycleFraction, cycleSequence, reorderAdvance } from "../../lib/calcs.js";
+import { expectedReturnAt, expectedProfitAt, resolvePaymentPos, paymentAnchorDate, periodInterest, extraImpactsBySlot, halfCyclesBySlot, pendingCycleFraction, cycleSequence, reorderAdvance, HALF_CYCLE_FRACTION } from "../../lib/calcs.js";
 import { useApp } from "../../store/index.js";
-import { SectionTitle, Badge, Money } from "../../components/ui.jsx";
+import { SectionTitle, Badge, Money, ConfirmDelete } from "../../components/ui.jsx";
 import type { AdvanceEntry, ResolvedLoan } from "../../types";
 
 interface LoanTimelineProps {
@@ -36,9 +36,6 @@ type PaymentEvent = {
   timelinePos: number; naturalPos: number; interestInPayment: number; totalInterestAccrued: number;
 };
 type TimelineEvent = StartEvent | DueEvent | ExtraEvent | MoraEvent | HalfEvent | PaymentEvent;
-
-/** Fraccion de ciclo que cobra un medio adelanto. */
-const HALF_CYCLE = 0.5;
 
 // ── Estilos compartidos por tipo ──────────────────────────────────────────────
 // Un date input pequeño usado para editar fechas en línea. Colores tomados del contexto.
@@ -90,28 +87,6 @@ function IconAction({
 }
 
 // Popover inline de confirmación de eliminación (patrón compartido entre pagos y adelantos).
-function ConfirmDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="flex shrink-0 items-center gap-1">
-      <button
-        onClick={onConfirm}
-        className="flex items-center gap-1 rounded-md bg-rose-500/20 px-2 py-1 text-[10px] font-medium text-rose-300 hover:bg-rose-500/30"
-        title="Confirmar eliminación"
-      >
-        <Trash2 className="h-3 w-3" />
-        Confirmar
-      </button>
-      <button
-        onClick={onCancel}
-        className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-        title="Cancelar"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
-  );
-}
-
 // Contenedor común de un evento de la timeline. Renderiza el punto/línea a la izquierda
 // y le da el layout responsive al contenido: en sm+ arma 2 columnas (info | monto),
 // en mobile todo apilado en una sola.
@@ -165,7 +140,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
     // ese momento, y va antes de los pagos del tramo.
     const chargeHalves = (slot: number) => {
       for (const half of halves.get(slot) || []) {
-        const added = balance > 0 ? HALF_CYCLE * periodInterest(loan, balance) : 0;
+        const added = balance > 0 ? HALF_CYCLE_FRACTION * periodInterest(loan, balance) : 0;
         balance += added;
         result.push({
           type: "half", date: half.date, slot, halfIndex: half.index, pinned: half.pinned,
