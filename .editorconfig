@@ -1,0 +1,17 @@
+# Convenciones de formato del proyecto. Cualquier editor con soporte de EditorConfig
+# (VS Code con la extensión, WebStorm, Vim...) las aplica solo.
+#
+# No se fija `end_of_line`: lo resuelve `core.autocrlf` de git, y forzarlo acá reescribiría
+# los finales de línea de todo el árbol.
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# En Markdown dos espacios al final de línea son un salto de línea: no se recortan.
+trim_trailing_whitespace = false

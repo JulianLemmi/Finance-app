@@ -6,7 +6,7 @@ import {
   Edit2, RefreshCw, Layers, Banknote, Trash2, Calendar, CalendarRange, CalendarClock,
   MessageSquare, Plus, X, Users, Car as CarIcon, FastForward, Undo2, PlusCircle, FileSpreadsheet,
 } from "lucide-react";
-import { uid, todayISO, addDays, addCalendarMonths, formatDate, formatShortDate, daysBetween, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
+import { uid, todayISO, addDays, type LoanCycleInput, addCalendarMonths, formatDate, formatShortDate, daysBetween, getLoanCycleDays, formatInterest, myShare, formatMoney, advancedCycles } from "../../lib/utils.js";
 import { nextPeriodInterest, extraDebtImpact, overduePeriodsAt, halfCycleCharged, periodInterest, nextCollectionDate, HALF_CYCLE_FRACTION } from "../../lib/calcs.js";
 import { refinanceChain } from "../../lib/loanChain.js";
 import { GUARANTY_TYPES } from "../../lib/constants.js";
@@ -980,11 +980,7 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
 // Fecha del próximo vencimiento si sumáramos un adelanto más. Se calcula avanzando un
 // ciclo desde el próximo actual, respetando `paymentType` (mes calendario para "30").
-function loanPeriodDateAfterAdvance(
-  loan: { paymentType: string; customDays?: number; startDate: string; dueDate: string },
-  nextDueDate: string,
-): string {
+function loanPeriodDateAfterAdvance(loan: LoanCycleInput, nextDueDate: string): string {
   if (loan.paymentType === "30") return addCalendarMonths(nextDueDate, 1);
-  const term = getLoanCycleDays(loan as never);
-  return addDays(nextDueDate, term);
+  return addDays(nextDueDate, getLoanCycleDays(loan));
 }

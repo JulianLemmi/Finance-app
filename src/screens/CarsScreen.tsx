@@ -118,7 +118,9 @@ export default function CarsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingCar, setEditingCar] = useState<CarType | null>(null);
 
-  const cars = state.cars ?? [];
+  // Memoizado: `state.cars ?? []` creaba un array NUEVO en cada render cuando no hay autos,
+  // y eso invalidaba los tres useMemo de abajo en cada pasada.
+  const cars = useMemo(() => state.cars ?? [], [state.cars]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: cars.length };

@@ -35,18 +35,28 @@ const TZ_OFFSET = Number(Deno.env.get("DIGEST_TZ_OFFSET") ?? "-3");
 // Ventana de días hacia adelante a incluir en el digest (default 7).
 const WINDOW_DAYS = Number(Deno.env.get("DIGEST_WINDOW_DAYS") ?? "7");
 
+// Nunca lanza: un error de red en un usuario cortaba la corrida y los usuarios que seguían
+// en el bucle se quedaban sin su aviso del día.
+const PUSH_TIMEOUT_MS = 10_000;
+
 async function sendPush(userId: string, title: string, body: string) {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${SERVICE_KEY}`,
-    },
-    body: JSON.stringify({ userId, title, body, url: "/", tag: "daily-digest" }),
-  });
-  const txt = await res.text().catch(() => "");
-  if (!res.ok) console.warn(`send-push fail for ${userId}: ${res.status} ${txt}`);
-  return { ok: res.ok, status: res.status, text: txt.slice(0, 250) };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ userId, title, body, url: "/", tag: "daily-digest" }),
+      signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
+    });
+    const txt = await res.text().catch(() => "");
+    if (!res.ok) console.warn(`send-push fail for ${userId}: ${res.status} ${txt}`);
+    return { ok: res.ok, status: res.status, text: txt.slice(0, 250) };
+  } catch (e) {
+    console.warn(`send-push error for ${userId}`, e);
+    return { ok: false, status: 0, text: String(e).slice(0, 250) };
+  }
 }
 
 const corsHeaders = {

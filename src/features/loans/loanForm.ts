@@ -28,7 +28,6 @@ export interface LoanFormState {
   status: LoanStatus;
   notes: string;
   payments: Payment[];
-  compoundInterest: boolean;
   noDueDate: boolean;
   sharedWith: string;
   myPercent: string | number;
@@ -55,7 +54,7 @@ export function emptyLoan(defaults: Partial<Settings> = {}): LoanFormState {
     dueDate: paymentType === "30" ? addCalendarMonths(start, 1) : addDays(start, days),
     guarantyType: "cash",
     guarantyDetail: "", status: "active", notes: "", payments: [],
-    compoundInterest: false, noDueDate: false,
+    noDueDate: false,
     sharedWith: "", myPercent: "",
     parkingFee: "", parkingRecipient: "", parkingPayments: [],
     vehicleOn: false, vehicle: {},

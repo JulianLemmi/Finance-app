@@ -21,7 +21,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  todayISOInTz, resolveStatus, remainingDebt, loanPrincipalAt,
+  todayISOInTz, resolveStatus, remainingDebt, loanPrincipalAt, addDays,
   expectedProfit as edgeExpectedProfit, type Loan,
 } from "../_shared/loanMath.ts";
 
@@ -36,13 +36,26 @@ const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // ── Telegram helpers ────────────────────────────────────────────────────────
 
+/**
+ * Escapa el texto que viene de los datos del usuario antes de meterlo en un mensaje con
+ * parse_mode HTML. Sin esto, un cliente llamado "Juan & Co" o "A <B" hace que Telegram
+ * rechace el mensaje entero con un 400, y como la respuesta no se revisaba el mensaje se
+ * perdía sin ningún error.
+ */
+const esc = (v: unknown): string =>
+  String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 async function sendMessage(chatId: number | string, text: string) {
   if (!BOT_TOKEN) return;
-  await fetch(`${TG_API}/sendMessage`, {
+  const res = await fetch(`${TG_API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
   });
+  if (!res.ok) {
+    // Sólo el status y el cuerpo de Telegram: la URL lleva el token del bot y no se loguea.
+    console.error("sendMessage falló", res.status, await res.text().catch(() => ""));
+  }
 }
 
 // ── Supabase helpers ─────────────────────────────────────────────────────────
@@ -141,7 +154,9 @@ async function cmdVencimientos(chatId: number | string, userId: string) {
   const ls = (Array.isArray(loans) ? loans : []) as Array<Record<string, unknown>>;
   const c = cur(s);
   const today = todayISOInTz();
-  const in7 = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  // En la misma zona que `today`: con Date.now() + toISOString la ventana se calculaba en
+  // UTC y, pasadas las 21:00 en Argentina, eran 8 días en vez de 7.
+  const in7 = addDays(today, 7);
 
   const upcoming = ls
     .filter((l) => {
@@ -168,7 +183,7 @@ async function cmdVencimientos(chatId: number | string, userId: string) {
     const remaining = remainingDebt(asLoan(l), today);
     const emoji = isOverdue ? "🔴" : String(l.dueDate) === today ? "🟡" : "🟢";
     return (
-      `${emoji} <b>${l.clientName}</b> — ${money(remaining, c)}\n` +
+      `${emoji} <b>${esc(l.clientName)}</b> — ${money(remaining, c)}\n` +
       `    ${isOverdue ? "Vencido" : "Vence"}: ${l.dueDate}`
     );
   });
@@ -208,10 +223,12 @@ async function cmdGasto(
     createdAt: new Date().toISOString(),
   };
   list.unshift(newItem);
-  await setKey(userId, "finance:expenses", list.slice(0, 500));
+  // Sin tope: `slice(0, 500)` descartaba en silencio los movimientos más viejos, y la app
+  // —que guarda la lista entera— no los tiene que perder porque los cargó el bot.
+  await setKey(userId, "finance:expenses", list);
   await sendMessage(
     chatId,
-    `✅ Gasto registrado\n<b>${description}</b> — ${money(amount, c)}`,
+    `✅ Gasto registrado\n<b>${esc(description)}</b> — ${money(amount, c)}`,
   );
 }
 
@@ -247,10 +264,10 @@ async function cmdIngreso(
     createdAt: new Date().toISOString(),
   };
   list.unshift(newItem);
-  await setKey(userId, "finance:income", list.slice(0, 500));
+  await setKey(userId, "finance:income", list);
   await sendMessage(
     chatId,
-    `✅ Ingreso registrado\n<b>${description}</b> — ${money(amount, c)}`,
+    `✅ Ingreso registrado\n<b>${esc(description)}</b> — ${money(amount, c)}`,
   );
 }
 

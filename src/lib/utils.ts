@@ -212,7 +212,7 @@ export function advancedCyclesUpTo(loan: Pick<Loan, "advancedAt">, asOf: string)
 /** Suma de los adicionales de capital ya entregados hasta `asOf` (inclusive). Un adicional
  *  es un hecho con fecha —"hoy le pasé $50k más"—, así que uno fechado a futuro todavía no
  *  está en la calle y no cuenta, igual que los adelantos de ciclo. */
-export function loanExtrasUpTo(loan: Pick<Loan, "extras">, asOf: string): number {
+function loanExtrasUpTo(loan: Pick<Loan, "extras">, asOf: string): number {
   return (loan.extras || []).reduce(
     (s, e) => ((e.date || "") <= asOf ? s + Number(e.amount || 0) : s),
     0

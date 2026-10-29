@@ -347,10 +347,11 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
 
 export default function FinanceApp() {
   const [session, setSession] = useState<Session | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  // Sin Supabase no hay sesión que esperar: arranca listo, sin pasar por un efecto.
+  const [authReady, setAuthReady] = useState(!supabase);
 
   useEffect(() => {
-    if (!supabase) { setAuthReady(true); return; }
+    if (!supabase) return;
     let mounted = true;
     supabase.auth.getSession()
       .then(({ data }) => {

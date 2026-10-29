@@ -20,7 +20,12 @@ export function getLastUnlock(): number {
 }
 
 export function markUnlocked(): void {
-  try { localStorage.setItem(LAST_UNLOCK_KEY, String(Date.now())); } catch {}
+  try {
+    localStorage.setItem(LAST_UNLOCK_KEY, String(Date.now()));
+  } catch {
+    // Sin localStorage (modo privado, datos bloqueados) no hay ventana de acceso: el PIN
+    // se vuelve a pedir en cada recarga. Molesto, no inseguro.
+  }
 }
 
 export interface LockConfig {
@@ -50,7 +55,11 @@ export function getLockConfig(): LockConfig {
 }
 
 export function saveLockConfig(cfg: LockConfig): void {
-  try { localStorage.setItem(LOCK_KEY, JSON.stringify(cfg)); } catch {}
+  try {
+    localStorage.setItem(LOCK_KEY, JSON.stringify(cfg));
+  } catch {
+    // Sin localStorage el PIN no se puede guardar: `lockGate` seguirá devolviendo "setup".
+  }
 }
 
 // Olvidar el lock por completo, incluido el sello de acceso: lo usa "Olvidé mi PIN",
@@ -60,7 +69,9 @@ export function clearLockConfig(): void {
   try {
     localStorage.removeItem(LOCK_KEY);
     localStorage.removeItem(LAST_UNLOCK_KEY);
-  } catch {}
+  } catch {
+    // Sin localStorage no hay nada que borrar.
+  }
 }
 
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -77,9 +88,15 @@ function getStableWebAuthnUserId(): Uint8Array {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed) && parsed.length === 16) return new Uint8Array(parsed as number[]);
     }
-  } catch {}
+  } catch {
+    // Valor guardado ilegible: se genera uno nuevo abajo.
+  }
   const fresh = crypto.getRandomValues(new Uint8Array(16));
-  try { localStorage.setItem(WEBAUTHN_USER_KEY, JSON.stringify(Array.from(fresh))); } catch {}
+  try {
+    localStorage.setItem(WEBAUTHN_USER_KEY, JSON.stringify(Array.from(fresh)));
+  } catch {
+    // Sin localStorage el id no persiste y la huella registrada no se reconocerá la próxima vez.
+  }
   return fresh;
 }
 
@@ -162,7 +179,7 @@ async function legacyHashV1(pin: string): Promise<string> {
     .join("");
 }
 
-export async function hashPin(pin: string): Promise<string> {
+async function hashPin(pin: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
   const bits = await pbkdf2(pin, salt);
   return `v2:${bytesToBase64Url(salt)}:${bytesToBase64Url(bits)}`;

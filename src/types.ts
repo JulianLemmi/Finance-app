@@ -144,7 +144,11 @@ export interface Loan {
    *  siendo la etiqueta corta que se ve en los listados. */
   vehicle?: LoanVehicle;
   status: LoanStatus;
-  compoundInterest: boolean;
+  /** @deprecated No lo lee ninguna cuenta ni el formulario: el motor SIEMPRE capitaliza el
+   *  interés al vencer (ver `debtWalk`). Antes el formulario tenía un botón "Interés compuesto
+   *  al vencer" que se guardaba acá y no cambiaba nada. Queda opcional para que los
+   *  préstamos y respaldos que ya lo traen sigan importando. */
+  compoundInterest?: boolean;
   noDueDate: boolean;
   refinancedFromId?: string;
   notes: string;

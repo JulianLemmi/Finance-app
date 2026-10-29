@@ -3,6 +3,7 @@
 // deja de ofrecer el reintento para no ciclar indefinidamente.
 import React from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
+import { tryReloadForStaleChunk } from "../lib/chunkReload.js";
 
 const MAX_RESETS = 3;
 
@@ -38,11 +39,13 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
     return { hasError: true, error, isStaleChunk: isStaleChunkError(error) };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  override componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("[ErrorBoundary]", error, info?.componentStack);
     if (isStaleChunkError(error)) {
-      // New deploy invalidated old chunk — reload to get the latest version.
-      window.location.reload();
+      // New deploy invalidated old chunk — reload to get the latest version. Con guarda: si
+      // el chunk sigue fallando, una recarga incondicional era un bucle infinito (ver
+      // lib/chunkReload.ts). Si no recarga, queda el fallback con el botón de reintento.
+      tryReloadForStaleChunk();
     }
   }
 
@@ -55,7 +58,7 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
     }));
   };
 
-  render() {
+  override render() {
     if (!this.state.hasError) return this.props.children;
 
     if (this.props.fallback) {

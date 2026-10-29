@@ -76,9 +76,13 @@ function fmt(n: number): string {
   return `$${Math.round(n).toLocaleString("es-AR")}`;
 }
 
+// Los dos fetch de esta función llevan timeout: si bluelytics o send-push se cuelgan, la
+// corrida entera se colgaba con ellos.
+const FETCH_TIMEOUT_MS = 10_000;
+
 async function fetchBlueSell(): Promise<number | null> {
   try {
-    const res = await fetch(BLUELYTICS);
+    const res = await fetch(BLUELYTICS, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     const json = await res.json();
     const sell = Number(json?.blue?.value_sell);
@@ -88,14 +92,23 @@ async function fetchBlueSell(): Promise<number | null> {
   }
 }
 
+// Nunca lanza. Si un fetch fallaba por red la excepción salía del handler ANTES del upsert
+// que guarda las bases (`app_kv`), y en la corrida siguiente se volvía a notificar a los
+// usuarios que ya habían recibido el aviso en ésta.
 async function sendPush(userId: string, title: string, body: string, tag: string): Promise<boolean> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-    body: JSON.stringify({ userId, title, body, url: "/", tag }),
-  });
-  if (!res.ok) console.warn(`send-push fail for ${userId}: ${res.status}`);
-  return res.ok;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ userId, title, body, url: "/", tag }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) console.warn(`send-push fail for ${userId}: ${res.status}`);
+    return res.ok;
+  } catch (e) {
+    console.warn(`send-push error for ${userId}`, e);
+    return false;
+  }
 }
 
 serve(async (req) => {

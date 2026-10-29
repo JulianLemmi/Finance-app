@@ -23,7 +23,6 @@ export default function GlobalStyles() {
 
       /* ───────────────────────── Motion primitives ───────────────────────── */
       @keyframes fa-fade { from { opacity: 0 } to { opacity: 1 } }
-      @keyframes fa-fade-out { from { opacity: 1 } to { opacity: 0 } }
       @keyframes fa-sheet {
         from { opacity: 0; transform: translateY(36px) scale(0.985) }
         60%  { opacity: 1 }
@@ -174,7 +173,6 @@ export default function GlobalStyles() {
       .theme-light ::selection { background: rgba(245,158,11,0.28); color: #1c1917; }
       .theme-light .fa-aurora::before,
       .theme-light .fa-grain::after { display: none; }
-      .theme-light .glow-card { animation: none; }
       .theme-light .fa-gold-text {
         background: none; color: #1c1917; animation: none;
         -webkit-background-clip: initial; background-clip: initial;

@@ -247,7 +247,7 @@ export default function LoanTimeline({ loan, currentCompoundPeriods }: LoanTimel
         // ciclo) no quedaba ninguna posición intermedia: las flechas sólo podían mandarlo
         // al principio o al final, nunca entre los dos vencimientos.
         if (ev.type === "payment" && currentCompoundPeriods > 0 && loan.dueDate) {
-          return dateMs(paymentAnchorDate(loan, { ...ev, timelinePos: ev.timelinePos }, currentCompoundPeriods)) + 500;
+          return dateMs(paymentAnchorDate(loan, ev, currentCompoundPeriods)) + 500;
         }
         // Un cargo de ciclo se dibuja por su SLOT, no por su fecha: el slot es el orden en
         // que el recorrido capitaliza, y la columna de subtotales es ese recorrido. Un

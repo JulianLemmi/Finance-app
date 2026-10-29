@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatMoney } from "../../lib/utils.js";
 
-export const prefersReducedMotion = (): boolean =>
+const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
   !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -11,7 +11,7 @@ const easeOutExpo = (t: number): number => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t
 
 // Anima desde el valor anterior hacia `target`. En el primer render arranca
 // desde 0 para el efecto de "carga" del panel.
-export function useCountUp(target: number, duration = 1100): number {
+function useCountUp(target: number, duration = 1100): number {
   const [display, setDisplay] = useState(() => (prefersReducedMotion() ? target : 0));
   const fromRef = useRef(display);
   const rafRef = useRef(0);

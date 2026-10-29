@@ -14,10 +14,11 @@ import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import { useLongPress } from "../lib/hooks.js";
 import ChartDetailSheet, { type ChartDetailKind } from "../components/ChartDetailSheet.jsx";
+import { makeBarLabel, makeBarValueLabel, niceAxisBound } from "../components/ui/chartHelpers.jsx";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, StatCard, ChartTooltip,
   DeltaPill, Badge, IconButton, ChartContainer,
-  ChartLegend, makeBarLabel, makeBarValueLabel, niceAxisBound,
+  ChartLegend,
 } from "../components/ui.jsx";
 import {
   BarChart, Bar, ComposedChart, Line, Cell, ReferenceLine,
@@ -65,6 +66,34 @@ function LiveClock() {
   );
 }
 
+type ChartDetailTarget = { kind: ChartDetailKind; idx: number };
+
+/**
+ * Mantener apretada una vela abre su desglose. Recharts informa qué barra está activa en
+ * los handlers del gráfico (`track`); el long-press vive en el div que lo envuelve, porque
+ * las barras no reciben los eventos de puntero sostenido.
+ *
+ * Es un hook de módulo y no uno definido adentro de HomeScreen: un hook creado en el cuerpo
+ * del componente es una función nueva en cada render, y el compilador de React no puede
+ * seguir las refs que devuelve (react-hooks/refs).
+ */
+function useBarDetail(kind: ChartDetailKind, onOpen: (target: ChartDetailTarget) => void) {
+  const idx = useRef<number | null>(null);
+  // Recharts tipa el índice activo como `number | string` (admite categorías con
+  // nombre), así que se normaliza antes de guardarlo.
+  const track = (s: { activeTooltipIndex?: number | string | null } | null) => {
+    const raw = s?.activeTooltipIndex;
+    const i = typeof raw === "string" ? Number(raw) : raw;
+    if (typeof i === "number" && Number.isFinite(i) && i >= 0) idx.current = i;
+  };
+  const { pressing, handlers } = useLongPress(
+    () => { if (idx.current !== null) onOpen({ kind, idx: idx.current }); },
+    undefined,
+    { delayMs: 500, feedbackAfterMs: 200 }
+  );
+  return { track, pressing, handlers };
+}
+
 export default function HomeScreen() {
   const { state, dispatch, derived, setSearchOpen } = useApp();
   const hide = state.settings.hideBalances;
@@ -81,11 +110,14 @@ export default function HomeScreen() {
 
   // Crecimiento del capital por venir en los próximos 30 días (rolling desde hoy):
   // el interés que se va a cobrar por los vencimientos/re-vencimientos en esa ventana.
+  // `hoy` entra en las dependencias: sin eso la ventana quedaba congelada en el día en que
+  // se calculó el memo, y con la app abierta pasando la medianoche seguía mirando la de ayer.
+  const hoy = todayISO();
   const growth30d = useMemo(() => {
-    const until = addDays(todayISO(), 30);
+    const until = addDays(hoy, 30);
     return [...derived.activeLoans, ...derived.overdueLoans]
       .reduce((sum, l) => sum + upcomingInterest(l, until), 0);
-  }, [derived.activeLoans, derived.overdueLoans]);
+  }, [derived.activeLoans, derived.overdueLoans, hoy]);
 
   // "Mes actual" = interés devengado + sueldo fijo. No suma las transacciones de ingreso
   // manuales, para no duplicar el interés si el usuario carga los cobros como ingreso.
@@ -97,29 +129,10 @@ export default function HomeScreen() {
   const lastMonthIdx = derived.months.length - 1;
   const currentMonthLabel = derived.months[lastMonthIdx]?.label ?? "";
 
-  // Mantener apretada una vela abre su desglose. Recharts informa qué barra está activa
-  // en los handlers del gráfico; el long-press vive en el div que lo envuelve, porque las
-  // barras no reciben los eventos de puntero sostenido.
-  const [chartDetail, setChartDetail] = useState<{ kind: ChartDetailKind; idx: number } | null>(null);
-  const useBarDetail = (kind: ChartDetailKind) => {
-    const idx = useRef<number | null>(null);
-    // Recharts tipa el índice activo como `number | string` (admite categorías con
-    // nombre), así que se normaliza antes de guardarlo.
-    const track = (s: { activeTooltipIndex?: number | string | null } | null) => {
-      const raw = s?.activeTooltipIndex;
-      const i = typeof raw === "string" ? Number(raw) : raw;
-      if (typeof i === "number" && Number.isFinite(i) && i >= 0) idx.current = i;
-    };
-    const { pressing, handlers } = useLongPress(
-      () => { if (idx.current !== null) setChartDetail({ kind, idx: idx.current }); },
-      undefined,
-      { delayMs: 500, feedbackAfterMs: 200 }
-    );
-    return { track, pressing, handlers };
-  };
-  const capitalDetail = useBarDetail("total");
-  const balanceDetail = useBarDetail("accrued");
-  const invertidoDetail = useBarDetail("capital");
+  const [chartDetail, setChartDetail] = useState<ChartDetailTarget | null>(null);
+  const capitalDetail = useBarDetail("total", setChartDetail);
+  const balanceDetail = useBarDetail("accrued", setChartDetail);
+  const invertidoDetail = useBarDetail("capital", setChartDetail);
 
   const pace = derived.monthPace;
   // Cuánto del cierre del mes pasado ya lleva el mes en curso. Es la lectura de un
@@ -542,31 +555,31 @@ export default function HomeScreen() {
               </div>
             </div>
             <div {...capitalDetail.handlers} className={capitalDetail.pressing ? "opacity-70 transition-opacity" : ""}>
-            <ChartContainer className="h-52 min-w-0">
-              {({ width, height }) => (
-                <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
-                  onMouseMove={capitalDetail.track} onMouseDown={capitalDetail.track} onClick={capitalDetail.track} onTouchStart={capitalDetail.track} onTouchMove={capitalDetail.track}>
-                  <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                  {/* El capital puede ser negativo si los pasivos superan al patrimonio,
-                      así que el piso del eje acompaña al mínimo en vez de recortar en 0. */}
-                  <YAxis
-                    axisLine={false} tickLine={false} width={46}
-                    tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
-                    tickFormatter={(v: number) => formatCompact(v, hide)}
-                    domain={[(min: number) => Math.min(0, min), "auto"]}
-                  />
-                  <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
-                    content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Capital" dataKey="capital" radius={[6, 6, 0, 0]}>
-                    {derived.months.map((m, i) => (
-                      <Cell key={m.key} fill={MONTH_COLORS[i % MONTH_COLORS.length]} />
-                    ))}
-                    <LabelList content={makeBarLabel({ hide })} />
-                  </Bar>
-                </BarChart>
-              )}
-            </ChartContainer>
+              <ChartContainer className="h-52 min-w-0">
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
+                    onMouseMove={capitalDetail.track} onMouseDown={capitalDetail.track} onClick={capitalDetail.track} onTouchStart={capitalDetail.track} onTouchMove={capitalDetail.track}>
+                    <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                    {/* El capital puede ser negativo si los pasivos superan al patrimonio,
+                        así que el piso del eje acompaña al mínimo en vez de recortar en 0. */}
+                    <YAxis
+                      axisLine={false} tickLine={false} width={46}
+                      tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                      tickFormatter={(v: number) => formatCompact(v, hide)}
+                      domain={[(min: number) => Math.min(0, min), "auto"]}
+                    />
+                    <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
+                      content={<ChartTooltip hide={hide} currency={cur} />} />
+                    <Bar name="Capital" dataKey="capital" radius={[6, 6, 0, 0]}>
+                      {derived.months.map((m, i) => (
+                        <Cell key={m.key} fill={MONTH_COLORS[i % MONTH_COLORS.length]} />
+                      ))}
+                      <LabelList content={makeBarLabel({ hide })} />
+                    </Bar>
+                  </BarChart>
+                )}
+              </ChartContainer>
             </div>
           </Card>
 
@@ -588,43 +601,43 @@ export default function HomeScreen() {
               Neto de {currentMonthLabel} · barra destacada
             </div>
             <div {...balanceDetail.handlers} className={balanceDetail.pressing ? "opacity-70 transition-opacity" : ""}>
-            <ChartContainer className="h-44 min-w-0">
-              {({ width, height }) => (
-                <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="6%"
-                  onMouseMove={balanceDetail.track} onMouseDown={balanceDetail.track} onClick={balanceDetail.track} onTouchStart={balanceDetail.track} onTouchMove={balanceDetail.track}>
-                  <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }} />
-                  {/* Con "auto" el dominio calza justo con los datos y la etiqueta del gasto
-                      caía sobre el tick del mes. El aire extra le deja lugar al número. */}
-                  <YAxis
-                    axisLine={false} tickLine={false} width={40}
-                    tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
-                    tickFormatter={(v: number) => formatCompact(v, hide)}
-                    domain={[
-                      (min: number) => niceAxisBound(min * 1.45, "down"),
-                      (max: number) => niceAxisBound(max * 1.18, "up"),
-                    ]}
-                  />
-                  <ReferenceLine y={0} stroke={CHART_COLORS.axis as string} strokeWidth={1} />
-                  <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
-                    content={<ChartTooltip hide={hide} currency={cur} absolute />} />
-                  {/* Acá el color SÍ significa: verde ingreso, rojo gasto. Por eso estos dos
-                      no usan MONTH_COLORS, y la posición respecto del cero lo refuerza. */}
-                  <Bar name="Ingresos" dataKey="monthGain" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]}>
-                    {balanceMonths.map((m, i) => (
-                      <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.5} />
-                    ))}
-                    <LabelList content={makeBarValueLabel({ onlyIndex: lastMonthIdx, hide })} />
-                  </Bar>
-                  <Bar name="Gastos" dataKey="expenseNeg" fill={CHART_COLORS.expense as string} radius={[0, 0, 4, 4]}>
-                    {balanceMonths.map((m, i) => (
-                      <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.5} />
-                    ))}
-                    <LabelList content={makeBarValueLabel({ onlyIndex: lastMonthIdx, hide })} />
-                  </Bar>
-                </BarChart>
-              )}
-            </ChartContainer>
+              <ChartContainer className="h-44 min-w-0">
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={balanceMonths} margin={{ top: 16, right: 4, left: 0, bottom: 0 }} barCategoryGap="6%"
+                    onMouseMove={balanceDetail.track} onMouseDown={balanceDetail.track} onClick={balanceDetail.track} onTouchStart={balanceDetail.track} onTouchMove={balanceDetail.track}>
+                    <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }} />
+                    {/* Con "auto" el dominio calza justo con los datos y la etiqueta del gasto
+                        caía sobre el tick del mes. El aire extra le deja lugar al número. */}
+                    <YAxis
+                      axisLine={false} tickLine={false} width={40}
+                      tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                      tickFormatter={(v: number) => formatCompact(v, hide)}
+                      domain={[
+                        (min: number) => niceAxisBound(min * 1.45, "down"),
+                        (max: number) => niceAxisBound(max * 1.18, "up"),
+                      ]}
+                    />
+                    <ReferenceLine y={0} stroke={CHART_COLORS.axis as string} strokeWidth={1} />
+                    <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
+                      content={<ChartTooltip hide={hide} currency={cur} absolute />} />
+                    {/* Acá el color SÍ significa: verde ingreso, rojo gasto. Por eso estos dos
+                        no usan MONTH_COLORS, y la posición respecto del cero lo refuerza. */}
+                    <Bar name="Ingresos" dataKey="monthGain" fill={CHART_COLORS.income as string} radius={[4, 4, 0, 0]}>
+                      {balanceMonths.map((m, i) => (
+                        <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.5} />
+                      ))}
+                      <LabelList content={makeBarValueLabel({ onlyIndex: lastMonthIdx, hide })} />
+                    </Bar>
+                    <Bar name="Gastos" dataKey="expenseNeg" fill={CHART_COLORS.expense as string} radius={[0, 0, 4, 4]}>
+                      {balanceMonths.map((m, i) => (
+                        <Cell key={m.key} fillOpacity={i === lastMonthIdx ? 1 : 0.5} />
+                      ))}
+                      <LabelList content={makeBarValueLabel({ onlyIndex: lastMonthIdx, hide })} />
+                    </Bar>
+                  </BarChart>
+                )}
+              </ChartContainer>
             </div>
             <div className="mt-2">
               <ChartLegend items={[
@@ -657,32 +670,32 @@ export default function HomeScreen() {
               ]} />
             </div>
             <div {...invertidoDetail.handlers} className={invertidoDetail.pressing ? "opacity-70 transition-opacity" : ""}>
-            <ChartContainer className="h-52 min-w-0">
-              {({ width, height }) => (
-                <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
-                  onMouseMove={invertidoDetail.track} onMouseDown={invertidoDetail.track} onClick={invertidoDetail.track} onTouchStart={invertidoDetail.track} onTouchMove={invertidoDetail.track}>
-                  <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                  <YAxis
-                    axisLine={false} tickLine={false} width={46}
-                    tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
-                    tickFormatter={(v: number) => formatCompact(v, hide)}
-                    domain={[(min: number) => Math.min(0, min), "auto"]}
-                  />
-                  <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
-                    content={<ChartTooltip hide={hide} currency={cur} />} />
-                  <Bar name="Invertido" dataKey="capitalInvested" fill={CHART_COLORS.capitalStroke as string} radius={[6, 6, 0, 0]}>
-                    <LabelList content={makeBarLabel({ hide })} />
-                  </Bar>
-                  {/* Referencia, no una segunda categoría: por eso va neutra y sin relleno. */}
-                  <Line
-                    name="Capital total" dataKey="capital" type="monotone"
-                    stroke={CHART_COLORS.reference as string} strokeWidth={2}
-                    dot={false} activeDot={{ r: 3 }}
-                  />
-                </ComposedChart>
-              )}
-            </ChartContainer>
+              <ChartContainer className="h-52 min-w-0">
+                {({ width, height }) => (
+                  <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
+                    onMouseMove={invertidoDetail.track} onMouseDown={invertidoDetail.track} onClick={invertidoDetail.track} onTouchStart={invertidoDetail.track} onTouchMove={invertidoDetail.track}>
+                    <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                    <YAxis
+                      axisLine={false} tickLine={false} width={46}
+                      tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                      tickFormatter={(v: number) => formatCompact(v, hide)}
+                      domain={[(min: number) => Math.min(0, min), "auto"]}
+                    />
+                    <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
+                      content={<ChartTooltip hide={hide} currency={cur} />} />
+                    <Bar name="Invertido" dataKey="capitalInvested" fill={CHART_COLORS.capitalStroke as string} radius={[6, 6, 0, 0]}>
+                      <LabelList content={makeBarLabel({ hide })} />
+                    </Bar>
+                    {/* Referencia, no una segunda categoría: por eso va neutra y sin relleno. */}
+                    <Line
+                      name="Capital total" dataKey="capital" type="monotone"
+                      stroke={CHART_COLORS.reference as string} strokeWidth={2}
+                      dot={false} activeDot={{ r: 3 }}
+                    />
+                  </ComposedChart>
+                )}
+              </ChartContainer>
             </div>
           </Card>
 
@@ -716,41 +729,41 @@ export default function HomeScreen() {
                     // la cantidad es par y una sola si es impar.
                     const ultimaFila = i >= arr.length - (arr.length % 2 === 0 ? 2 : 1);
                     return (
-                    <button key={l.id}
-                      onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id: l.id } } })}
-                      className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-900/60 xl:border-zinc-800/70 xl:odd:border-r${ultimaFila ? "" : " xl:border-b"}`}>
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                          l._status === "overdue" ? "bg-rose-500/10 text-rose-400"
-                            : l._daysUntilDue !== null && l._daysUntilDue <= UI_LIMITS.ALERT_DAYS_THRESHOLD ? "bg-amber-500/10 text-amber-400"
-                            : "bg-zinc-800 text-zinc-400"
-                        }`}>
-                          <CalendarClock className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-zinc-100">{l.clientName}</div>
-                          <div className="mt-0.5 text-[11px] text-zinc-500">
-                            {/* "Vence hoy" va primero: un préstamo pasa a atrasado el mismo
-                                día de su vencimiento, y decir "Atrasado 0d" confunde. */}
-                            {l._daysUntilDue === 0
-                              ? `Vence hoy · ${formatShortDate(l.dueDate)}`
-                              : l._status === "overdue"
-                              ? `Atrasado ${Math.abs(l._daysUntilDue ?? 0)}d · ${formatShortDate(l.dueDate)}`
-                              : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
+                      <button key={l.id}
+                        onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id: l.id } } })}
+                        className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-900/60 xl:border-zinc-800/70 xl:odd:border-r${ultimaFila ? "" : " xl:border-b"}`}>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                            l._status === "overdue" ? "bg-rose-500/10 text-rose-400"
+                              : l._daysUntilDue !== null && l._daysUntilDue <= UI_LIMITS.ALERT_DAYS_THRESHOLD ? "bg-amber-500/10 text-amber-400"
+                              : "bg-zinc-800 text-zinc-400"
+                          }`}>
+                            <CalendarClock className="h-4 w-4" />
                           </div>
-                          <div className="mt-0.5 text-[10px] text-zinc-600">↻ {formatShortDate(getNextRenewalDate(l))}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                            <Money value={l._remaining} hide={hide} currency={cur} />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-zinc-100">{l.clientName}</div>
+                            <div className="mt-0.5 text-[11px] text-zinc-500">
+                              {/* "Vence hoy" va primero: un préstamo pasa a atrasado el mismo
+                                  día de su vencimiento, y decir "Atrasado 0d" confunde. */}
+                              {l._daysUntilDue === 0
+                                ? `Vence hoy · ${formatShortDate(l.dueDate)}`
+                                : l._status === "overdue"
+                                ? `Atrasado ${Math.abs(l._daysUntilDue ?? 0)}d · ${formatShortDate(l.dueDate)}`
+                                : `En ${l._daysUntilDue}d · ${formatShortDate(l.dueDate)}`}
+                            </div>
+                            <div className="mt-0.5 text-[10px] text-zinc-600">↻ {formatShortDate(getNextRenewalDate(l))}</div>
                           </div>
-                          <div className="text-[11px] text-zinc-500 tabular-nums">{formatInterest(l, cur)}</div>
                         </div>
-                        <ChevronRight className="h-4 w-4 text-zinc-600" />
-                      </div>
-                    </button>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                              <Money value={l._remaining} hide={hide} currency={cur} />
+                            </div>
+                            <div className="text-[11px] text-zinc-500 tabular-nums">{formatInterest(l, cur)}</div>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-zinc-600" />
+                        </div>
+                      </button>
                     );
                   })}
                 </Card>

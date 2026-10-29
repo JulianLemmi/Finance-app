@@ -115,12 +115,18 @@ export default function ProfileScreen() {
     prevSettingsRef.current = curr;
   }, [state.settings]);
 
+  // El contador se arma en el click que abre la confirmación (ver `armReset`) y acá sólo
+  // corre el reloj. Antes también se cargaba en este efecto, que corre DESPUÉS del primer
+  // render: durante ese frame `resetCountdown` valía 0 y "Borrar todo" nacía habilitado.
   useEffect(() => {
     if (!confirmReset) return;
-    setResetCountdown(BUSINESS_RULES.RESET_COOLDOWN_SECS);
     const t = setInterval(() => setResetCountdown((n) => (n > 0 ? n - 1 : 0)), 1000);
     return () => clearInterval(t);
   }, [confirmReset]);
+  const armReset = () => {
+    setResetCountdown(BUSINESS_RULES.RESET_COOLDOWN_SECS);
+    setConfirmReset(true);
+  };
 
   const saveName = () => dispatch({ type: "UPDATE_SETTINGS", payload: { userName: name } });
   const saveCapital = () => dispatch({ type: "UPDATE_SETTINGS", payload: { cashOnHand: Number(capital) || 0 } });
@@ -623,7 +629,7 @@ export default function ProfileScreen() {
             </div>
           </Card>
         ) : (
-          <button onClick={() => setConfirmReset(true)}
+          <button onClick={armReset}
             className="flex w-full items-center justify-between rounded-2xl border border-zinc-800/70 bg-zinc-900/60 px-4 py-3 text-left transition-colors hover:bg-zinc-900">
             <div>
               <div className="text-sm font-medium text-zinc-100">Borrar todos los datos</div>

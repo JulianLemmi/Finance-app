@@ -1,22 +1,21 @@
 import { useEffect, useState } from "react";
-import type { ReactNode, ElementType } from "react";
+import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { formatMoney } from "../../lib/utils.js";
 
 interface CardProps {
   children?: ReactNode;
   className?: string;
-  as?: ElementType;
   [key: string]: unknown;
 }
 
-export const Card = ({ children, className = "", as: Tag = "div", ...rest }: CardProps) => (
-  <Tag
+export const Card = ({ children, className = "", ...rest }: CardProps) => (
+  <div
     className={`rounded-2xl border border-zinc-800/70 bg-zinc-900/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors duration-300 ${className}`}
     {...rest}
   >
     {children}
-  </Tag>
+  </div>
 );
 
 interface SectionTitleProps {
@@ -99,7 +98,6 @@ interface StatCardProps {
   hint?: string;
   Icon?: LucideIcon;
   tone?: string;
-  delta?: number;
 }
 
 export const StatCard = ({ label, value, hint, Icon, tone }: StatCardProps) => {

@@ -33,7 +33,7 @@ export type BackupResult =
   | { ok: false; error: string }
   | { ok: true; data: Partial<Omit<AppState, "loaded" | "ui">>; summary: BackupSummary };
 
-export function buildBackup(state: AppState): BackupPayload {
+function buildBackup(state: AppState): BackupPayload {
   return {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),

@@ -35,7 +35,11 @@ export const STORAGE_SAVE_FAILED_EVENT = "finance:storage-save-failed";
 
 const avisar = (evento: string, key: string) => {
   if (typeof window === "undefined") return;
-  try { window.dispatchEvent(new CustomEvent(evento, { detail: { key } })); } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent(evento, { detail: { key } }));
+  } catch {
+    // Un aviso que no se puede mostrar no tiene que romper el guardado que lo originó.
+  }
 };
 
 // `getSession` y no `getUser`: la sesión sale del almacenamiento local, mientras que
@@ -88,7 +92,9 @@ export const storage = {
           })
         );
         return Object.fromEntries(entries);
-      } catch {}
+      } catch {
+        // window.storage falló en bloque: se sigue con localStorage, abajo.
+      }
     }
     const out: Record<string, unknown> = {};
     keys.forEach((k) => {
@@ -166,6 +172,12 @@ export async function uploadPhoto(userId: string, loanId: string, file: File): P
 
 export async function deletePhoto(photo: Photo): Promise<void> {
   if (photo.path && supabase) {
-    try { await supabase.storage.from(PHOTO_BUCKET).remove([photo.path]); } catch {}
+    try {
+      await supabase.storage.from(PHOTO_BUCKET).remove([photo.path]);
+    } catch (e) {
+      // La foto ya salió de la lista del préstamo: si el archivo no se pudo borrar queda
+      // huérfano en el bucket. No se le avisa al usuario, pero que quede registro.
+      console.warn("deletePhoto: no se pudo borrar del bucket", photo.path, e);
+    }
   }
 }

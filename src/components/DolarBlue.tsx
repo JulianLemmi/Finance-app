@@ -44,6 +44,18 @@ export default function DolarBlue() {
   const [stale, setStale] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // `aliveRef`: si el componente se desmonta con un fetch en vuelo, el catch agendaba un
+  // reintento DESPUÉS del cleanup, y se encadenaban hasta tres más sin dueño, llamando
+  // setState sobre un componente muerto. `loadRef`: los reintentos se llaman a sí mismos, y
+  // una función que se referencia dentro de su propio useCallback es una lectura antes de
+  // la declaración (lo marca react-hooks/immutability).
+  const aliveRef = useRef(true);
+  const loadRef = useRef<(attempt?: number) => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
 
   const clearRetry = useCallback(() => {
     if (retryTimerRef.current != null) {
@@ -59,20 +71,24 @@ export default function DolarBlue() {
       const res = await fetchWithTimeout(API_URL, FETCH_TIMEOUT_MS);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json() as DolarData;
+      if (!aliveRef.current) return;
       setData(json);
       setStale(false);
       setUpdatedAt(new Date());
       setLoading(false);
     } catch {
+      if (!aliveRef.current) return;
       if (attempt < MAX_RETRIES) {
         const delay = Math.pow(2, attempt) * 1_000;
-        retryTimerRef.current = setTimeout(() => load(attempt + 1), delay);
+        retryTimerRef.current = setTimeout(() => loadRef.current(attempt + 1), delay);
         return;
       }
       setStale(true);
       setLoading(false);
     }
   }, [clearRetry]);
+
+  useEffect(() => { loadRef.current = load; }, [load]);
 
   useEffect(() => {
     load();

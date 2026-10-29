@@ -110,7 +110,6 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
         dueDate,
         guarantyType: refinancingFrom.guarantyType,
         guarantyDetail: refinancingFrom.guarantyDetail,
-        compoundInterest: refinancingFrom.compoundInterest,
         noDueDate: refinancingFrom.noDueDate,
         sharedWith: refinancingFrom.sharedWith ?? "",
         myPercent: refinancingFrom.myPercent ? String(refinancingFrom.myPercent) : "",
@@ -282,19 +281,6 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
             </button>
           ))}
         </div>
-
-        {!form.noDueDate && (
-          <button type="button" onClick={() => updateField("compoundInterest", !form.compoundInterest)}
-            className={`self-start flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              form.compoundInterest
-                ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                : "bg-zinc-800/60 text-zinc-500 border border-zinc-700/60 hover:text-zinc-400"
-            }`}
-          >
-            <TrendingUp className="h-3 w-3" />
-            Interés compuesto al vencer
-          </button>
-        )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Input label="Inicio" type="date" value={form.startDate}

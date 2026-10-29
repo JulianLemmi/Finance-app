@@ -12,10 +12,11 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, ASSET_CATEGORIES, CHART_COLORS, 
 import { calcProjection, projectHorizon, interestAccruals } from "../lib/calcs.js";
 import { useApp } from "../store/index.js";
 import {
-  Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer, makeBarLabel,
+  Card, SectionTitle, EmptyState, Money, AnimatedMoney, Badge, ChartTooltip, Button, ChartContainer,
   InlineDelete,
 } from "../components/ui.jsx";
 import PortfolioAnalytics from "../components/PortfolioAnalytics.jsx";
+import { makeBarLabel } from "../components/ui/chartHelpers.jsx";
 import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, LabelList } from "recharts";
 import type { Transaction, Asset, Liability } from "../types";
 

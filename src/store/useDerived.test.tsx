@@ -1263,7 +1263,7 @@ describe("datos del auto en garantía", () => {
     con.months.forEach((m, i) => expect(m.accrued).toBeCloseTo(sin.months[i].accrued, 2));
   });
 
-describe("el monto de la deuda 08", () => {
+  describe("el monto de la deuda 08", () => {
     const soloUno2 = (loans: Loan[]): AppState => ({
       ...initialState, loaded: true, loans,
       settings: { ...initialState.settings, cashOnHand: 0, fixedIncomeAmount: 0 },
@@ -1304,7 +1304,6 @@ describe("el monto de la deuda 08", () => {
       expect(s.loans[0].vehicle!.debt08Amount).toBe(7000);
     });
   });
-
 
   it("un préstamo sin auto no inventa el campo", () => {
     const s = reducer(soloUno([]), { type: "ADD_LOAN", payload: mk({ id: "B" }) });

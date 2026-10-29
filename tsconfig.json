@@ -12,6 +12,14 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
+    // Código muerto y descuidos que el compilador puede atrapar solo. Todos pasaban limpios
+    // al activarlos; sin esto un import o una variable sin usar vuelve sin que nadie se entere.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    // El desarrollo es en Windows, que ignora mayúsculas en las rutas; un deploy en Linux no.
+    "forceConsistentCasingInFileNames": true,
     "allowJs": true,
     "checkJs": false,
     "types": ["vite/client"]

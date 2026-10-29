@@ -137,8 +137,8 @@ export default function DollarRain({ animated }: DollarRainProps) {
     const cuantos = () =>
       Math.round(Math.min(BILLETES_MAX, Math.max(BILLETES_MIN, (W * H) / AREA_POR_BILLETE)));
 
-    let bills: Bill[] = [];
-    let sparks: Spark[] = [];
+    const bills: Bill[] = [];
+    const sparks: Spark[] = [];
     const poblar = () => {
       const n = cuantos();
       while (bills.length > n) bills.pop();
