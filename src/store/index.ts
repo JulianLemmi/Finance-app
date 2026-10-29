@@ -297,13 +297,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
       });
       return { ...state, clients: [client, ...state.clients] };
     }
-    case "UPDATE_CLIENT":
+    case "UPDATE_CLIENT": {
+      const previo = state.clients.find((c) => c.id === action.payload.id);
+      const nuevoNombre = action.payload.name;
+      // Cada préstamo guarda una COPIA del nombre del cliente (`clientName`). Renombrar sólo
+      // el cliente dejaba el nombre viejo en los préstamos: la lista de clientes decía una
+      // cosa y los préstamos, el buscador y el push decían otra.
+      const renombrado = !!previo && typeof nuevoNombre === "string" && nuevoNombre !== previo.name;
       return {
         ...state,
         clients: state.clients.map((c) =>
           c.id === action.payload.id ? stripComputed({ ...c, ...action.payload }) : c
         ),
+        loans: renombrado
+          ? state.loans.map((l) => (l.clientId === action.payload.id ? { ...l, clientName: nuevoNombre } : l))
+          : state.loans,
       };
+    }
     case "DELETE_CLIENT":
       return { ...state, clients: state.clients.filter((c) => c.id !== action.payload) };
     case "ADD_TX": {

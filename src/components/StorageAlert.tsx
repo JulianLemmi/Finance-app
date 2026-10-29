@@ -39,7 +39,7 @@ export default function StorageAlert() {
     },
     failed.size > 0 && {
       titulo: "No se pudo guardar tu último cambio",
-      detalle: "Revisá tu conexión. Se reintenta con el próximo cambio:",
+      detalle: "Revisá tu conexión. Se reintenta al reconectar:",
       claves: failed,
     },
   ].filter((a): a is { titulo: string; detalle: string; claves: Set<string> } => !!a);

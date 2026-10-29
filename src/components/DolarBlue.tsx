@@ -136,7 +136,7 @@ export default function DolarBlue() {
             <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-[10px] text-zinc-500">Sin conexión</span>
           )}
         </div>
-        <button onClick={() => load()} disabled={loading}
+        <button onClick={() => load()} disabled={loading} aria-label="Actualizar cotización" title="Actualizar cotización"
           className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-400">
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
         </button>

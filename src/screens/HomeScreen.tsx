@@ -98,6 +98,9 @@ export default function HomeScreen() {
   const { state, dispatch, derived, setSearchOpen } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
+  // La guarda usaba `Number(monthlyTarget)` pero la cuenta usaba el valor crudo: con una meta
+  // guardada como texto (un respaldo viejo) la resta y el <Money> recibían un string.
+  const monthlyTarget = Number(state.settings.monthlyTarget) || 0;
 
   const [showUpcoming, setShowUpcoming] = useState(true);
   const [quickPayLoan, setQuickPayLoan] = useState<ResolvedLoan | null>(null);
@@ -421,7 +424,7 @@ export default function HomeScreen() {
             número y a ancho completo era una banda vacía con un dato en la punta. */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {/* Objetivo mensual */}
-          {Number(state.settings.monthlyTarget) > 0 && (
+          {monthlyTarget > 0 && (
             <Card className="flex flex-col justify-center p-4">
               <div className="mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -431,11 +434,11 @@ export default function HomeScreen() {
                 <div className="text-xs tabular-nums text-zinc-400">
                   <Money value={derived.collectedThisMonth} hide={hide} currency={cur} />
                   {" / "}
-                  <Money value={state.settings.monthlyTarget} hide={hide} currency={cur} />
+                  <Money value={monthlyTarget} hide={hide} currency={cur} />
                 </div>
               </div>
               {(() => {
-                const pct = Math.min(1, derived.collectedThisMonth / state.settings.monthlyTarget);
+                const pct = Math.min(1, derived.collectedThisMonth / monthlyTarget);
                 const reached = pct >= 1;
                 return (
                   <>
@@ -449,7 +452,7 @@ export default function HomeScreen() {
                       </span>
                       {!reached && (
                         <span className="tabular-nums text-zinc-500">
-                          Faltan <Money value={state.settings.monthlyTarget - derived.collectedThisMonth} hide={hide} currency={cur} />
+                          Faltan <Money value={monthlyTarget - derived.collectedThisMonth} hide={hide} currency={cur} />
                         </span>
                       )}
                     </div>
@@ -473,8 +476,8 @@ export default function HomeScreen() {
                   <div key={l.id} className="flex items-center justify-between px-4 py-3 gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-zinc-100">{l.clientName}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        <span className="min-w-0 truncate text-sm font-medium text-zinc-100">{l.clientName}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           l._daysUntilDue === 0 ? "bg-rose-500/15 text-rose-400" : "bg-amber-500/15 text-amber-400"
                         }`}>
                           {l._daysUntilDue === 0 ? "Hoy" : "Mañana"}

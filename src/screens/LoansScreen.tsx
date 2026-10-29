@@ -453,7 +453,7 @@ export default function LoansScreen() {
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm text-zinc-200">{h.label}</div>
-                        <div className="text-[11px] text-zinc-500">{h.date}</div>
+                        <div className="text-[11px] text-zinc-500">{formatShortDate(h.date)}</div>
                       </div>
                     </div>
                     <div className="text-sm font-medium tabular-nums text-zinc-100">

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import FinanceApp from "./FinanceApp.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import "./index.css";
 
 // Con registerType "autoUpdate" el SW se actualiza en segundo plano, pero la pestaña
@@ -20,6 +21,9 @@ if ("serviceWorker" in navigator) {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <FinanceApp />
+    {/* Último recurso: sin boundary raíz, un error en el propio FinanceApp deja la pantalla en blanco. */}
+    <ErrorBoundary>
+      <FinanceApp />
+    </ErrorBoundary>
   </React.StrictMode>
 );

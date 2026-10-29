@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import {
   lockGate, markUnlocked, getLastUnlock, getLockConfig, saveLockConfig,
-  clearLockConfig, savePin, checkPin, LOCK_GRACE_MS,
+  clearLockConfig, savePin, checkPin, verifyAndUpgradePin, LOCK_GRACE_MS,
 } from "./lock.js";
 
 const T0 = new Date(2026, 9, 28, 12, 0, 0);
@@ -130,5 +130,42 @@ describe("olvidé mi PIN", () => {
     expect(getLastUnlock()).toBe(0);
     expect(getLockConfig()).toEqual({});
     expect(lockGate()).toBe("setup");
+  });
+});
+
+
+describe("verifyAndUpgradePin: el hash v1 se migra al v2 apenas se valida", () => {
+  // El esquema v1 era SHA-256 sin sal. Es el único momento en que se tiene el PIN en claro.
+  const sha256Hex = async (texto: string) => {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  };
+
+  it("un PIN guardado en v1 valida y queda guardado en v2", async () => {
+    saveLockConfig({ pinHash: await sha256Hex("finance-lock-v1:1234"), credentialId: [7, 8] });
+    expect(await verifyAndUpgradePin("1234")).toBe(true);
+    const cfg = getLockConfig();
+    expect(cfg.pinHash!.startsWith("v2:")).toBe(true);
+    // El PIN nuevo sigue validando, y la huella registrada no se pierde en la migración.
+    expect(await checkPin("1234", cfg.pinHash)).toBe(true);
+    expect(cfg.credentialId).toEqual([7, 8]);
+  });
+
+  it("un PIN incorrecto no migra nada", async () => {
+    const v1 = await sha256Hex("finance-lock-v1:1234");
+    saveLockConfig({ pinHash: v1 });
+    expect(await verifyAndUpgradePin("9999")).toBe(false);
+    expect(getLockConfig().pinHash).toBe(v1);
+  });
+
+  it("un hash que ya es v2 no se vuelve a escribir", async () => {
+    await savePin("1234");
+    const antes = getLockConfig().pinHash;
+    expect(await verifyAndUpgradePin("1234")).toBe(true);
+    expect(getLockConfig().pinHash).toBe(antes);
+  });
+
+  it("sin PIN guardado no valida nada", async () => {
+    expect(await verifyAndUpgradePin("1234")).toBe(false);
   });
 });

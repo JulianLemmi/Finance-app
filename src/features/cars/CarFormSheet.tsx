@@ -44,7 +44,7 @@ const emptyForm = (): CarFormState => ({
 });
 
 export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheetProps) {
-  const { dispatch } = useApp();
+  const { state, dispatch } = useApp();
   const [form, setForm] = useState<CarFormState>(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newCostDesc, setNewCostDesc] = useState("");
@@ -132,7 +132,7 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
 
   type CarStatusKey = keyof typeof CAR_STATUSES;
   type CarFuelKey = keyof typeof CAR_FUEL_TYPES;
-  const cur = "$";
+  const cur = state.settings.currency || "$";
 
   return (
     <Sheet

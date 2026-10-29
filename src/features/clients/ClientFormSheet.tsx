@@ -48,12 +48,15 @@ export default function ClientFormSheet({ open, onClose, editingClient }: Client
 
   const onSubmit = () => {
     if (!canSubmit) return;
+    // El nombre va sin espacios sobrantes: "Mario " y "Mario" eran dos clientes para el
+    // buscador y para la comparación que decide si el cliente ya existe.
+    const limpio = { ...form, name: form.name.trim() };
     if (editingClient) {
-      dispatch({ type: "UPDATE_CLIENT", payload: { ...editingClient, ...form } });
+      dispatch({ type: "UPDATE_CLIENT", payload: { ...editingClient, ...limpio } });
     } else {
       dispatch({
         type: "ADD_CLIENT",
-        payload: { id: uid("client"), ...form, createdAt: Date.now() },
+        payload: { id: uid("client"), ...limpio, createdAt: Date.now() },
       });
     }
     onClose();

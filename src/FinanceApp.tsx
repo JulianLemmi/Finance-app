@@ -21,6 +21,7 @@ import LockScreen from "./components/LockScreen.jsx";
 import NetworkStatus from "./components/NetworkStatus.jsx";
 import StorageAlert from "./components/StorageAlert.jsx";
 import LoadFailed from "./components/LoadFailed.jsx";
+import ModalBoundary from "./components/ModalBoundary.jsx";
 import FirstRunSheet from "./components/FirstRunSheet.jsx";
 
 const HomeScreen    = lazy(() => import("./screens/HomeScreen.jsx"));
@@ -270,13 +271,16 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
   useStorageSync(STORAGE_KEYS.liabilities, state.liabilities, state.loaded);
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const bloqueada = gate !== "open";
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Con el bloqueo puesto el buscador no se abre: la app sigue montada debajo.
+      if (bloqueada) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); setSearchOpen(true); }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [bloqueada]);
 
   const signOut = useCallback(async () => {
     try { await supabase?.auth.signOut(); } catch (e) { console.warn("signOut", e); }
@@ -297,49 +301,55 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
 
   return (
     <AppContext.Provider value={ctx}>
-      {gate !== "open" && <LockScreen mode={gate} onUnlock={handleUnlock} onForgot={forgotPin} />}
-      <WelcomeSplash userName={state.settings.userName?.trim()} />
-      <FirstRunSheet />
-      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <GlobalStyles />
-      <div className={`relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']${isLight ? " theme-light" : ""}`}>
-        {!isLight && <DollarRain animated={state.settings.animatedBackground} />}
-        {!isLight && (
-          <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
-            <div className="absolute -right-48 -top-48 h-[520px] w-[520px] rounded-full bg-amber-900/10 blur-[130px]" />
-            <div className="absolute -bottom-48 -left-48 h-[480px] w-[480px] rounded-full bg-amber-950/15 blur-[110px]" />
-            <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-zinc-800/10 blur-[80px]" />
-          </div>
-        )}
-        <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[100rem] 2xl:px-10">
-          {loadError ? (
-            <LoadFailed onRetry={retryLoad} />
-          ) : !state.loaded ? (
-            <LoadingSkeleton />
-          ) : (
-            <ErrorBoundary key={activeTab}>
-              <Suspense fallback={<LoadingSkeleton />}>
-                <div className="fa-rise">
-                  {activeTab === "home"    && <HomeScreen />}
-                  {activeTab === "loans"   && <LoansScreen />}
-                  {activeTab === "clients" && <ClientsScreen />}
-                  {activeTab === "cars"    && <CarsScreen />}
-                  {activeTab === "finance" && <FinanceScreen />}
-                  {activeTab === "profile" && <ProfileScreen />}
-                </div>
-              </Suspense>
-            </ErrorBoundary>
+      {bloqueada && <LockScreen mode={gate} onUnlock={handleUnlock} onForgot={forgotPin} />}
+      {/* La pantalla de bloqueo es sólo un overlay: la app queda montada debajo, y sin esto se
+          podía llegar con Tab a los botones de atrás (y operarlos con Enter). `inert` saca
+          todo el árbol del foco y de los lectores de pantalla mientras esté puesto el PIN.
+          `contents` para que el contenedor no afecte el layout. */}
+      <div inert={bloqueada} className="contents">
+        <WelcomeSplash userName={state.settings.userName?.trim()} />
+        <FirstRunSheet />
+        <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+        <GlobalStyles />
+        <div className={`relative min-h-screen bg-[#06060a] text-zinc-100 antialiased [font-feature-settings:'cv11','ss01']${isLight ? " theme-light" : ""}`}>
+          {!isLight && <DollarRain animated={state.settings.animatedBackground} />}
+          {!isLight && (
+            <div className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+              <div className="absolute -right-48 -top-48 h-[520px] w-[520px] rounded-full bg-amber-900/10 blur-[130px]" />
+              <div className="absolute -bottom-48 -left-48 h-[480px] w-[480px] rounded-full bg-amber-950/15 blur-[110px]" />
+              <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-zinc-800/10 blur-[80px]" />
+            </div>
           )}
+          <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[100rem] 2xl:px-10">
+            {loadError ? (
+              <LoadFailed onRetry={retryLoad} />
+            ) : !state.loaded ? (
+              <LoadingSkeleton />
+            ) : (
+              <ErrorBoundary key={activeTab}>
+                <Suspense fallback={<LoadingSkeleton />}>
+                  <div className="fa-rise">
+                    {activeTab === "home"    && <HomeScreen />}
+                    {activeTab === "loans"   && <LoansScreen />}
+                    {activeTab === "clients" && <ClientsScreen />}
+                    {activeTab === "cars"    && <CarsScreen />}
+                    {activeTab === "finance" && <FinanceScreen />}
+                    {activeTab === "profile" && <ProfileScreen />}
+                  </div>
+                </Suspense>
+              </ErrorBoundary>
+            )}
+          </div>
+          <NetworkStatus />
+          <StorageAlert />
+          <button type="button" onClick={() => setSearchOpen(true)} aria-label="Buscar"
+            className="fixed right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700/40 bg-zinc-950/85 text-zinc-300 shadow-[0_4px_18px_rgba(0,0,0,0.55)] backdrop-blur-xl transition-colors hover:bg-zinc-900 hover:text-amber-300"
+            style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)" }}>
+            <Search className="h-4 w-4" />
+          </button>
+          <BottomTabBar />
+          <ModalBoundary><ModalRoot /></ModalBoundary>
         </div>
-        <NetworkStatus />
-        <StorageAlert />
-        <button type="button" onClick={() => setSearchOpen(true)} aria-label="Buscar"
-          className="fixed right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700/40 bg-zinc-950/85 text-zinc-300 shadow-[0_4px_18px_rgba(0,0,0,0.55)] backdrop-blur-xl transition-colors hover:bg-zinc-900 hover:text-amber-300"
-          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)" }}>
-          <Search className="h-4 w-4" />
-        </button>
-        <BottomTabBar />
-        <ModalRoot />
       </div>
     </AppContext.Provider>
   );

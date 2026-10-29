@@ -574,7 +574,7 @@ export default function ProfileScreen() {
             <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400"><Download className="h-4 w-4" /></div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-zinc-100">Descargar respaldo</div>
-              <div className="mt-0.5 text-xs text-zinc-500">Guardá un JSON con todos tus préstamos, clientes, movimientos y configuración.</div>
+              <div className="mt-0.5 text-xs text-zinc-500">Guardá un JSON con todos tus préstamos, clientes, movimientos, activos, autos, pasivos y configuración.</div>
               <div className="mt-3 flex items-center gap-3">
                 <Button variant="secondary" size="sm" Icon={Download} onClick={onExport}>Exportar JSON</Button>
                 {exportFeedback && <span className="flex items-center gap-1.5 text-xs text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" />{exportFeedback}</span>}
@@ -601,7 +601,14 @@ export default function ProfileScreen() {
                   <div className="mt-1 text-[11px] text-amber-300/70">
                     {importPreview.summary.loans} préstamos · {importPreview.summary.clients} clientes ·{" "}
                     {importPreview.summary.income} ingresos · {importPreview.summary.expenses} gastos · {importPreview.summary.assets} activos
+                    {importPreview.summary.cars !== undefined && <> · {importPreview.summary.cars} autos</>}
+                    {importPreview.summary.liabilities !== undefined && <> · {importPreview.summary.liabilities} pasivos</>}
                   </div>
+                  {(importPreview.summary.cars === undefined || importPreview.summary.liabilities === undefined) && (
+                    <div className="mt-1 text-[11px] text-amber-300/80">
+                      Este respaldo es anterior a autos y pasivos: se conservan los que ya tenés cargados.
+                    </div>
+                  )}
                   <div className="mt-1 text-[11px] text-amber-300/60">Exportado el {importPreview.summary.exportedAt?.slice(0, 10) || "—"}</div>
                   <div className="mt-2 text-[11px] text-amber-300/80">Antes de reemplazar, se descarga un respaldo automático.</div>
                   <div className="mt-3 flex justify-end gap-2">

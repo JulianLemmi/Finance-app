@@ -12,6 +12,8 @@ export default function NetworkStatus() {
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onOnline = () => {
+      // Dos eventos `online` seguidos pisaban el timer sin cancelar el anterior.
+      if (hideTimer) clearTimeout(hideTimer);
       setStatus("reconnected");
       hideTimer = setTimeout(() => setStatus("online"), 3000);
     };
@@ -29,22 +31,22 @@ export default function NetworkStatus() {
     };
   }, []);
 
-  if (status === "online") return null;
-
+  // El contenedor `aria-live` queda SIEMPRE montado: una región viva que se monta junto con
+  // su contenido suele no anunciarse en los lectores de pantalla.
   return (
     <div
+      role="status"
       aria-live="polite"
       className="fixed inset-x-0 top-3 z-50 flex justify-center px-3 pointer-events-none"
-      style={{ animation: "fa-fade 200ms ease-out" }}
     >
       {status === "offline" && (
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-rose-800/60 bg-rose-950/95 px-4 py-2 text-xs font-medium text-rose-200 shadow-2xl backdrop-blur">
+        <div style={{ animation: "fa-fade 200ms ease-out" }} className="pointer-events-auto flex items-center gap-2 rounded-full border border-rose-800/60 bg-rose-950/95 px-4 py-2 text-xs font-medium text-rose-200 shadow-2xl backdrop-blur">
           <WifiOff className="h-3.5 w-3.5 text-rose-400 shrink-0" />
-          Sin conexión — los cambios se guardan localmente
+          Sin conexión — tus cambios se guardan al reconectar
         </div>
       )}
       {status === "reconnected" && (
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-emerald-800/60 bg-emerald-950/95 px-4 py-2 text-xs font-medium text-emerald-200 shadow-2xl backdrop-blur">
+        <div style={{ animation: "fa-fade 200ms ease-out" }} className="pointer-events-auto flex items-center gap-2 rounded-full border border-emerald-800/60 bg-emerald-950/95 px-4 py-2 text-xs font-medium text-emerald-200 shadow-2xl backdrop-blur">
           <Wifi className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
           Conectado
         </div>

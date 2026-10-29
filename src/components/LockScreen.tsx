@@ -4,7 +4,7 @@
 // Desbloquea con PIN de 4 dígitos o con biométrico, si está registrado.
 import { useState, useEffect, useCallback } from "react";
 import { Fingerprint, Delete, Sparkles, Keyboard } from "lucide-react";
-import { getLockConfig, verifyBiometric, checkPin, savePin, LOCK_GRACE_MS } from "../lib/lock.js";
+import { getLockConfig, verifyBiometric, verifyAndUpgradePin, savePin, LOCK_GRACE_MS } from "../lib/lock.js";
 
 const PIN_LENGTH = 4;
 const GRACE_MIN = Math.round(LOCK_GRACE_MS / 60000);
@@ -72,7 +72,7 @@ export default function LockScreen({ mode, onUnlock, onForgot }: LockScreenProps
         onUnlock();
         return;
       }
-      if (await checkPin(pin, cfg.pinHash)) onUnlock();
+      if (await verifyAndUpgradePin(pin)) onUnlock();
       else fail("PIN incorrecto");
     })();
   }, [pin]); // eslint-disable-line

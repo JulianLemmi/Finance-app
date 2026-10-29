@@ -169,7 +169,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
 
   // ── Sumar capital (adicional, sin refinanciar) ──────────────────────────────
   const extraValue = Number(extraAmount);
-  const extraValido = Number.isFinite(extraValue) && extraValue > 0 && !!extraDate;
+  // El date picker tiene tope en hoy (`max`), pero `max` no impide TIPEAR una fecha futura.
+  // Un adicional a futuro todavía no está en la calle y el motor no lo cuenta: se guardaba
+  // igual y el usuario veía que "no pasaba nada" con su plata.
+  const extraFutura = !!extraDate && extraDate > todayISO();
+  const extraValido = Number.isFinite(extraValue) && extraValue > 0 && !!extraDate && !extraFutura;
   // Lo que el adicional le suma a la deuda hoy: capital + el interés de su ciclo, cobrado
   // por adelantado igual que al dar de alta el préstamo (ver `extraDebtImpact`).
   const extraImpacto = extraValido ? extraDebtImpact(loan, extraValue) : 0;
@@ -767,7 +771,8 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
           {/* Tope en hoy: la entrega es un hecho ya ocurrido. Una fecha futura todavía no
               es plata en la calle y sólo confunde al leer la deuda. */}
           <Input label="Fecha de la entrega" type="date" Icon={Calendar} max={todayISO()}
-            value={extraDate} onChange={(e) => setExtraDate(e.target.value)} />
+            value={extraDate} onChange={(e) => setExtraDate(e.target.value)}
+            error={extraFutura ? "La entrega no puede ser a futuro" : null} />
           <Input label="Nota (opcional)" placeholder="para la moto, adelanto de sueldo..."
             value={extraNote} onChange={(e) => setExtraNote(e.target.value)} Icon={MessageSquare} />
 

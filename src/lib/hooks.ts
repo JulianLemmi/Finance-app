@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { storage } from "./storage.js";
+import { storage, STORAGE_SAVE_FAILED_EVENT } from "./storage.js";
 
 // Debounced sync of a single state slice to persistent storage.
 // Skips the first run after enabled becomes true to avoid re-writing data
@@ -10,9 +10,18 @@ import { storage } from "./storage.js";
 // nunca se escribía. Por eso lo pendiente se guarda en un ref y se escribe YA cuando la
 // página se oculta (`pagehide` y `visibilitychange`), que es lo último que el navegador
 // avisa antes de congelar o cerrar la página.
+//
+// Un guardado que falla (sin red) no se pierde: se marca la clave como sucia y al volver la
+// conexión (`online`) se reenvía el valor más reciente. Antes quedaba sólo en memoria y
+// únicamente se reenviaba si el usuario hacía OTRO cambio después; si cerraba la app sin
+// tocar nada más, el cambio hecho sin conexión se perdía — y el cartel decía que se guardaba.
 export function useStorageSync(key: string, value: unknown, enabled: boolean, delayMs = 300): void {
   const hasSyncedOnce = useRef(false);
   const pending = useRef<{ value: unknown } | null>(null);
+  const latest = useRef(value);
+  const dirty = useRef(false);
+
+  useEffect(() => { latest.current = value; }, [value]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -40,11 +49,24 @@ export function useStorageSync(key: string, value: unknown, enabled: boolean, de
       storage.set(key, p.value);
     };
     const onVisibility = () => { if (document.hidden) flush(); };
+    const onFailed = (e: Event) => {
+      if ((e as CustomEvent<{ key?: string }>).detail?.key === key) dirty.current = true;
+    };
+    const onOnline = () => {
+      if (!dirty.current) return;
+      // Se limpia ANTES de reintentar: si vuelve a fallar, el evento lo marca otra vez.
+      dirty.current = false;
+      storage.set(key, latest.current);
+    };
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener(STORAGE_SAVE_FAILED_EVENT, onFailed);
+    window.addEventListener("online", onOnline);
     return () => {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(STORAGE_SAVE_FAILED_EVENT, onFailed);
+      window.removeEventListener("online", onOnline);
     };
   }, [key]);
 }

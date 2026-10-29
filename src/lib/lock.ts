@@ -198,6 +198,18 @@ function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+/**
+ * Valida el PIN contra el guardado y, si estaba en el esquema v1 (SHA-256 sin sal), lo
+ * migra al v2 (PBKDF2 con sal) en el mismo paso. Es el único momento en que se tiene el
+ * PIN en claro: sin esto, quien tenía un hash v1 quedaba con el esquema débil para siempre.
+ */
+export async function verifyAndUpgradePin(pin: string): Promise<boolean> {
+  const guardado = getLockConfig().pinHash;
+  if (!(await checkPin(pin, guardado))) return false;
+  if (guardado && !guardado.startsWith("v2:")) await savePin(pin);
+  return true;
+}
+
 export async function checkPin(pin: string, storedHash: string | null | undefined): Promise<boolean> {
   if (!storedHash || typeof storedHash !== "string") return false;
   if (storedHash.startsWith("v2:")) {
