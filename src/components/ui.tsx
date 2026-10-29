@@ -7,3 +7,4 @@ export { AnimatedMoney } from "./ui/animated.jsx";
 export { ChartTooltip, ChartContainer, ChartLegend } from "./ui/chart.jsx";
 export { Sheet } from "./ui/sheet.jsx";
 export { ConfirmDelete, InlineDelete } from "./ui/delete.jsx";
+export { FormFooter } from "./ui/formFooter.jsx";

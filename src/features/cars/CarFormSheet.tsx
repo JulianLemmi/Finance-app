@@ -9,7 +9,7 @@ import {
 import { uid } from "../../lib/utils.js";
 import { CAR_STATUSES, CAR_FUEL_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
-import { Sheet, Button, Input, Select, Textarea } from "../../components/ui.jsx";
+import { Sheet, Input, Select, Textarea, FormFooter } from "../../components/ui.jsx";
 import type { CarStatus, CarFuelType, PrepCost } from "../../types";
 
 interface CarFormSheetProps {
@@ -46,13 +46,11 @@ const emptyForm = (): CarFormState => ({
 export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheetProps) {
   const { state, dispatch } = useApp();
   const [form, setForm] = useState<CarFormState>(emptyForm);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [newCostDesc, setNewCostDesc] = useState("");
   const [newCostAmount, setNewCostAmount] = useState("");
 
   useEffect(() => {
     if (open) {
-      setConfirmDelete(false);
       setNewCostDesc("");
       setNewCostAmount("");
       setForm(
@@ -141,28 +139,11 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
       subtitle="Ingresá los datos del vehículo"
       size="lg"
       footer={
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            {editingCar && !confirmDelete && (
-              <Button variant="ghost" size="sm" Icon={Trash2} onClick={() => setConfirmDelete(true)}>
-                Eliminar
-              </Button>
-            )}
-            {editingCar && confirmDelete && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-rose-400">¿Eliminar?</span>
-                <Button variant="danger" size="sm" onClick={onDelete}>Sí</Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>No</Button>
-              </div>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button variant="bronze" onClick={onSubmit} disabled={!canSubmit}>
-              {editingCar ? "Guardar" : "Agregar auto"}
-            </Button>
-          </div>
-        </div>
+        <FormFooter
+          onCancel={onClose} onSubmit={onSubmit} canSubmit={canSubmit}
+          submitLabel={editingCar ? "Guardar" : "Agregar auto"}
+          onDelete={editingCar ? onDelete : undefined}
+        />
       }
     >
       <div className="space-y-5">

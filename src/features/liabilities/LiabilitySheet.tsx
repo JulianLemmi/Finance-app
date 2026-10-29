@@ -3,10 +3,10 @@
 // queda pendiente resta del capital total. Despacha ADD_LIABILITY, UPDATE_LIABILITY
 // o DELETE_LIABILITY.
 import { useState, useEffect } from "react";
-import { Trash2, DollarSign, Plus, X, CalendarDays } from "lucide-react";
+import { DollarSign, Plus, X, CalendarDays } from "lucide-react";
 import { uid, todayISO, formatMoney, formatDate } from "../../lib/utils.js";
 import { useApp } from "../../store/index.js";
-import { Sheet, Button, Input, Textarea } from "../../components/ui.jsx";
+import { Sheet, Button, Input, Textarea, FormFooter } from "../../components/ui.jsx";
 import type { Liability, AssetPayment } from "../../types";
 
 interface LiabilitySheetProps {
@@ -33,7 +33,6 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
   const [payments, setPayments] = useState<AssetPayment[]>([]);
   const [payAmount, setPayAmount] = useState("");
   const [payDate, setPayDate] = useState(todayISO());
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -50,7 +49,6 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
       setPayments(editingLiability?.payments ?? []);
       setPayAmount("");
       setPayDate(todayISO());
-      setConfirmDelete(false);
     }
   }, [open, editingLiability]);
 
@@ -99,26 +97,10 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
       title={editingLiability ? "Editar deuda" : "Nueva deuda"}
       subtitle="Lo que le debés a alguien — resta de tu capital total"
       footer={
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            {editingLiability && !confirmDelete && (
-              <Button variant="ghost" size="sm" Icon={Trash2} onClick={() => setConfirmDelete(true)}>
-                Eliminar
-              </Button>
-            )}
-            {editingLiability && confirmDelete && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-rose-400">¿Eliminar?</span>
-                <Button variant="danger" size="sm" onClick={onDelete}>Sí</Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>No</Button>
-              </div>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button variant="bronze" onClick={onSubmit} disabled={!canSubmit}>Guardar</Button>
-          </div>
-        </div>
+        <FormFooter
+          onCancel={onClose} onSubmit={onSubmit} canSubmit={canSubmit}
+          onDelete={editingLiability ? onDelete : undefined}
+        />
       }
     >
       <div className="space-y-5">

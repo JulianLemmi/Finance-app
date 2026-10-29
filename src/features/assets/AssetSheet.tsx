@@ -3,11 +3,11 @@
 // (fecha + monto) suma al valor del activo y queda el historial + progreso "X de Y".
 // Despacha ADD_ASSET, UPDATE_ASSET o DELETE_ASSET.
 import { useState, useEffect } from "react";
-import { Trash2, DollarSign, Plus, X, CalendarDays } from "lucide-react";
+import { DollarSign, Plus, X, CalendarDays } from "lucide-react";
 import { uid, todayISO, formatMoney, formatDate } from "../../lib/utils.js";
 import { ASSET_CATEGORIES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
-import { Sheet, Button, Input, Textarea, Toggle } from "../../components/ui.jsx";
+import { Sheet, Button, Input, Textarea, Toggle, FormFooter } from "../../components/ui.jsx";
 import type { Asset, AssetCategory, AssetPayment } from "../../types";
 
 interface AssetSheetProps {
@@ -37,7 +37,6 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
   const [installments, setInstallments] = useState<AssetPayment[]>([]);
   const [cuotaAmount, setCuotaAmount] = useState("");
   const [cuotaDate, setCuotaDate] = useState(todayISO());
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -56,7 +55,6 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
       setInstallments(editingAsset?.installments ?? []);
       setCuotaAmount("");
       setCuotaDate(todayISO());
-      setConfirmDelete(false);
     }
   }, [open, editingAsset]);
 
@@ -110,26 +108,10 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
       title={editingAsset ? "Editar activo" : "Nuevo activo"}
       subtitle="Bienes que suman a tu patrimonio total"
       footer={
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            {editingAsset && !confirmDelete && (
-              <Button variant="ghost" size="sm" Icon={Trash2} onClick={() => setConfirmDelete(true)}>
-                Eliminar
-              </Button>
-            )}
-            {editingAsset && confirmDelete && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-rose-400">¿Eliminar?</span>
-                <Button variant="danger" size="sm" onClick={onDelete}>Sí</Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>No</Button>
-              </div>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button variant="bronze" onClick={onSubmit} disabled={!canSubmit}>Guardar</Button>
-          </div>
-        </div>
+        <FormFooter
+          onCancel={onClose} onSubmit={onSubmit} canSubmit={canSubmit}
+          onDelete={editingAsset ? onDelete : undefined}
+        />
       }
     >
       <div className="space-y-5">

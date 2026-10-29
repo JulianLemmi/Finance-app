@@ -60,9 +60,13 @@ interface LoanFormSheetProps {
    *  ellos: un objeto nuevo en cada render lo reiniciaría mientras se tipea. */
   prefillClientId?: string;
   prefillClientName?: string;
+  /** Se llama sólo cuando se GUARDA (no al cancelar). El detalle de un préstamo lo usa para
+   *  cerrarse después de confirmar una refinanciación sin cerrarse también si el usuario
+   *  cancela: `onClose` se llama en los dos casos y no distingue. */
+  onSaved?: () => void;
 }
 
-export default function LoanFormSheet({ open, onClose, editingLoan, refinancingFrom, prefillClientId, prefillClientName }: LoanFormSheetProps) {
+export default function LoanFormSheet({ open, onClose, editingLoan, refinancingFrom, prefillClientId, prefillClientName, onSaved }: LoanFormSheetProps) {
   const { state, dispatch } = useApp();
   // Ref para no resetear el form si los defaults cambian mientras el sheet está abierto.
   const settingsRef = useRef(state.settings);
@@ -208,6 +212,7 @@ export default function LoanFormSheet({ open, onClose, editingLoan, refinancingF
     } else {
       dispatch({ type: "ADD_LOAN", payload });
     }
+    onSaved?.();
     onClose();
   };
 
