@@ -7,10 +7,7 @@
 import { Users, Wallet, Package, TrendingDown, Banknote, Receipt } from "lucide-react";
 import { Sheet, Money } from "./ui.jsx";
 import { useApp } from "../store/index.js";
-import type { MonthBreakdown, MonthContribution } from "../types";
-
-/** Qué desglose mira cada gráfico. */
-export type ChartDetailKind = "accrued" | "expenses" | "capital" | "total";
+import type { ChartDetailKind, MonthBreakdown, MonthContribution } from "../types";
 
 const META: Record<ChartDetailKind, { title: string; note: string; positive: boolean }> = {
   accrued: {

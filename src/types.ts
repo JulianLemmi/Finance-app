@@ -20,8 +20,8 @@ export type ModalType =
   | "loan-form" | "loan-detail"
   | "client-form" | "client-detail"
   | "tx-form" | "asset-form"
-  | "car-form" | "car-detail"
-  | "liability-form";
+  | "car-form" | "liability-form"
+  | "quick-pay" | "chart-detail";
 
 // ── Core entities ─────────────────────────────────────────────────────────────
 export interface Photo {
@@ -322,6 +322,9 @@ export interface Settings {
   dollarThreshold: number;
 }
 
+/** Qué desglose mira cada gráfico de Inicio (el sheet que se abre manteniendo apretada una vela). */
+export type ChartDetailKind = "accrued" | "expenses" | "capital" | "total";
+
 export interface ModalPayload {
   id?: string;
   clientId?: string;
@@ -331,6 +334,9 @@ export interface ModalPayload {
   editingAsset?: Asset;
   editingCar?: Car;
   editingLiability?: Liability;
+  /** "chart-detail": qué gráfico y qué mes (índice en `derived.monthBreakdowns`). */
+  kind?: ChartDetailKind;
+  idx?: number;
 }
 
 export interface ModalState {

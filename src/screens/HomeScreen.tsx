@@ -10,10 +10,8 @@ import {
 import { formatShortDate, getNextRenewalDate, addDays, todayISO, formatInterest, formatCompact } from "../lib/utils.js";
 import { upcomingInterest } from "../lib/calcs.js";
 import { UI_LIMITS, CHART_COLORS, MONTH_COLORS, BUSINESS_RULES } from "../lib/constants.js";
-import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import { useApp } from "../store/index.js";
 import { useLongPress } from "../lib/hooks.js";
-import ChartDetailSheet, { type ChartDetailKind } from "../components/ChartDetailSheet.jsx";
 import { makeBarLabel, makeBarValueLabel, niceAxisBound } from "../components/ui/chartHelpers.jsx";
 import {
   Card, SectionTitle, EmptyState, Money, AnimatedMoney, StatCard, ChartTooltip,
@@ -26,7 +24,7 @@ import {
 } from "recharts";
 import DolarBlue from "../components/DolarBlue.jsx";
 import { VencimientosHeatmap } from "../components/PortfolioAnalytics.jsx";
-import type { ResolvedLoan } from "../types";
+import type { ChartDetailKind } from "../types";
 
 function getGreet(h: number): string {
   if (h < 6) return "Buenas noches";
@@ -103,7 +101,6 @@ export default function HomeScreen() {
   const monthlyTarget = Number(state.settings.monthlyTarget) || 0;
 
   const [showUpcoming, setShowUpcoming] = useState(true);
-  const [quickPayLoan, setQuickPayLoan] = useState<ResolvedLoan | null>(null);
 
   const hasAnyData = state.loans.length > 0 || state.clients.length > 0
     || state.expenses.length > 0 || state.income.length > 0;
@@ -132,10 +129,13 @@ export default function HomeScreen() {
   const lastMonthIdx = derived.months.length - 1;
   const currentMonthLabel = derived.months[lastMonthIdx]?.label ?? "";
 
-  const [chartDetail, setChartDetail] = useState<ChartDetailTarget | null>(null);
-  const capitalDetail = useBarDetail("total", setChartDetail);
-  const balanceDetail = useBarDetail("accrued", setChartDetail);
-  const invertidoDetail = useBarDetail("capital", setChartDetail);
+  // El desglose y el cobro rápido se abren por ModalRoot, no acá: un sheet montado adentro
+  // de una pantalla queda debajo de la barra de pestañas (ver ModalRoot.tsx).
+  const abrirDesglose = (target: ChartDetailTarget) =>
+    dispatch({ type: "OPEN_MODAL", payload: { type: "chart-detail", payload: target } });
+  const capitalDetail = useBarDetail("total", abrirDesglose);
+  const balanceDetail = useBarDetail("accrued", abrirDesglose);
+  const invertidoDetail = useBarDetail("capital", abrirDesglose);
 
   const pace = derived.monthPace;
   // Cuánto del cierre del mes pasado ya lleva el mes en curso. Es la lectura de un
@@ -493,7 +493,7 @@ export default function HomeScreen() {
                           <Money value={l._remaining} hide={hide} currency={cur} />
                         </div>
                       </div>
-                      <button onClick={() => setQuickPayLoan(l)}
+                      <button onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "quick-pay", payload: { id: l.id } } })}
                         className="flex items-center gap-1 rounded-xl border border-amber-700/50 bg-amber-900/20 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-900/40">
                         <Banknote className="h-3 w-3" />
                         Cobrar
@@ -776,17 +776,6 @@ export default function HomeScreen() {
         </div>
 
       </div>
-
-      {quickPayLoan && (
-        <PaymentSheet open={!!quickPayLoan} onClose={() => setQuickPayLoan(null)} loan={quickPayLoan} />
-      )}
-
-      <ChartDetailSheet
-        open={!!chartDetail}
-        onClose={() => setChartDetail(null)}
-        kind={chartDetail?.kind ?? "accrued"}
-        breakdown={chartDetail ? derived.monthBreakdowns[chartDetail.idx] ?? null : null}
-      />
     </>
   );
 }

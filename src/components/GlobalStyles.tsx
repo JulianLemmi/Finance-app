@@ -32,7 +32,10 @@ export default function GlobalStyles() {
         from { opacity: 0; transform: translateY(14px) scale(0.99); filter: blur(3px) }
         to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0) }
       }
-      .fa-rise > * { animation: fa-rise 520ms cubic-bezier(.21,1.02,.27,1) both }
+      /* backwards y no both: con both la pantalla se quedaba para siempre con el transform y el
+         filter del último cuadro, que no se ven pero le roban el position: fixed a todo lo de
+         adentro (un sheet montado ahí se dibujaba en la caja de la pantalla, no en la ventana). */
+      .fa-rise > * { animation: fa-rise 520ms cubic-bezier(.21,1.02,.27,1) backwards }
       .fa-rise > *:nth-child(2) { animation-delay: 45ms }
       .fa-rise > *:nth-child(3) { animation-delay: 90ms }
       .fa-rise > *:nth-child(4) { animation-delay: 135ms }

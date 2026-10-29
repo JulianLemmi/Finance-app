@@ -5,7 +5,6 @@ import { Plus, Car, Search, ChevronRight, Gauge, Palette } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { CAR_STATUSES } from "../lib/constants.js";
 import { Button, Input, EmptyState, Money, AnimatedMoney } from "../components/ui.jsx";
-import CarFormSheet from "../features/cars/CarFormSheet.jsx";
 import type { Car as CarType, PrepCost } from "../types";
 
 interface CarStatusBadgeProps {
@@ -109,14 +108,16 @@ function CarCard({ car, onOpen }: CarCardProps) {
 }
 
 export default function CarsScreen() {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
 
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingCar, setEditingCar] = useState<CarType | null>(null);
+  // El formulario se abre por ModalRoot, no acá: montado adentro de la pantalla se dibujaba
+  // en la caja de la pantalla y no en la ventana (ver ModalRoot.tsx).
+  const abrirFormulario = (car?: CarType) =>
+    dispatch({ type: "OPEN_MODAL", payload: { type: "car-form", payload: car ? { editingCar: car } : undefined } });
 
   // Memoizado: `state.cars ?? []` creaba un array NUEVO en cada render cuando no hay autos,
   // y eso invalidaba los tres useMemo de abajo en cada pasada.
@@ -163,7 +164,7 @@ export default function CarsScreen() {
           <h1 className="text-xl font-semibold tracking-tight text-white">Autos</h1>
           <p className="mt-0.5 text-xs text-zinc-500">{stats.activeCount} en inventario · {stats.soldCount} vendidos</p>
         </div>
-        <Button variant="bronze" Icon={Plus} onClick={() => { setEditingCar(null); setFormOpen(true); }}>Nuevo</Button>
+        <Button variant="bronze" Icon={Plus} onClick={() => abrirFormulario()}>Nuevo</Button>
       </div>
 
       {cars.length > 0 && (
@@ -208,19 +209,17 @@ export default function CarsScreen() {
       {cars.length === 0 ? (
         <EmptyState Icon={Car} title="Sin autos en inventario"
           hint="Agregá tu primer auto para trackear compras, preparación y márgenes de venta."
-          action={<Button variant="bronze" Icon={Plus} onClick={() => { setEditingCar(null); setFormOpen(true); }}>Agregar auto</Button>}
+          action={<Button variant="bronze" Icon={Plus} onClick={() => abrirFormulario()}>Agregar auto</Button>}
         />
       ) : filtered.length === 0 ? (
         <EmptyState Icon={Car} title="Sin resultados" hint="No hay autos que coincidan con el filtro o la búsqueda." />
       ) : (
         <div key={filter} className="fa-rise grid gap-2.5 xl:grid-cols-2">
           {filtered.map((car) => (
-            <CarCard key={car.id} car={car} onOpen={(c) => { setEditingCar(c); setFormOpen(true); }} />
+            <CarCard key={car.id} car={car} onOpen={abrirFormulario} />
           ))}
         </div>
       )}
-
-      <CarFormSheet open={formOpen} onClose={() => setFormOpen(false)} editingCar={editingCar} />
     </div>
   );
 }

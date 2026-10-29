@@ -1,16 +1,25 @@
 // Renderiza el modal/sheet activo según state.ui.modal. Es el único punto de
 // montaje para sheets globales; los sheets de feature se montan acá vía dispatch.
+//
+// Un sheet NO se monta adentro de una pantalla: las pantallas viven en un contenedor con
+// `z-10` (el sheet quedaba debajo de la barra de pestañas, que en el teléfono le tapaba el
+// botón de guardar) y con la animación de entrada encima (un `transform`/`filter` en un
+// ancestro le roba el `position: fixed`: el formulario de autos se dibujaba en la caja de la
+// pantalla, con el encabezado y la X fuera de la vista). `screens/sinSheets.test.ts` lo vigila.
 import { useApp } from "../store/index.js";
 import LoanFormSheet from "../features/loans/LoanFormSheet.jsx";
 import LoanDetailSheet from "../features/loans/LoanDetailSheet.jsx";
+import PaymentSheet from "../features/loans/PaymentSheet.jsx";
 import ClientFormSheet from "../features/clients/ClientFormSheet.jsx";
 import ClientDetailSheet from "../features/clients/ClientDetailSheet.jsx";
 import TransactionSheet from "../sheets/TransactionSheet.jsx";
 import AssetSheet from "../features/assets/AssetSheet.jsx";
 import LiabilitySheet from "../features/liabilities/LiabilitySheet.jsx";
+import CarFormSheet from "../features/cars/CarFormSheet.jsx";
+import ChartDetailSheet from "./ChartDetailSheet.jsx";
 
 export default function ModalRoot() {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, derived } = useApp();
   const close = () => dispatch({ type: "CLOSE_MODAL" });
   const m = state.ui.modal;
 
@@ -48,5 +57,22 @@ export default function ModalRoot() {
     return <AssetSheet open onClose={close} editingAsset={m.payload?.editingAsset} />;
   if (m.type === "liability-form")
     return <LiabilitySheet open onClose={close} editingLiability={m.payload?.editingLiability} />;
+  if (m.type === "car-form")
+    return <CarFormSheet open onClose={close} editingCar={m.payload?.editingCar ?? null} />;
+  if (m.type === "quick-pay") {
+    // El préstamo se busca vivo (no viaja una copia en el payload): si cambia mientras el
+    // sheet está abierto, el saldo que se muestra es el de ahora.
+    const loan = derived.loansResolved.find((l) => l.id === m.payload?.id);
+    return loan ? <PaymentSheet open onClose={close} loan={loan} /> : null;
+  }
+  if (m.type === "chart-detail")
+    return (
+      <ChartDetailSheet
+        open
+        onClose={close}
+        kind={m.payload?.kind ?? "accrued"}
+        breakdown={derived.monthBreakdowns[m.payload?.idx ?? -1] ?? null}
+      />
+    );
   return null;
 }
