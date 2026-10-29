@@ -14,6 +14,7 @@
 //    canvas 2D. Con sprites, subir de 28 a 120 billetes sale más barato que los 28 de
 //    antes.
 import { useRef, useEffect } from "react";
+import { hayOverlay, onOverlayChange } from "../lib/overlay.js";
 
 interface DollarRainProps {
   /** `undefined` sigue la preferencia del sistema; `true`/`false` la pisan. */
@@ -194,19 +195,41 @@ export default function DollarRain({ animated }: DollarRainProps) {
       }
 
       ctx.globalAlpha = 1;
-      if (mover) raf = requestAnimationFrame(animate);
+      if (corriendo) raf = requestAnimationFrame(animate);
+    };
+
+    // Mientras hay un sheet o el buscador abiertos, el fondo se frena. Esas capas tapan
+    // la pantalla con un desenfoque, y desenfocar encima de un canvas que se mueve obliga
+    // al navegador a rehacer el desenfoque de TODO en cada frame: con el detalle de un
+    // préstamo abierto aparecían frames de 50-67 ms contra 18 ms con el sheet cerrado.
+    // Detrás del overlay no se ve nada, así que frenarlo no se nota.
+    let corriendo = false;
+    const arrancar = () => {
+      if (corriendo || !mover) return;
+      corriendo = true;
+      raf = requestAnimationFrame(animate);
+    };
+    const frenar = () => {
+      corriendo = false;
+      cancelAnimationFrame(raf);
     };
 
     if (mover) {
+      // Un cuadro siempre, aunque arranque tapado: si no, al cerrar la capa el fondo
+      // aparecería de golpe desde el negro.
       animate();
+      if (!hayOverlay()) arrancar();
     } else {
       // Quieto: un solo cuadro. Se redibuja al cambiar el tamaño para no quedar estirado.
       animate();
       window.addEventListener("resize", animate);
     }
 
+    const desuscribir = onOverlayChange((hay) => { if (hay) frenar(); else arrancar(); });
+
     return () => {
-      cancelAnimationFrame(raf);
+      frenar();
+      desuscribir();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("resize", animate);
     };

@@ -681,14 +681,22 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
         </div>
       </Sheet>
 
-      <PaymentSheet open={paymentOpen} onClose={() => setPaymentOpen(false)} loan={loan} />
-      <LoanLedgerSheet open={ledgerOpen} onClose={() => setLedgerOpen(false)} loan={loan} />
-      <LoanFormSheet open={editOpen} onClose={() => setEditOpen(false)} editingLoan={editOpen ? loan : null} />
-      <LoanFormSheet
-        open={refinanceOpen}
-        onClose={() => { setRefinanceOpen(false); onClose(); }}
-        refinancingFrom={refinanceOpen ? loan : null}
-      />
+      {/* Se montan sólo cuando se abren. Antes estaban siempre en el árbol: aunque `Sheet`
+          devuelva null con `open={false}`, React arma igual TODO el JSX de los hijos antes
+          de que Sheet decida no dibujarlos, y acá son cuatro pantallas enteras (dos
+          formularios de préstamo, el cobro y la planilla) reconstruidas en cada render del
+          detalle. El cierre animado sigue funcionando: Sheet llama a `onClose` recién
+          cuando termina su animación, y el desmontaje pasa después. */}
+      {paymentOpen && <PaymentSheet open onClose={() => setPaymentOpen(false)} loan={loan} />}
+      {ledgerOpen && <LoanLedgerSheet open onClose={() => setLedgerOpen(false)} loan={loan} />}
+      {editOpen && <LoanFormSheet open onClose={() => setEditOpen(false)} editingLoan={loan} />}
+      {refinanceOpen && (
+        <LoanFormSheet
+          open
+          onClose={() => { setRefinanceOpen(false); onClose(); }}
+          refinancingFrom={loan}
+        />
+      )}
 
       <Sheet open={extendOpen} onClose={() => setExtendOpen(false)}
         title="Extender préstamo" subtitle={`Vence el ${formatDate(loan.dueDate)}`}

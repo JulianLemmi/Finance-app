@@ -2,6 +2,7 @@
 // arrastre vertical para cerrar (drag-to-dismiss) desde el header/handle.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { registrarOverlay } from "../../lib/overlay.js";
 import { IconButton } from "./button.jsx";
 
 type SheetSize = "sm" | "md" | "lg" | "xl";
@@ -29,12 +30,15 @@ const widths: Record<SheetSize, string> = {
 };
 
 const CLOSE_MS = 220;
+/** Lo que dura la animación de entrada del panel (keyframe `fa-sheet`). */
+const OPEN_MS = 340;
 const DISMISS_THRESHOLD = 110;
 
 export function Sheet({ open, onClose, title, subtitle, footer, children, size = "md", dense = false }: SheetProps) {
   const [closing, setClosing] = useState(false);
   const [dragY, setDragY] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [blurListo, setBlurListo] = useState(false);
   const closingRef = useRef(false);
   const dragStart = useRef<number | null>(null);
 
@@ -61,9 +65,21 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // El overlay tapa la pantalla con un desenfoque: avisamos para que el fondo animado
+    // se frene mientras tanto (ver lib/overlay.ts).
+    const liberarOverlay = registrarOverlay();
+    // El `backdrop-filter` de pantalla completa recién se aplica cuando la animación de
+    // entrada terminó. Desenfocar mientras el sheet entra y el navegador está armando su
+    // contenido es lo más caro del momento más caro: con el desenfoque desde el frame 0,
+    // abrir el detalle de un cliente caía 4 frames y el de un préstamo 9; aplicándolo
+    // después, 0 y 1. En reposo no cuesta nada, porque el fondo animado ya está frenado.
+    const tBlur = window.setTimeout(() => setBlurListo(true), OPEN_MS);
     return () => {
+      window.clearTimeout(tBlur);
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      liberarOverlay();
+      setBlurListo(false);
     };
   }, [open, requestClose]);
 
@@ -101,7 +117,7 @@ export function Sheet({ open, onClose, title, subtitle, footer, children, size =
       <button
         aria-label="cerrar"
         onClick={requestClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className={`absolute inset-0 bg-black/60${blurListo ? " backdrop-blur-sm" : ""}`}
         style={{
           animation: closing ? undefined : "fa-fade 200ms ease-out",
           opacity: closing ? 0 : 1,

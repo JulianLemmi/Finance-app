@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Search, X, Wallet, Users, ArrowUp, ArrowDown, ChevronRight } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { formatShortDate } from "../lib/utils.js";
+import { registrarOverlay } from "../lib/overlay.js";
 import { StatusBadge, Money } from "./ui.jsx";
 import type { Transaction } from "../types";
 
@@ -21,6 +22,8 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
 
   useEffect(() => { if (open) setQuery(""); }, [open]);
+  // Mismo overlay desenfocado a pantalla completa que los sheets: frena el fondo.
+  useEffect(() => { if (open) return registrarOverlay(); }, [open]);
 
   useEffect(() => {
     if (!open) return;

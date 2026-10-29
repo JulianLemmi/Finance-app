@@ -34,6 +34,9 @@ function getGreet(h: number): string {
   return "Buenas noches";
 }
 
+const FMT_DIA = new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const FMT_HORA = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
 function LiveClock() {
   const { state } = useApp();
   const [now, setNow] = useState(() => new Date());
@@ -43,8 +46,10 @@ function LiveClock() {
   }, []);
   const userName = state.settings.userName?.trim();
   const greet = getGreet(now.getHours());
-  const dateLabel = now.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const timeLabel = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  // Cacheados: esto corre una vez por segundo y construir un `Intl.DateTimeFormat` es
+  // bastante más caro que usarlo.
+  const dateLabel = FMT_DIA.format(now);
+  const timeLabel = FMT_HORA.format(now);
   return (
     <div className="min-w-0">
       <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{greet}</div>

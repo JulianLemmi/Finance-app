@@ -53,16 +53,25 @@ export const daysBetween = (a: string | Date, b: string | Date): number => {
 
 export const monthKey = (iso: string): string => (iso || "").slice(0, 7);
 
+// Formateadores cacheados. `toLocaleString`/`toLocaleDateString` con un objeto de
+// opciones construyen un `Intl.*Format` NUEVO en cada llamada, y construirlo es lo caro
+// (formatear después sale casi gratis). En el perfil de CPU de abrir el detalle de un
+// préstamo, `formatMoney` era la función JS más cara de toda la apertura —21 ms, por
+// encima de cualquier cosa de React—, simplemente porque la pantalla dibuja decenas de
+// montos y cada uno se construía su formateador. Van a nivel de módulo: se arman una vez.
+const FMT_NUMERO = new Intl.NumberFormat("es-AR", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+const FMT_FECHA = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+const FMT_FECHA_CORTA = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" });
+const FMT_MES = new Intl.DateTimeFormat("es-AR", { month: "short" });
+
 export const formatMoney = (value: number | string, hidden = false, currency = "$"): string => {
   if (hidden) return "••••••";
   const n = Number(value || 0);
   const sign = n < 0 ? "-" : "";
-  const abs = Math.abs(n);
-  const formatted = abs.toLocaleString("es-AR", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-  return `${sign}${currency}${formatted}`;
+  return `${sign}${currency}${FMT_NUMERO.format(Math.abs(n))}`;
 };
 
 // Número compacto para etiquetas de gráficos en mobile (sin símbolo de moneda):
@@ -81,13 +90,13 @@ export const formatCompact = (value: number | string, hidden = false): string =>
 export const formatDate = (iso: string): string => {
   const d = parseISO(iso);
   if (!d) return "—";
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return FMT_FECHA.format(d);
 };
 
 export const formatShortDate = (iso: string): string => {
   const d = parseISO(iso);
   if (!d) return "—";
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+  return FMT_FECHA_CORTA.format(d);
 };
 
 export type LoanCycleInput = Pick<Loan, "paymentType" | "customDays" | "startDate" | "dueDate">;
@@ -270,7 +279,7 @@ export function getNextRenewalDate(loan: LoanCycleInput & Pick<Loan, "advancedAt
 export const getMonthLabel = (iso: string): string => {
   const d = parseISO(iso + "-01");
   if (!d) return iso;
-  return d.toLocaleDateString("es-AR", { month: "short" });
+  return FMT_MES.format(d);
 };
 
 // Etiqueta corta del interés de un préstamo: "8.0%" en modo tasa, "$50k fijo" en modo monto fijo.
