@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { DollarSign, Plus, X, CalendarDays } from "lucide-react";
 import { uid, todayISO, formatMoney, formatDate } from "../../lib/utils.js";
+import { pagoPendiente } from "../../lib/pendingEntry.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Textarea, FormFooter } from "../../components/ui.jsx";
 import type { Liability, AssetPayment } from "../../types";
@@ -55,18 +56,23 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
   const paidTotal = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const owed = Math.max(0, Number(form.amount || 0) - paidTotal);
 
+  // El pago tipeado en la fila. Lo suman "Registrar pago" y también Guardar: un pago completo
+  // que no se registró a mano se registra igual al guardar (ver lib/pendingEntry.ts).
+  const pendiente = pagoPendiente(payAmount, payDate);
+  const conPendiente = (arr: AssetPayment[]) =>
+    pendiente.estado === "listo"
+      ? [{ id: uid("liabpay"), ...pendiente.entrada }, ...arr].sort((a, b) => (a.date < b.date ? 1 : -1))
+      : arr;
+
   const addPayment = () => {
-    const amt = Number(payAmount);
-    if (!Number.isFinite(amt) || amt <= 0 || !payDate) return;
-    setPayments((arr) =>
-      [{ id: uid("liabpay"), amount: amt, date: payDate }, ...arr].sort((a, b) => (a.date < b.date ? 1 : -1))
-    );
+    if (pendiente.estado !== "listo") return;
+    setPayments(conPendiente);
     setPayAmount("");
   };
 
   const removePayment = (id: string) => setPayments((arr) => arr.filter((p) => p.id !== id));
 
-  const canSubmit = form.name.trim().length > 0 && Number(form.amount) > 0;
+  const canSubmit = form.name.trim().length > 0 && Number(form.amount) > 0 && pendiente.estado !== "incompleto";
 
   const onSubmit = () => {
     if (!canSubmit) return;
@@ -75,7 +81,7 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
       amount: Number(form.amount),
       startDate: form.startDate || todayISO(),
       notes: form.notes,
-      payments,
+      payments: conPendiente(payments),
     };
     if (editingLiability) {
       dispatch({ type: "UPDATE_LIABILITY", payload: { ...editingLiability, ...payload } });
@@ -135,10 +141,12 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
                 onChange={(e) => setPayDate(e.target.value)} Icon={CalendarDays} />
               <Input label="Monto" type="number" inputMode="decimal"
                 placeholder="0" value={payAmount} Icon={DollarSign}
-                onChange={(e) => setPayAmount(e.target.value)} />
+                onChange={(e) => setPayAmount(e.target.value)}
+                error={pendiente.estado === "incompleto" ? pendiente.motivo : undefined}
+                hint={pendiente.estado === "listo" ? "Se registra al guardar." : undefined} />
             </div>
             <Button variant="bronze" Icon={Plus} onClick={addPayment} className="w-full"
-              disabled={!(Number(payAmount) > 0 && payDate)}>Registrar pago</Button>
+              disabled={pendiente.estado !== "listo"}>Registrar pago</Button>
           </div>
 
           {payments.length > 0 && (
@@ -150,7 +158,7 @@ export default function LiabilitySheet({ open, onClose, editingLiability }: Liab
                     <span className="text-sm font-medium tabular-nums text-zinc-100">
                       {formatMoney(p.amount, false, cur)}
                     </span>
-                    <button onClick={() => removePayment(p.id)}
+                    <button onClick={() => removePayment(p.id)} aria-label="Quitar pago"
                       className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-rose-400">
                       <X className="h-3.5 w-3.5" />
                     </button>

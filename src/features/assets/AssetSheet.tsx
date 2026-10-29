@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { DollarSign, Plus, X, CalendarDays } from "lucide-react";
 import { uid, todayISO, formatMoney, formatDate } from "../../lib/utils.js";
+import { pagoPendiente } from "../../lib/pendingEntry.js";
 import { ASSET_CATEGORIES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Button, Input, Textarea, Toggle, FormFooter } from "../../components/ui.jsx";
@@ -58,32 +59,41 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
     }
   }, [open, editingAsset]);
 
-  const paidTotal = installments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const sumar = (arr: AssetPayment[]) => arr.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const paidTotal = sumar(installments);
   const totalCuotasNum = Number(form.totalCuotas) || 0;
 
+  // La cuota tipeada en la fila (sólo en modo cuotas: si la fila está oculta no cuenta). La
+  // suman "Registrar cuota" y también Guardar, y con ella el valor del activo, que en modo
+  // cuotas ES la suma de lo pagado (ver lib/pendingEntry.ts).
+  const pendiente = pagoPendiente(form.installmentMode ? cuotaAmount : "", cuotaDate);
+  const conPendiente = (arr: AssetPayment[]) =>
+    pendiente.estado === "listo"
+      ? [{ id: uid("cuota"), ...pendiente.entrada }, ...arr].sort((a, b) => (a.date < b.date ? 1 : -1))
+      : arr;
+
   const addCuota = () => {
-    const amt = Number(cuotaAmount);
-    if (!Number.isFinite(amt) || amt <= 0 || !cuotaDate) return;
-    setInstallments((arr) =>
-      [{ id: uid("cuota"), amount: amt, date: cuotaDate }, ...arr].sort((a, b) => (a.date < b.date ? 1 : -1))
-    );
+    if (pendiente.estado !== "listo") return;
+    setInstallments(conPendiente);
     setCuotaAmount("");
   };
 
   const removeCuota = (id: string) => setInstallments((arr) => arr.filter((p) => p.id !== id));
 
-  const canSubmit = form.name.trim().length > 0 && (form.installmentMode || Number(form.value) > 0);
+  const canSubmit = form.name.trim().length > 0 && (form.installmentMode || Number(form.value) > 0)
+    && pendiente.estado !== "incompleto";
 
   const onSubmit = () => {
     if (!canSubmit) return;
     const isInstallment = form.installmentMode;
-    const value = isInstallment ? paidTotal : Number(form.value);
+    const cuotas = conPendiente(installments);
+    const value = isInstallment ? sumar(cuotas) : Number(form.value);
     const payload = {
       name: form.name,
       category: form.category,
       description: form.description,
       value,
-      installments: isInstallment ? installments : undefined,
+      installments: isInstallment ? cuotas : undefined,
       totalCuotas: isInstallment && totalCuotasNum > 0 ? totalCuotasNum : undefined,
     };
     if (editingAsset) {
@@ -174,10 +184,12 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
                   onChange={(e) => setCuotaDate(e.target.value)} Icon={CalendarDays} />
                 <Input label="Monto" type="number" inputMode="decimal"
                   placeholder="0" value={cuotaAmount} Icon={DollarSign}
-                  onChange={(e) => setCuotaAmount(e.target.value)} />
+                  onChange={(e) => setCuotaAmount(e.target.value)}
+                  error={pendiente.estado === "incompleto" ? pendiente.motivo : undefined}
+                  hint={pendiente.estado === "listo" ? "Se registra al guardar." : undefined} />
               </div>
               <Button variant="bronze" Icon={Plus} onClick={addCuota} className="w-full"
-                disabled={!(Number(cuotaAmount) > 0 && cuotaDate)}>Registrar cuota</Button>
+                disabled={pendiente.estado !== "listo"}>Registrar cuota</Button>
             </div>
 
             {/* Lista de cuotas */}
@@ -195,7 +207,7 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
                       <span className="text-sm font-medium tabular-nums text-zinc-100">
                         {formatMoney(p.amount, false, cur)}
                       </span>
-                      <button onClick={() => removeCuota(p.id)}
+                      <button onClick={() => removeCuota(p.id)} aria-label="Quitar cuota"
                         className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-rose-400">
                         <X className="h-3.5 w-3.5" />
                       </button>

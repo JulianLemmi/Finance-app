@@ -1,12 +1,13 @@
 // Formulario completo para crear y editar vehículos en el inventario de autos.
 // Gestiona identificación, precios, costos de preparación (lista dinámica),
 // estado de venta y datos del comprador. Despacha ADD_CAR, UPDATE_CAR o DELETE_CAR.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import {
   Car, Hash, Gauge, Palette, Calendar, DollarSign,
   FileText, Plus, Trash2, Tag,
 } from "lucide-react";
 import { uid } from "../../lib/utils.js";
+import { costoPendiente } from "../../lib/pendingEntry.js";
 import { CAR_STATUSES, CAR_FUEL_TYPES } from "../../lib/constants.js";
 import { useApp } from "../../store/index.js";
 import { Sheet, Input, Select, Textarea, FormFooter } from "../../components/ui.jsx";
@@ -48,6 +49,7 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
   const [form, setForm] = useState<CarFormState>(emptyForm);
   const [newCostDesc, setNewCostDesc] = useState("");
   const [newCostAmount, setNewCostAmount] = useState("");
+  const avisoCostoId = useId();
 
   useEffect(() => {
     if (open) {
@@ -86,13 +88,15 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
   const margin = Number(form.salePrice || 0) - totalCost;
   const marginPct = totalCost > 0 ? (margin / totalCost) * 100 : 0;
 
+  // El costo tipeado en la fila. Lo suman el "+" y también Guardar: un costo completo que no
+  // se agregó a mano se agrega igual al guardar (ver lib/pendingEntry.ts).
+  const pendiente = costoPendiente(newCostDesc, newCostAmount);
+  const conPendiente = (costos: PrepCost[]) =>
+    pendiente.estado === "listo" ? [...costos, { id: uid("cost"), ...pendiente.entrada }] : costos;
+
   const addCost = () => {
-    const amount = Number(newCostAmount);
-    if (!newCostDesc.trim() || !(amount > 0)) return;
-    setField("prepCosts", [
-      ...form.prepCosts,
-      { id: uid("cost"), description: newCostDesc.trim(), amount },
-    ]);
+    if (pendiente.estado !== "listo") return;
+    setField("prepCosts", conPendiente(form.prepCosts));
     setNewCostDesc("");
     setNewCostAmount("");
   };
@@ -103,12 +107,14 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
   const canSubmit =
     form.brand.trim().length > 0 &&
     form.model.trim().length > 0 &&
-    Number(form.purchasePrice) > 0;
+    Number(form.purchasePrice) > 0 &&
+    pendiente.estado !== "incompleto";
 
   const onSubmit = () => {
     if (!canSubmit) return;
     const payload = {
       ...form,
+      prepCosts: conPendiente(form.prepCosts),
       year: Number(form.year) || new Date().getFullYear(),
       km: Number(form.km) || 0,
       purchasePrice: Number(form.purchasePrice) || 0,
@@ -195,7 +201,7 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
                   <span className="text-sm font-medium tabular-nums text-zinc-400">
                     {cur}{Number(c.amount).toLocaleString("es-AR")}
                   </span>
-                  <button onClick={() => removeCost(c.id)}
+                  <button onClick={() => removeCost(c.id)} aria-label={`Quitar ${c.description}`}
                     className="text-zinc-600 hover:text-rose-400 transition-colors">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -204,6 +210,8 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
             ))}
             <div className="flex gap-2">
               <input
+                aria-label="Descripción del costo"
+                aria-describedby={pendiente.estado !== "vacio" ? avisoCostoId : undefined}
                 placeholder="Descripción (mecánico, pintura...)"
                 value={newCostDesc}
                 onChange={(e) => setNewCostDesc(e.target.value)}
@@ -212,17 +220,25 @@ export default function CarFormSheet({ open, onClose, editingCar }: CarFormSheet
               />
               <input
                 type="number"
+                aria-label="Monto del costo"
+                aria-describedby={pendiente.estado !== "vacio" ? avisoCostoId : undefined}
                 placeholder="Monto"
                 value={newCostAmount}
                 onChange={(e) => setNewCostAmount(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCost()}
                 className="w-28 rounded-xl border border-zinc-700/40 bg-zinc-800/40 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-amber-700/60 focus:ring-1 focus:ring-amber-700/40"
               />
-              <button onClick={addCost}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-700/40 bg-zinc-800/40 text-zinc-400 hover:bg-zinc-800 hover:text-amber-400 transition-colors">
+              <button onClick={addCost} aria-label="Agregar costo" disabled={pendiente.estado !== "listo"}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-700/40 bg-zinc-800/40 text-zinc-400 hover:bg-zinc-800 hover:text-amber-400 transition-colors disabled:opacity-40 disabled:hover:bg-zinc-800/40 disabled:hover:text-zinc-400">
                 <Plus className="h-4 w-4" />
               </button>
             </div>
+            {pendiente.estado !== "vacio" && (
+              <p id={avisoCostoId}
+                className={`text-[11px] ${pendiente.estado === "incompleto" ? "text-rose-400" : "text-zinc-500"}`}>
+                {pendiente.estado === "incompleto" ? pendiente.motivo : "Se suma al guardar."}
+              </p>
+            )}
           </div>
         </div>
 
