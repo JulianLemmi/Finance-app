@@ -134,12 +134,13 @@ src/
 │   ├── loanChain.ts          # cadena de refinanciación (con guarda contra ciclos)
 │   ├── chunkReload.ts        # recarga ante un chunk viejo, una vez por minuto
 │   ├── vehicle.ts            # limpiarVehiculo (datos del auto)
+│   ├── hydrate.ts            # leerLista/leerObjeto: lectura defensiva del almacenamiento
 │   └── constants.js          # STORAGE_KEYS, LOAN_STATUSES, EXPENSE_CATEGORIES, etc.
 └── store/index.ts            # reducer + AppContext + useDerived
 ```
 
 ### Tests (`npm test`)
-Dieciocho suites, ~1820 tests, corren en ~30 s:
+Diecinueve suites, ~1830 tests, corren en ~30 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
@@ -150,6 +151,7 @@ Dieciocho suites, ~1820 tests, corren en ~30 s:
 - `src/features/loans/loanForm.test.ts` — el payload del formulario: editar no puede pisar adelantos ni cobros de estacionamiento.
 - `src/lib/loanChain.test.ts`, `src/lib/utils.test.ts` (meses en zona UTC+), `src/lib/chunkReload.test.ts` (guarda contra el bucle de recargas).
 - `src/lib/backup.test.ts` — el respaldo es completo (autos y pasivos) y rechaza lo que ninguna versión pudo generar.
+- `src/lib/hydrate.test.ts` — la lectura defensiva de lo que viene del almacenamiento.
 - `src/store/reducer.test.ts` — lo que cada acción le hace al estado (por ahora, renombrar un cliente).
 - `src/components/ModalBoundary.test.tsx` — un error en un sheet queda contenido.
 - `src/components/ui/sheet.test.tsx`, `src/lib/overlay.test.ts`, `src/lib/focus.test.ts` — la pila de capas (Escape), el foco y el ciclo de vida de los sheets.
@@ -324,6 +326,7 @@ Manteniendo apretada una card en Préstamos se archiva/restaura (ver `useLongPre
 - **Los sheets y el buscador forman una PILA (`lib/overlay.ts`), y sólo la capa de arriba reacciona.** Cada capa escuchaba `Escape` en `document`, así que con el detalle de un préstamo y el sheet de cobro encima UN solo toque cerraba los dos (y el buscador sobre un sheet, igual). `registrarOverlay()` devuelve `{ liberar, esLaDeArriba }`. El mismo módulo es el **único dueño del scroll del body**: antes cada sheet guardaba el `overflow` previo y lo restauraba al cerrar, y si se cerraban en otro orden que el de apertura (confirmar una refinanciación cierra el detalle y el formulario) el último restauraba el `hidden` que el otro había guardado y el scroll quedaba bloqueado para siempre. Sigue alimentando a `DollarRain` (`hayOverlay`/`onOverlayChange`).
 - **El efecto de la capa de `Sheet` depende SÓLO de `open`; el `onClose` va por ref.** Los padres pasan `onClose` casi siempre como función en línea (nueva en cada render): si el efecto dependía de `requestClose`, cada render del padre desmontaba la capa y la volvía a montar —se apagaba el desenfoque, el fondo animado se reanudaba un instante y se reiniciaba el temporizador de `OPEN_MS`—. Lo atrapa `sheet.test.tsx` ("re-renderizar al padre con un onClose nuevo NO apaga y prende la capa"). Además el timer de la animación de salida se cancela al desmontar (si no, el `onClose` pendiente llegaba a un padre que ya no era el mismo, por ejemplo cerrando el modal SIGUIENTE).
 - **`aria-modal="true"` no hace nada por sí solo: el foco hay que manejarlo.** El `Sheet` mueve el foco al diálogo al abrir (salvo que un `autoFocus` de adentro ya lo tenga), lo **atrapa** con Tab/Shift+Tab (`lib/focus.ts`) —antes se llegaba con Tab a los botones de la app de atrás y se podían accionar con Enter— y lo devuelve a quien abrió el sheet al cerrar. El fondo clickeable (`backdrop`) lleva `tabIndex={-1}`: Escape y la X ya cierran por teclado. `enfocables` filtra por `tabIndex < 0`: el selector deja pasar un `<button tabindex="-1">` y, de ser el último del sheet, el Tab se habría atrapado en el elemento equivocado (lo encontró el test).
+- **Lo que viene del almacenamiento es `unknown` y se lee con `leerLista` / `leerObjeto` (`lib/hydrate.ts`), nunca con `as never`.** La hidratación casteaba nueve veces con `as never` —que apaga el chequeo de tipos sin dejar rastro— y confiaba en que cada elemento fuera un objeto: un solo `null` en una lista guardada hacía fallar `stripComputed` (`Object.keys(null)`), la hidratación lanzaba y la app se quedaba para siempre en el esqueleto de carga, sin ningún mensaje. `leerLista` descarta lo que no es un objeto (y lo avisa por consola con el nombre de la lista); lo que no es un array es una lista vacía.
 - **`npx tsc --noEmit` debe pasar siempre**: correrlo antes de commitear cambios de tipos.
 - **El mapa de vencimientos muestra `_nextProfit`, igual que la card del préstamo.** Con `_profit` (el interés contratado sobre el capital) el mapa y la card se contradecían en los préstamos con pagos que ya habían cubierto interés y en los que tienen ciclos adelantados — donde además el cobro ya no cae en el `dueDate` original, así que el mapa anunciaba plata en un día en el que no se cobra nada.
 - **La próxima fecha de cobro sale de `nextCollectionDate` (`calcs.ts`), y el digest del push la replica.** El `dueDate` sólo vale mientras no haya pasado Y no haya corrido ningún ciclo; de ahí en más manda `getNextRenewalDate`. Decidirlo por el ESTADO —como hacía `_shared/digest.ts`— rompe en los préstamos que volvieron a `"active"` con el vencimiento ya pasado: el digest anunciaba esa fecha vieja, el filtro de ventana la descartaba por pasada y **ese préstamo no avisaba nunca**. En la cartera real eran cuatro de cinco, porque pasa sobre todo en los refinanciados (capital alto ⇒ umbral alto para volver a "active"). El test de paridad ahora compara contra `nextCollectionDate` en vez de re-implementar la regla: cuando tenía su propia copia, la pantalla cambió, la copia quedó vieja y el test siguió verde mientras el push mentía.

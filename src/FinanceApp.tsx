@@ -3,10 +3,12 @@
 import React, { lazy, Suspense, useReducer, useEffect, useMemo, useState, useCallback } from "react";
 import { Briefcase, Sparkles, CheckCircle2, Search } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
+import type { AppState, Client, Loan, Settings } from "./types";
 import { initialState, reducer, AppContext, useDerived } from "./store/index.js";
 import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
 import { stripComputed } from "./lib/utils.js";
+import { leerLista, leerObjeto } from "./lib/hydrate.js";
 import { useStorageSync } from "./lib/hooks.js";
 import { lockGate, markUnlocked, clearLockConfig, type LockGate } from "./lib/lock.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
@@ -233,23 +235,25 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
       const data = await storage.getAll(Object.values(STORAGE_KEYS));
       if (cancelled) return;
       if (data === null) { setLoadError(true); return; }
-      const rawLoans = (Array.isArray(data[STORAGE_KEYS.loans]) ? data[STORAGE_KEYS.loans] : []) as Record<string, unknown>[];
-      const rawClients = (Array.isArray(data[STORAGE_KEYS.clients]) ? data[STORAGE_KEYS.clients] : []) as Record<string, unknown>[];
+      // `leerLista` en vez de `as never`: lo que viene del almacenamiento es `unknown`, y un
+      // solo elemento `null` en una lista hacía fallar `stripComputed` y dejaba la app para
+      // siempre en el esqueleto de carga (ver lib/hydrate.ts).
+      const rawLoans = leerLista<Loan>(data[STORAGE_KEYS.loans], "préstamos");
+      const rawClients = leerLista<Client>(data[STORAGE_KEYS.clients], "clientes");
       const cleanLoans = rawLoans.map(stripComputed);
       const cleanClients = rawClients.map(stripComputed);
       dispatch({
         type: "HYDRATE",
         payload: {
-          loans:    cleanLoans as never,
-          clients:  cleanClients as never,
-          expenses: Array.isArray(data[STORAGE_KEYS.expenses]) ? data[STORAGE_KEYS.expenses] as never : [],
-          income:   Array.isArray(data[STORAGE_KEYS.income])   ? data[STORAGE_KEYS.income] as never   : [],
-          history:  Array.isArray(data[STORAGE_KEYS.history])  ? data[STORAGE_KEYS.history] as never  : [],
-          assets:   Array.isArray(data[STORAGE_KEYS.assets])   ? data[STORAGE_KEYS.assets] as never   : [],
-          cars:     Array.isArray(data[STORAGE_KEYS.cars])     ? data[STORAGE_KEYS.cars] as never     : [],
-          liabilities: Array.isArray(data[STORAGE_KEYS.liabilities]) ? data[STORAGE_KEYS.liabilities] as never : [],
-          settings: data[STORAGE_KEYS.settings] && typeof data[STORAGE_KEYS.settings] === "object"
-            ? data[STORAGE_KEYS.settings] as never : undefined,
+          loans: cleanLoans,
+          clients: cleanClients,
+          expenses: leerLista<AppState["expenses"][number]>(data[STORAGE_KEYS.expenses], "gastos"),
+          income: leerLista<AppState["income"][number]>(data[STORAGE_KEYS.income], "ingresos"),
+          history: leerLista<AppState["history"][number]>(data[STORAGE_KEYS.history], "historial"),
+          assets: leerLista<AppState["assets"][number]>(data[STORAGE_KEYS.assets], "activos"),
+          cars: leerLista<AppState["cars"][number]>(data[STORAGE_KEYS.cars], "autos"),
+          liabilities: leerLista<AppState["liabilities"][number]>(data[STORAGE_KEYS.liabilities], "pasivos"),
+          settings: leerObjeto<Settings>(data[STORAGE_KEYS.settings]),
         },
       });
       // Limpieza one-shot de campos _* legacy ya guardados. useStorageSync saltea el
