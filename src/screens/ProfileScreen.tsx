@@ -267,7 +267,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <div className="space-y-5 pb-2">
+    <div className="space-y-5 pb-2 xl:columns-2 xl:gap-5 xl:space-y-0 xl:[&>*]:mb-5 xl:[&>*]:break-inside-avoid">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-white">Perfil</h1>
         <p className="mt-0.5 text-xs text-zinc-500">Ajustes generales y datos del usuario</p>

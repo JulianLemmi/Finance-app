@@ -211,7 +211,7 @@ export default function CarsScreen() {
       ) : filtered.length === 0 ? (
         <EmptyState Icon={Car} title="Sin resultados" hint="No hay autos que coincidan con el filtro o la búsqueda." />
       ) : (
-        <div key={filter} className="fa-rise space-y-2.5">
+        <div key={filter} className="fa-rise grid gap-2.5 xl:grid-cols-2">
           {filtered.map((car) => (
             <CarCard key={car.id} car={car} onOpen={(c) => { setEditingCar(c); setFormOpen(true); }} />
           ))}

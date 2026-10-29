@@ -408,7 +408,7 @@ export default function LoansScreen() {
             {viewArchived ? <ArchiveRestore className="h-3 w-3 shrink-0" /> : <Archive className="h-3 w-3 shrink-0" />}
             Mantené apretado un préstamo para {viewArchived ? "restaurarlo" : "archivarlo en el historial"}
           </div>
-          <div key={viewArchived ? "archived" : filter} className="fa-rise space-y-2.5">
+          <div key={viewArchived ? "archived" : filter} className="fa-rise grid gap-2.5 xl:grid-cols-2">
             {filtered.map((l) =>
               viewArchived ? (
                 <ArchivedLoanCard key={l.id} loan={l}

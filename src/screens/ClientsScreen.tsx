@@ -106,7 +106,7 @@ export default function ClientsScreen() {
           )}
         />
       ) : (
-        <div className="fa-rise space-y-2">
+        <div className="fa-rise grid gap-2 xl:grid-cols-2">
           {filtered.map((c) => (
             <ClientCard key={c.id} client={c}
               onOpen={(id) => dispatch({ type: "OPEN_MODAL", payload: { type: "client-detail", payload: { id } } })} />

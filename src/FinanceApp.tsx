@@ -315,7 +315,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
             <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-zinc-800/10 blur-[80px]" />
           </div>
         )}
-        <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8">
+        <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:px-8 xl:max-w-7xl 2xl:max-w-[100rem] 2xl:px-10">
           {!state.loaded ? (
             <LoadingSkeleton />
           ) : (
@@ -392,7 +392,7 @@ export default function FinanceApp() {
   if (!authReady) {
     return (
       <div className="min-h-screen bg-zinc-950 text-zinc-100">
-        <div className="mx-auto max-w-5xl px-4 pt-12 sm:px-6"><LoadingSkeletonGate /></div>
+        <div className="mx-auto max-w-5xl px-4 pt-12 sm:px-6 xl:max-w-7xl 2xl:max-w-[100rem]"><LoadingSkeletonGate /></div>
       </div>
     );
   }

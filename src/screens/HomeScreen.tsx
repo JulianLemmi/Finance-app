@@ -367,7 +367,7 @@ export default function HomeScreen() {
                 préstamos cobrados más el interés que cada eslabón refinanciado devengó
                 antes de capitalizarse. Lo que todavía está en la calle no entra acá; eso
                 es "Ganancia por cobrar" arriba. */}
-            <Card className="p-5">
+            <Card className="flex flex-col p-5">
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
                 <History className="h-3 w-3 text-amber-500" />
                 Desde que arrancaste
@@ -379,7 +379,7 @@ export default function HomeScreen() {
                 Ganancia ya realizada · {closedCount} préstamo{closedCount === 1 ? "" : "s"} cerrado{closedCount === 1 ? "" : "s"}
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-800/70 pt-3">
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-800/70 pt-3 lg:mt-auto">
                 <div>
                   <div className="text-[10px] uppercase tracking-wider text-zinc-600">Total prestado</div>
                   <div className="mt-0.5 text-sm font-semibold tabular-nums text-zinc-200">
@@ -399,114 +399,118 @@ export default function HomeScreen() {
           </div>
         )}
 
-        {/* Objetivo mensual */}
-        {Number(state.settings.monthlyTarget) > 0 && (
-          <Card className="p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Target className="h-3.5 w-3.5 text-amber-500" />
-                <span className="text-[11px] uppercase tracking-wider text-zinc-500">Objetivo del mes</span>
+        {/* Los tres widgets chicos comparten fila en pantalla ancha: cada uno dice un
+            número y a ancho completo era una banda vacía con un dato en la punta. */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {/* Objetivo mensual */}
+          {Number(state.settings.monthlyTarget) > 0 && (
+            <Card className="flex flex-col justify-center p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Target className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-[11px] uppercase tracking-wider text-zinc-500">Objetivo del mes</span>
+                </div>
+                <div className="text-xs tabular-nums text-zinc-400">
+                  <Money value={derived.collectedThisMonth} hide={hide} currency={cur} />
+                  {" / "}
+                  <Money value={state.settings.monthlyTarget} hide={hide} currency={cur} />
+                </div>
               </div>
-              <div className="text-xs tabular-nums text-zinc-400">
-                <Money value={derived.collectedThisMonth} hide={hide} currency={cur} />
-                {" / "}
-                <Money value={state.settings.monthlyTarget} hide={hide} currency={cur} />
-              </div>
-            </div>
-            {(() => {
-              const pct = Math.min(1, derived.collectedThisMonth / state.settings.monthlyTarget);
-              const reached = pct >= 1;
-              return (
-                <>
-                  <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                    <div className={`fa-bar-shine h-full rounded-full transition-all duration-700 ${reached ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-amber-500"}`}
-                      style={{ width: `${(pct * 100).toFixed(1)}%` }} />
-                  </div>
-                  <div className="mt-1.5 flex items-center justify-between text-[11px]">
-                    <span className={reached ? "text-emerald-400" : "text-zinc-500"}>
-                      {reached ? "✓ Objetivo alcanzado" : `${(pct * 100).toFixed(0)}% completado`}
-                    </span>
-                    {!reached && (
-                      <span className="tabular-nums text-zinc-500">
-                        Faltan <Money value={state.settings.monthlyTarget - derived.collectedThisMonth} hide={hide} currency={cur} />
+              {(() => {
+                const pct = Math.min(1, derived.collectedThisMonth / state.settings.monthlyTarget);
+                const reached = pct >= 1;
+                return (
+                  <>
+                    <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+                      <div className={`fa-bar-shine h-full rounded-full transition-all duration-700 ${reached ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-amber-500"}`}
+                        style={{ width: `${(pct * 100).toFixed(1)}%` }} />
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                      <span className={reached ? "text-emerald-400" : "text-zinc-500"}>
+                        {reached ? "✓ Objetivo alcanzado" : `${(pct * 100).toFixed(0)}% completado`}
                       </span>
-                    )}
-                  </div>
-                </>
-              );
-            })()}
-          </Card>
-        )}
+                      {!reached && (
+                        <span className="tabular-nums text-zinc-500">
+                          Faltan <Money value={state.settings.monthlyTarget - derived.collectedThisMonth} hide={hide} currency={cur} />
+                        </span>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </Card>
+          )}
 
-        {/* Agenda del día */}
-        {derived.dueTodayTomorrow.length > 0 && (
-          <div>
-            <SectionTitle>
-              <span className="flex items-center gap-1.5">
-                <Sun className="h-3.5 w-3.5 text-amber-400" />
-                Cobros de hoy y mañana
-              </span>
-            </SectionTitle>
-            <Card className="divide-y divide-zinc-800/70">
-              {derived.dueTodayTomorrow.map((l) => (
-                <div key={l.id} className="flex items-center justify-between px-4 py-3 gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-zinc-100">{l.clientName}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        l._daysUntilDue === 0 ? "bg-rose-500/15 text-rose-400" : "bg-amber-500/15 text-amber-400"
-                      }`}>
-                        {l._daysUntilDue === 0 ? "Hoy" : "Mañana"}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-zinc-500">
-                      {formatShortDate(l.dueDate)} · {formatInterest(l, state.settings.currency)}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <div className="text-sm font-semibold tabular-nums text-zinc-100">
-                        <Money value={l._remaining} hide={hide} currency={cur} />
+          {/* Agenda del día */}
+          {derived.dueTodayTomorrow.length > 0 && (
+            <div>
+              <SectionTitle>
+                <span className="flex items-center gap-1.5">
+                  <Sun className="h-3.5 w-3.5 text-amber-400" />
+                  Cobros de hoy y mañana
+                </span>
+              </SectionTitle>
+              <Card className="divide-y divide-zinc-800/70">
+                {derived.dueTodayTomorrow.map((l) => (
+                  <div key={l.id} className="flex items-center justify-between px-4 py-3 gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-zinc-100">{l.clientName}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          l._daysUntilDue === 0 ? "bg-rose-500/15 text-rose-400" : "bg-amber-500/15 text-amber-400"
+                        }`}>
+                          {l._daysUntilDue === 0 ? "Hoy" : "Mañana"}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        {formatShortDate(l.dueDate)} · {formatInterest(l, state.settings.currency)}
                       </div>
                     </div>
-                    <button onClick={() => setQuickPayLoan(l)}
-                      className="flex items-center gap-1 rounded-xl border border-amber-700/50 bg-amber-900/20 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-900/40">
-                      <Banknote className="h-3 w-3" />
-                      Cobrar
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <div className="text-sm font-semibold tabular-nums text-zinc-100">
+                          <Money value={l._remaining} hide={hide} currency={cur} />
+                        </div>
+                      </div>
+                      <button onClick={() => setQuickPayLoan(l)}
+                        className="flex items-center gap-1 rounded-xl border border-amber-700/50 bg-amber-900/20 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-900/40">
+                        <Banknote className="h-3 w-3" />
+                        Cobrar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
+
+          {/* Saldo MP */}
+          <Card className="flex flex-col justify-center p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#009ee3]/10">
+                  <svg className="h-5 w-5" viewBox="0 0 48 48" fill="none">
+                    <path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#009ee3"/>
+                    <path d="M31.5 18h-8c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h8c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5zm-1 9h-6v-7h6v7z" fill="white"/>
+                    <path d="M16.5 18H14c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h2.5c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5z" fill="white"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-zinc-500">Saldo Mercado Pago</div>
+                  <div className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-100">
+                    <Money value={state.settings.mpBalance || 0} hide={hide} currency={cur} />
                   </div>
                 </div>
-              ))}
-            </Card>
-          </div>
-        )}
-
-        {/* Saldo MP */}
-        <Card className="p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#009ee3]/10">
-                <svg className="h-5 w-5" viewBox="0 0 48 48" fill="none">
-                  <path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#009ee3"/>
-                  <path d="M31.5 18h-8c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h8c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5zm-1 9h-6v-7h6v7z" fill="white"/>
-                  <path d="M16.5 18H14c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h2.5c.83 0 1.5-.67 1.5-1.5v-9c0-.83-.67-1.5-1.5-1.5z" fill="white"/>
-                </svg>
               </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Saldo Mercado Pago</div>
-                <div className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-100">
-                  <Money value={state.settings.mpBalance || 0} hide={hide} currency={cur} />
-                </div>
-              </div>
+              <button onClick={() => dispatch({ type: "SET_TAB", payload: "profile" })}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-all hover:bg-zinc-800 hover:text-zinc-300">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <button onClick={() => dispatch({ type: "SET_TAB", payload: "profile" })}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-all hover:bg-zinc-800 hover:text-zinc-300">
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </Card>
+          </Card>
 
-        <DolarBlue />
+          <DolarBlue />
+        </div>
 
         {/* Gráficos de barras: un color por mes, el valor escrito encima de cada barra y
             eje vertical a la vista. El tono es decorativo (los meses ya están rotulados y
@@ -626,55 +630,59 @@ export default function HomeScreen() {
           </Card>
         </div>
 
-        {/* Capital invertido, con el capital total como línea de referencia: la distancia
-            entre la línea y las barras es la plata que quedó sin trabajar. */}
-        <Card className="p-5">
-          <div className="mb-1 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Capital invertido</div>
-              <div className="mt-0.5 text-lg font-semibold tracking-tight text-white">
-                <Money value={derived.capitalInvested} hide={hide} currency={cur} />
+        {/* En pantalla ancha el gráfico y el mapa de vencimientos van a la par: los dos
+            miran el mismo mes y a 1600px cada uno solo quedaba larguísimo y bajito. */}
+        <div className="grid gap-3 xl:grid-cols-2">
+          {/* Capital invertido, con el capital total como línea de referencia: la distancia
+              entre la línea y las barras es la plata que quedó sin trabajar. */}
+          <Card className="p-5">
+            <div className="mb-1 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Capital invertido</div>
+                <div className="mt-0.5 text-lg font-semibold tracking-tight text-white">
+                  <Money value={derived.capitalInvested} hide={hide} currency={cur} />
+                </div>
               </div>
+              <Badge tone="bronze">{Math.round(allocationPct * 100)}% trabajando</Badge>
             </div>
-            <Badge tone="bronze">{Math.round(allocationPct * 100)}% trabajando</Badge>
-          </div>
-          <div className="mb-3">
-            <ChartLegend items={[
-              { label: "Invertido", color: CHART_COLORS.capitalStroke as string },
-              { label: "Capital total", color: CHART_COLORS.reference as string },
-            ]} />
-          </div>
-          <div {...invertidoDetail.handlers} className={invertidoDetail.pressing ? "opacity-70 transition-opacity" : ""}>
-          <ChartContainer className="h-52 min-w-0">
-            {({ width, height }) => (
-              <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
-                onMouseMove={invertidoDetail.track} onMouseDown={invertidoDetail.track} onClick={invertidoDetail.track} onTouchStart={invertidoDetail.track} onTouchMove={invertidoDetail.track}>
-                <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
-                <YAxis
-                  axisLine={false} tickLine={false} width={46}
-                  tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
-                  tickFormatter={(v: number) => formatCompact(v, hide)}
-                  domain={[(min: number) => Math.min(0, min), "auto"]}
-                />
-                <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
-                  content={<ChartTooltip hide={hide} currency={cur} />} />
-                <Bar name="Invertido" dataKey="capitalInvested" fill={CHART_COLORS.capitalStroke as string} radius={[6, 6, 0, 0]}>
-                  <LabelList content={makeBarLabel({ hide })} />
-                </Bar>
-                {/* Referencia, no una segunda categoría: por eso va neutra y sin relleno. */}
-                <Line
-                  name="Capital total" dataKey="capital" type="monotone"
-                  stroke={CHART_COLORS.reference as string} strokeWidth={2}
-                  dot={false} activeDot={{ r: 3 }}
-                />
-              </ComposedChart>
-            )}
-          </ChartContainer>
-          </div>
-        </Card>
+            <div className="mb-3">
+              <ChartLegend items={[
+                { label: "Invertido", color: CHART_COLORS.capitalStroke as string },
+                { label: "Capital total", color: CHART_COLORS.reference as string },
+              ]} />
+            </div>
+            <div {...invertidoDetail.handlers} className={invertidoDetail.pressing ? "opacity-70 transition-opacity" : ""}>
+            <ChartContainer className="h-52 min-w-0">
+              {({ width, height }) => (
+                <ComposedChart width={width} height={height} data={derived.months} margin={{ top: 24, right: 8, left: 0, bottom: 0 }} barCategoryGap="8%"
+                  onMouseMove={invertidoDetail.track} onMouseDown={invertidoDetail.track} onClick={invertidoDetail.track} onTouchStart={invertidoDetail.track} onTouchMove={invertidoDetail.track}>
+                  <CartesianGrid stroke={CHART_COLORS.grid as string} vertical={false} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: CHART_COLORS.axis as string, fontSize: 11 }} />
+                  <YAxis
+                    axisLine={false} tickLine={false} width={46}
+                    tick={{ fill: CHART_COLORS.axis as string, fontSize: 10 }}
+                    tickFormatter={(v: number) => formatCompact(v, hide)}
+                    domain={[(min: number) => Math.min(0, min), "auto"]}
+                  />
+                  <Tooltip cursor={{ fill: CHART_COLORS.cursor as string }}
+                    content={<ChartTooltip hide={hide} currency={cur} />} />
+                  <Bar name="Invertido" dataKey="capitalInvested" fill={CHART_COLORS.capitalStroke as string} radius={[6, 6, 0, 0]}>
+                    <LabelList content={makeBarLabel({ hide })} />
+                  </Bar>
+                  {/* Referencia, no una segunda categoría: por eso va neutra y sin relleno. */}
+                  <Line
+                    name="Capital total" dataKey="capital" type="monotone"
+                    stroke={CHART_COLORS.reference as string} strokeWidth={2}
+                    dot={false} activeDot={{ r: 3 }}
+                  />
+                </ComposedChart>
+              )}
+            </ChartContainer>
+            </div>
+          </Card>
 
-        <VencimientosHeatmap />
+          <VencimientosHeatmap />
+        </div>
 
         {/* Upcoming */}
         <div>
@@ -695,11 +703,17 @@ export default function HomeScreen() {
               {derived.upcomingDue.length === 0 ? (
                 <EmptyState Icon={CheckCircle2} title="No hay vencimientos próximos" hint="Todos los préstamos están al día o sin fecha próxima." />
               ) : (
-                <Card className="divide-y divide-zinc-800/70">
-                  {derived.upcomingDue.map((l) => (
+                <Card className="divide-y divide-zinc-800/70 xl:grid xl:grid-cols-2 xl:divide-y-0">
+                  {derived.upcomingDue.map((l, i, arr) => {
+                    // En pantalla ancha la lista va en dos columnas: a 1600px de ancho el
+                    // nombre y el monto quedaban en puntas opuestas con un metro de vacío
+                    // en el medio. La última fila no lleva línea abajo — son dos celdas si
+                    // la cantidad es par y una sola si es impar.
+                    const ultimaFila = i >= arr.length - (arr.length % 2 === 0 ? 2 : 1);
+                    return (
                     <button key={l.id}
                       onClick={() => dispatch({ type: "OPEN_MODAL", payload: { type: "loan-detail", payload: { id: l.id } } })}
-                      className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-900/60">
+                      className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-900/60 xl:border-zinc-800/70 xl:odd:border-r${ultimaFila ? "" : " xl:border-b"}`}>
                       <div className="flex min-w-0 items-center gap-3">
                         <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
                           l._status === "overdue" ? "bg-rose-500/10 text-rose-400"
@@ -732,7 +746,8 @@ export default function HomeScreen() {
                         <ChevronRight className="h-4 w-4 text-zinc-600" />
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </Card>
               )}
             </div>
