@@ -1,6 +1,18 @@
 // Animación de fondo: billetes cayendo con vaivén + chispas doradas en canvas.
 // Solo se muestra en tema oscuro (GlobalStyles oculta el canvas con
 // .theme-light canvas { display: none }). Respeta prefers-reduced-motion.
+//
+// Dos decisiones que la hacen funcionar en una pantalla grande:
+//
+// 1. La cantidad sale de la SUPERFICIE, no es un número fijo. Con 28 billetes clavados,
+//    una pantalla de 1826×1000 tiene 5,5 veces el área de un teléfono y la misma cantidad
+//    de billetes: se dispersaban tanto que el fondo parecía apagado.
+// 2. Cada billete y cada chispa se dibujan UNA vez en un sprite y después se estampan con
+//    `drawImage`. Antes cada billete rehacía su contorno (cuatro curvas), dos trazos y un
+//    `fillText` en cada frame, y cada chispa creaba un degradado radial nuevo —
+//    construir degradados dentro del bucle de animación es de lo más caro que hay en
+//    canvas 2D. Con sprites, subir de 28 a 120 billetes sale más barato que los 28 de
+//    antes.
 import { useRef, useEffect } from "react";
 
 interface Bill {
@@ -14,6 +26,53 @@ interface Spark {
   phase: number; twinkle: number; driftY: number;
 }
 
+/** Un billete por cada tanto de superficie, con techo para que no se vuelva un enjambre. */
+const AREA_POR_BILLETE = 11_000;
+const BILLETES_MIN = 24;
+const BILLETES_MAX = 120;
+/** Ancho del sprite: el doble del billete más grande, para que no se note al escalar. */
+const SPRITE_W = 160;
+const SPARK_SPRITE = 48;
+
+function spriteBillete(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  const w = SPRITE_W, h = Math.round(SPRITE_W * 0.44);
+  c.width = w; c.height = h;
+  const g = c.getContext("2d")!;
+  const hw = w / 2, hh = h / 2, r = (2.5 / 46) * w;
+  g.translate(hw, hh);
+  g.beginPath();
+  g.moveTo(-hw + r, -hh); g.lineTo(hw - r, -hh);
+  g.quadraticCurveTo(hw, -hh, hw, -hh + r); g.lineTo(hw, hh - r);
+  g.quadraticCurveTo(hw, hh, hw - r, hh); g.lineTo(-hw + r, hh);
+  g.quadraticCurveTo(-hw, hh, -hw, hh - r); g.lineTo(-hw, -hh + r);
+  g.quadraticCurveTo(-hw, -hh, -hw + r, -hh); g.closePath();
+  g.fillStyle = "#78350f"; g.fill();
+  g.strokeStyle = "#f59e0b"; g.lineWidth = (0.7 / 46) * w; g.stroke();
+  g.strokeStyle = "rgba(245,158,11,0.35)"; g.lineWidth = (0.35 / 46) * w;
+  g.strokeRect(-hw + (3.5 / 46) * w, -hh + (2.5 / 46) * w, w - (7 / 46) * w, h - (5 / 46) * w);
+  g.fillStyle = "#fde68a";
+  g.font = `bold ${h * 0.58}px Georgia, serif`;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("$", 0, 0);
+  return c;
+}
+
+function spriteChispa(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = c.height = SPARK_SPRITE;
+  const g = c.getContext("2d")!;
+  const m = SPARK_SPRITE / 2;
+  const glow = g.createRadialGradient(m, m, 0, m, m, m);
+  glow.addColorStop(0, "rgba(253,230,138,0.9)");
+  glow.addColorStop(1, "rgba(253,230,138,0)");
+  g.fillStyle = glow;
+  g.beginPath();
+  g.arc(m, m, m, 0, Math.PI * 2);
+  g.fill();
+  return c;
+}
+
 export default function DollarRain() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -22,22 +81,29 @@ export default function DollarRain() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
+    const bill = spriteBillete();
+    const spark = spriteChispa();
 
+    // Ancho y alto en píxeles CSS; el canvas se dibuja a `dpr` para que el "$" no salga
+    // borroso en pantallas escaladas, topeado en 1.5 porque cada paso multiplica los
+    // píxeles a pintar por su cuadrado.
+    let W = 0, H = 0;
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    resize();
-    window.addEventListener("resize", resize);
 
     const makeBill = (initial: boolean): Bill => {
       const w = Math.random() * 46 + 26;
       return {
-        x: Math.random() * canvas.width,
-        y: initial ? Math.random() * canvas.height : -50,
+        x: Math.random() * W,
+        y: initial ? Math.random() * H : -50,
         w, h: w * 0.44,
         speed: Math.random() * 0.65 + 0.22,
-        alpha: Math.random() * 0.10 + 0.025,
+        alpha: Math.random() * 0.13 + 0.05,
         rot: (Math.random() - 0.5) * 0.55,
         rotSpeed: (Math.random() - 0.5) * 0.006,
         drift: (Math.random() - 0.5) * 0.16,
@@ -47,81 +113,84 @@ export default function DollarRain() {
     };
 
     const makeSpark = (): Spark => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
+      x: Math.random() * W,
+      y: Math.random() * H,
       r: Math.random() * 1.3 + 0.5,
       phase: Math.random() * Math.PI * 2,
       twinkle: Math.random() * 0.015 + 0.006,
       driftY: -(Math.random() * 0.08 + 0.02),
     });
 
-    const bills: Bill[] = Array.from({ length: 28 }, () => makeBill(true));
-    const sparks: Spark[] = Array.from({ length: 22 }, makeSpark);
+    const cuantos = () =>
+      Math.round(Math.min(BILLETES_MAX, Math.max(BILLETES_MIN, (W * H) / AREA_POR_BILLETE)));
 
-    const drawBill = (b: Bill) => {
-      ctx.save();
-      ctx.translate(b.x, b.y);
-      ctx.rotate(b.rot);
-      ctx.globalAlpha = b.alpha;
-      const hw = b.w / 2, hh = b.h / 2, r = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(-hw + r, -hh); ctx.lineTo(hw - r, -hh);
-      ctx.quadraticCurveTo(hw, -hh, hw, -hh + r); ctx.lineTo(hw, hh - r);
-      ctx.quadraticCurveTo(hw, hh, hw - r, hh); ctx.lineTo(-hw + r, hh);
-      ctx.quadraticCurveTo(-hw, hh, -hw, hh - r); ctx.lineTo(-hw, -hh + r);
-      ctx.quadraticCurveTo(-hw, -hh, -hw + r, -hh); ctx.closePath();
-      ctx.fillStyle = "#78350f"; ctx.fill();
-      ctx.strokeStyle = "#f59e0b"; ctx.lineWidth = 0.7; ctx.stroke();
-      ctx.strokeStyle = "rgba(245,158,11,0.35)"; ctx.lineWidth = 0.35;
-      ctx.strokeRect(-hw + 3.5, -hh + 2.5, b.w - 7, b.h - 5);
-      ctx.fillStyle = "#fde68a";
-      ctx.font = `bold ${b.h * 0.58}px Georgia, serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("$", 0, 0);
-      ctx.restore();
+    let bills: Bill[] = [];
+    let sparks: Spark[] = [];
+    const poblar = () => {
+      const n = cuantos();
+      while (bills.length > n) bills.pop();
+      while (bills.length < n) bills.push(makeBill(true));
+      const s = Math.round(n * 0.8);
+      while (sparks.length > s) sparks.pop();
+      while (sparks.length < s) sparks.push(makeSpark());
     };
 
-    const drawSpark = (s: Spark, t: number) => {
-      const a = Math.max(0, Math.sin(s.phase + t * s.twinkle)) * 0.35;
-      if (a < 0.01) return;
-      ctx.save();
-      ctx.globalAlpha = a;
-      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
-      glow.addColorStop(0, "rgba(253,230,138,0.9)");
-      glow.addColorStop(1, "rgba(253,230,138,0)");
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+    resize();
+    poblar();
+    // Al cambiar el tamaño de la ventana las posiciones se remapean en proporción. Sin
+    // esto, al achicar quedaban casi todos los billetes fuera del borde derecho y el
+    // fondo se vaciaba hasta que cada uno terminara de caer y volviera a nacer.
+    const onResize = () => {
+      const prevW = W, prevH = H;
+      resize();
+      if (prevW > 0 && prevH > 0) {
+        const fx = W / prevW, fy = H / prevH;
+        for (const b of bills) { b.x *= fx; b.y *= fy; }
+        for (const s of sparks) { s.x *= fx; s.y *= fy; }
+      }
+      poblar();
     };
+    window.addEventListener("resize", onResize);
 
     let raf: number;
     let t = 0;
     const animate = () => {
       t += 1;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      sparks.forEach((s) => {
+      ctx.clearRect(0, 0, W, H);
+
+      for (const s of sparks) {
         s.y += s.driftY;
-        if (s.y < -10) { s.y = canvas.height + 10; s.x = Math.random() * canvas.width; }
-        drawSpark(s, t);
-      });
-      bills.forEach((b) => {
+        if (s.y < -10) { s.y = H + 10; s.x = Math.random() * W; }
+        const a = Math.max(0, Math.sin(s.phase + t * s.twinkle)) * 0.35;
+        if (a < 0.01) continue;
+        const d = s.r * 8;
+        ctx.globalAlpha = a;
+        ctx.drawImage(spark, s.x - d / 2, s.y - d / 2, d, d);
+      }
+
+      for (const b of bills) {
         b.y += b.speed;
         b.x += b.drift + Math.sin(b.swayPhase + t * 0.012) * b.swayAmp * 0.4;
         b.rot += b.rotSpeed;
-        if (b.y > canvas.height + 60) Object.assign(b, makeBill(false));
-        drawBill(b);
-      });
+        if (b.y > H + 60) Object.assign(b, makeBill(false));
+        ctx.globalAlpha = b.alpha;
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.rot);
+        ctx.drawImage(bill, -b.w / 2, -b.h / 2, b.w, b.h);
+        ctx.rotate(-b.rot);
+        ctx.translate(-b.x, -b.y);
+      }
+
+      ctx.globalAlpha = 1;
       raf = requestAnimationFrame(animate);
     };
     animate();
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", onResize);
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-0" />;
+  return <canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-0 h-full w-full" />;
 }

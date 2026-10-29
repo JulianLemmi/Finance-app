@@ -103,11 +103,11 @@ export default function GlobalStyles() {
       }
 
       /* ──────────────────────── Brillos existentes ────────────────────────── */
-      @keyframes glow-amber {
-        0%,100% { box-shadow: 0 0 18px rgba(180,83,9,0.12), 0 0 0 1px rgba(245,158,11,0.06); }
-        50%      { box-shadow: 0 0 30px rgba(180,83,9,0.22), 0 0 0 1px rgba(245,158,11,0.12); }
-      }
-      .glow-card { animation: glow-amber 4s ease-in-out infinite; }
+      /* El resplandor es fijo, no late. Animar box-shadow obliga al navegador a
+         repintar la card entera en cada frame, y la card del header mide 1600px de ancho
+         en escritorio: era uno de los cuatro efectos que entre todos se comían el
+         presupuesto del frame. El anillo de la aurora ya le da el movimiento. */
+      .glow-card { box-shadow: 0 0 24px rgba(180,83,9,0.17), 0 0 0 1px rgba(245,158,11,0.09); }
       @keyframes shine { 0% { left: -80% } 100% { left: 120% } }
       .btn-shine { position: relative; overflow: hidden; }
       .btn-shine::after {
