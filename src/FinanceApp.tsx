@@ -8,7 +8,7 @@ import { STORAGE_KEYS } from "./lib/constants.js";
 import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
 import { stripComputed } from "./lib/utils.js";
 import { useStorageSync } from "./lib/hooks.js";
-import { shouldLock, markUnlocked } from "./lib/lock.js";
+import { lockGate, markUnlocked, clearLockConfig, type LockGate } from "./lib/lock.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import GlobalStyles from "./components/GlobalStyles.jsx";
@@ -20,12 +20,6 @@ import GlobalSearch from "./components/GlobalSearch.jsx";
 import LockScreen from "./components/LockScreen.jsx";
 import NetworkStatus from "./components/NetworkStatus.jsx";
 import FirstRunSheet from "./components/FirstRunSheet.jsx";
-
-declare global {
-  interface Navigator {
-    readonly standalone?: boolean;
-  }
-}
 
 const HomeScreen    = lazy(() => import("./screens/HomeScreen.jsx"));
 const LoansScreen   = lazy(() => import("./screens/LoansScreen.jsx"));
@@ -207,21 +201,21 @@ interface AuthedAppProps {
 function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const derived = useDerived(state);
-  const isStandalone = window.matchMedia("(display-mode: standalone)").matches
-    || window.navigator.standalone === true;
-  const [locked, setLocked] = useState(() => isStandalone && shouldLock());
+  // El bloqueo corre en todos lados, no sólo en la PWA instalada: la misma cuenta abierta
+  // en una pestaña de escritorio no pedía nada. Sin PIN guardado, `lockGate` devuelve
+  // "setup" y la pantalla pide crear uno antes de mostrar la app.
+  const [gate, setGate] = useState<LockGate>(lockGate);
 
   useEffect(() => {
-    if (!isStandalone) return;
     const onVisibility = () => {
-      // Al volver al foreground, re-bloquear solo si pasó la ventana de gracia (5 min).
-      if (!document.hidden && shouldLock()) setLocked(true);
+      // Al volver a la pestaña, re-bloquear sólo si venció la ventana de acceso.
+      if (!document.hidden) setGate((g) => (g === "open" ? lockGate() : g));
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [isStandalone]);
+  }, []);
 
-  const handleUnlock = useCallback(() => { markUnlocked(); setLocked(false); }, []);
+  const handleUnlock = useCallback(() => { markUnlocked(); setGate("open"); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -292,6 +286,10 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
     try { await supabase?.auth.signOut(); } catch (e) { console.warn("signOut", e); }
   }, []);
 
+  // Salida de emergencia del PIN olvidado: borra el lock y cierra la sesión. No es un
+  // agujero — para volver a entrar hay que autenticarse de nuevo con el mail.
+  const forgotPin = useCallback(async () => { clearLockConfig(); await signOut(); }, [signOut]);
+
   const ctx = useMemo(
     () => ({ state, dispatch, derived, userEmail, signOut, userId: sessionUserId, setSearchOpen }),
     [state, derived, userEmail, signOut, sessionUserId, setSearchOpen]
@@ -303,7 +301,7 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
 
   return (
     <AppContext.Provider value={ctx}>
-      {locked && <LockScreen onUnlock={handleUnlock} />}
+      {gate !== "open" && <LockScreen mode={gate} onUnlock={handleUnlock} onForgot={forgotPin} />}
       <WelcomeSplash userName={state.settings.userName?.trim()} />
       <FirstRunSheet />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />

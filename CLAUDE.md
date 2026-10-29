@@ -68,6 +68,19 @@ Schema Supabase (no hay migraciones en el repo — crear a mano; SQL completo en
 ### Auth
 Gate en `src/FinanceApp.tsx`: `SetupScreen` (sin `.env`) → `LoginScreen` → `AuthedApp`. Dos métodos en `LoginScreen`: Google OAuth (`signInWithOAuth`) y magic-link por email (`signInWithOtp`).
 
+### Bloqueo con PIN (`src/lib/lock.ts`)
+Segunda barrera, **obligatoria y en todos lados** (navegador y PWA instalada), sobre la sesión ya autenticada: defiende del que se sienta en tu computadora con la sesión abierta, no del que no tiene tu mail. Qué mostrar al entrar lo dice `lockGate()`, y es lo único que hay que consultar:
+
+- **`"setup"`** — no hay `pinHash` guardado: la pantalla pide crear uno antes de mostrar la app. Es el estado de un navegador nuevo y el de un config viejo con el lock apagado (el flag `enabled` ya no se lee; tener o no `pinHash` es la única verdad).
+- **`"pin"`** / **`"open"`** — hay PIN y la ventana de acceso (`LOCK_GRACE_MS`, 5 min desde el último desbloqueo) venció o no.
+
+Tres cosas que no son obvias:
+- **El sello del último desbloqueo vive en `localStorage`, no en memoria.** Es lo único que hace que actualizar la página dentro de los 5 minutos no vuelva a pedir el PIN: en memoria se perdería en cada recarga y el PIN aparecería en cada F5. Hay tests de los dos lados de la ventana y del límite exacto (la comparación es `>`, así que justo a los 5 minutos todavía pasa).
+- **La ventana no se renueva sola mientras usás la app** — son 5 minutos de acceso, no de inactividad. El re-bloqueo se evalúa al cargar y al volver a la pestaña (`visibilitychange`); la pantalla es un overlay sobre la app montada, así que bloquear no pierde nada de lo que estabas cargando.
+- **El PIN es por navegador, no por cuenta**: el hash vive en `localStorage` y no se sincroniza a Supabase. En una máquina nueva manda la auth de Supabase y después se crea un PIN local. La salida de emergencia es "Olvidé mi PIN" → `clearLockConfig()` + `signOut()`: borra también el sello (si no, el próximo que entre aprovecha los minutos que quedaban) y obliga a re-autenticarse por mail.
+
+En Perfil → Seguridad sólo se **cambia** el PIN (actual → nuevo → confirmar) y se agrega/quita la huella. No hay toggle para apagarlo. `savePin()` conserva `credentialId`: cambiar el PIN no borra la huella. Las dos pantallas aceptan **teclado físico** (en la computadora nadie tipea un PIN con el mouse); la de Perfil ignora las teclas si el foco está en un input, o escribir "8" en Tasa por defecto cargaría un dígito del PIN.
+
 ### Routing
 No usa react-router. Navegación por `ui.activeTab` en el reducer, renderizado por `BottomTabBar`. Pantallas lazy-loaded para code-splitting (Recharts pesa):
 - `HomeScreen`, `LoansScreen`, `ClientsScreen`, `CarsScreen`, `FinanceScreen`, `ProfileScreen`
@@ -87,7 +100,7 @@ src/
 │   ├── ErrorBoundary.tsx     # class component, captura errores por tab
 │   ├── GlobalSearch.tsx      # overlay Cmd+K, busca loans/clientes/movimientos
 │   ├── GlobalStyles.tsx      # CSS global + tema claro via .theme-light
-│   ├── LockScreen.tsx        # PIN/biométrico (WebAuthn)
+│   ├── LockScreen.tsx        # PIN obligatorio (alta + ingreso) / biométrico (WebAuthn)
 │   ├── ModalRoot.tsx         # monta el sheet activo según state.ui.modal
 │   ├── NetworkStatus.tsx     # pill offline/online con estado transitorio
 │   ├── PortfolioAnalytics.tsx # cobrabilidad, heatmap 30 días, cash flow
@@ -114,11 +127,12 @@ src/
 ```
 
 ### Tests (`npm test`)
-Cuatro suites, ~1670 tests, corren en ~4 s:
+Cinco suites, ~1690 tests, corren en ~10 s:
 - `src/lib/calcs.test.ts` — fórmulas puras: fechas de ciclo, mora, devengado, proyección, validación.
 - `src/store/useDerived.test.tsx` — los agregados que alimentan gráficos y cards (renderiza el hook con `renderHook`).
 - `src/lib/notificaciones.test.ts` — paridad frontend ↔ edge function y armado del digest de push.
 - `src/lib/useLongPress.test.tsx` — el gesto de archivar, sobre todo que no se dispare al scrollear.
+- `src/lib/lock.test.ts` — la ventana de acceso del PIN: cuándo se pide y cuándo no.
 
 **Correr `npm test` después de tocar cualquier fórmula de `calcs.ts`, `utils.ts` o `useDerived`.** Todo lo que afirman es plata que el usuario ve: ante una falla, la sospecha default es la fórmula, no el test.
 

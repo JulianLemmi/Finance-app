@@ -3,8 +3,10 @@ const WEBAUTHN_USER_KEY = "finance:webauthn-user-id";
 const LAST_UNLOCK_KEY = "finance:lock-last-unlock";
 const PBKDF2_ITERATIONS = 100_000;
 
-// Ventana de gracia: tras desbloquear, no se vuelve a pedir PIN/huella hasta que
-// pasen 5 minutos desde la última vez que se ingresó.
+// Ventana de acceso: tras desbloquear, la app no vuelve a pedir el PIN hasta que pasen
+// 5 minutos. El sello vive en localStorage y NO en memoria: por eso actualizar la página
+// dentro de la ventana no lo vuelve a pedir, y pasados los 5 minutos sí. Tampoco se
+// renueva sola mientras usás la app — son 5 minutos de acceso, no de inactividad.
 export const LOCK_GRACE_MS = 5 * 60 * 1000;
 
 export function getLastUnlock(): number {
@@ -21,23 +23,29 @@ export function markUnlocked(): void {
   try { localStorage.setItem(LAST_UNLOCK_KEY, String(Date.now())); } catch {}
 }
 
-// ¿Debe bloquearse ahora? (lock habilitado y venció la gracia desde el último desbloqueo)
-export function shouldLock(): boolean {
-  return getLockConfig().enabled && Date.now() - getLastUnlock() > LOCK_GRACE_MS;
-}
-
 export interface LockConfig {
-  enabled: boolean;
   pinHash?: string;
   credentialId?: number[];
+}
+
+/** Qué corresponde mostrar al entrar: nada, el PIN, o el alta de PIN. */
+export type LockGate = "open" | "pin" | "setup";
+
+// El bloqueo no es opcional: sin PIN guardado la app pide crear uno antes de mostrar
+// nada. Tener o no `pinHash` es la única verdad — las versiones viejas guardaban además
+// un `enabled`, que ya no se lee (un config viejo con el lock apagado no tiene pinHash,
+// así que cae en "setup", que es exactamente lo que corresponde).
+export function lockGate(): LockGate {
+  if (!getLockConfig().pinHash) return "setup";
+  return Date.now() - getLastUnlock() > LOCK_GRACE_MS ? "pin" : "open";
 }
 
 export function getLockConfig(): LockConfig {
   try {
     const raw = localStorage.getItem(LOCK_KEY);
-    return raw ? (JSON.parse(raw) as LockConfig) : { enabled: false };
+    return raw ? (JSON.parse(raw) as LockConfig) : {};
   } catch {
-    return { enabled: false };
+    return {};
   }
 }
 
@@ -45,8 +53,14 @@ export function saveLockConfig(cfg: LockConfig): void {
   try { localStorage.setItem(LOCK_KEY, JSON.stringify(cfg)); } catch {}
 }
 
+// Olvidar el lock por completo, incluido el sello de acceso: lo usa "Olvidé mi PIN",
+// que además cierra la sesión. Dejar el sello haría que el próximo que entre aproveche
+// los minutos que le quedaban al anterior.
 export function clearLockConfig(): void {
-  try { localStorage.removeItem(LOCK_KEY); } catch {}
+  try {
+    localStorage.removeItem(LOCK_KEY);
+    localStorage.removeItem(LAST_UNLOCK_KEY);
+  } catch {}
 }
 
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -152,6 +166,12 @@ export async function hashPin(pin: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
   const bits = await pbkdf2(pin, salt);
   return `v2:${bytesToBase64Url(salt)}:${bytesToBase64Url(bits)}`;
+}
+
+/** Guarda un PIN nuevo conservando la huella registrada: cambiarlo no la borra. */
+export async function savePin(pin: string): Promise<void> {
+  const cfg = getLockConfig();
+  saveLockConfig({ ...cfg, pinHash: await hashPin(pin) });
 }
 
 function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {

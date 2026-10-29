@@ -16,12 +16,15 @@ import {
   type SubscriptionState,
 } from "../lib/push.js";
 import {
-  getLockConfig, saveLockConfig, clearLockConfig,
-  isBiometricAvailable, registerBiometric, hashPin, checkPin,
+  getLockConfig, saveLockConfig, savePin,
+  isBiometricAvailable, registerBiometric, checkPin, LOCK_GRACE_MS,
 } from "../lib/lock.js";
 import { Card, SectionTitle, Input, Select, Toggle, Button, AnimatedMoney } from "../components/ui.jsx";
 
-type LockSetup = "pin1" | "pin2" | "disable" | "add-biometric" | null;
+// Pasos del cambio de PIN. No hay alta ni baja acá: el PIN es obligatorio y se crea al
+// entrar (ver `lockGate` en lib/lock.ts); desde Perfil sólo se cambia.
+type LockSetup = "current" | "new" | "confirm" | null;
+const GRACE_MIN = Math.round(LOCK_GRACE_MS / 60000);
 type TelegramStatus = "" | "sending" | "sent" | "error";
 type PushStatusKind = { kind: "" | "ok" | "error"; msg: string };
 
@@ -40,13 +43,13 @@ export default function ProfileScreen() {
   const [telegramChatId, setTelegramChatId] = useState(state.settings.telegramChatId || "");
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus>("");
 
-  const [lockEnabled, setLockEnabled] = useState(() => getLockConfig().enabled);
   const [lockHasBiometric, setLockHasBiometric] = useState(() => !!getLockConfig().credentialId);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [lockSetup, setLockSetup] = useState<LockSetup>(null);
   const [setupPin, setSetupPin] = useState("");
   const [setupPin2, setSetupPin2] = useState("");
   const [lockError, setLockError] = useState("");
+  const [lockOk, setLockOk] = useState("");
 
   useEffect(() => { isBiometricAvailable().then(setBiometricSupported); }, []);
 
@@ -150,51 +153,51 @@ export default function ProfileScreen() {
   };
 
   const PIN_LEN = 4;
+  const cancelLockSetup = () => {
+    setLockSetup(null); setSetupPin(""); setSetupPin2(""); setLockError("");
+  };
+  // Si por lo que sea no hay PIN guardado, no hay actual que pedir: se arranca en "new".
+  const startLockChange = () => {
+    setSetupPin(""); setSetupPin2(""); setLockError(""); setLockOk("");
+    setLockSetup(getLockConfig().pinHash ? "current" : "new");
+  };
   const handleLockDigit = (d: string) => {
     setLockError("");
-    if (lockSetup === "pin1") {
-      const next = setupPin + d;
-      setSetupPin(next);
-      if (next.length === PIN_LEN) setLockSetup("pin2");
-    } else if (lockSetup === "pin2") {
-      const next = setupPin2 + d;
-      setSetupPin2(next);
-      if (next.length === PIN_LEN) {
-        if (next !== setupPin) {
-          setLockError("Los PINs no coinciden. Intentá de nuevo.");
-          setSetupPin(""); setSetupPin2(""); setLockSetup("pin1");
-        } else {
-          (async () => {
-            const pinHash = await hashPin(next);
-            saveLockConfig({ enabled: true, pinHash });
-            setLockEnabled(true);
-            setSetupPin(""); setSetupPin2("");
-            setLockSetup(biometricSupported ? "add-biometric" : null);
-          })();
-        }
-      }
-    } else if (lockSetup === "disable") {
+    if (lockSetup === "current") {
       const next = setupPin + d;
       setSetupPin(next);
       if (next.length === PIN_LEN) {
         (async () => {
-          const ok = await checkPin(next, getLockConfig().pinHash);
-          if (ok) {
-            clearLockConfig();
-            setLockEnabled(false); setLockHasBiometric(false);
-            setSetupPin(""); setLockSetup(null);
-          } else {
-            setLockError("PIN incorrecto");
-            setSetupPin("");
-          }
+          if (await checkPin(next, getLockConfig().pinHash)) { setSetupPin(""); setLockSetup("new"); }
+          else { setLockError("PIN incorrecto"); setSetupPin(""); }
         })();
+      }
+    } else if (lockSetup === "new") {
+      const next = setupPin + d;
+      setSetupPin(next);
+      if (next.length === PIN_LEN) setLockSetup("confirm");
+    } else if (lockSetup === "confirm") {
+      const next = setupPin2 + d;
+      setSetupPin2(next);
+      if (next.length === PIN_LEN) {
+        if (next !== setupPin) {
+          setLockError("Los PINs no coinciden. Elegí uno de nuevo.");
+          setSetupPin(""); setSetupPin2(""); setLockSetup("new");
+        } else {
+          // `savePin` conserva la huella registrada: cambiar el PIN no la borra.
+          (async () => {
+            await savePin(next);
+            setSetupPin(""); setSetupPin2(""); setLockSetup(null);
+            setLockOk("PIN actualizado");
+            setTimeout(() => setLockOk(""), 2500);
+          })();
+        }
       }
     }
   };
   const handleLockDel = () => {
-    if (lockSetup === "pin1") setSetupPin((p) => p.slice(0, -1));
-    else if (lockSetup === "pin2") setSetupPin2((p) => p.slice(0, -1));
-    else if (lockSetup === "disable") setSetupPin((p) => p.slice(0, -1));
+    if (lockSetup === "confirm") setSetupPin2((p) => p.slice(0, -1));
+    else setSetupPin((p) => p.slice(0, -1));
   };
   const handleAddBiometric = async () => {
     try {
@@ -202,14 +205,30 @@ export default function ProfileScreen() {
       const cfg = getLockConfig();
       saveLockConfig({ ...cfg, credentialId });
       setLockHasBiometric(true);
-      setLockSetup(null);
     } catch (e) {
       if ((e as { name?: string })?.name !== "NotAllowedError") setLockError("No se pudo registrar la huella.");
     }
   };
-  const lockPinDisplay = lockSetup === "pin1" ? setupPin
-    : lockSetup === "pin2" ? setupPin2
-    : lockSetup === "disable" ? setupPin : "";
+  const lockPinDisplay = lockSetup === "confirm" ? setupPin2 : lockSetup ? setupPin : "";
+
+  // Mismo teclado físico que la pantalla de bloqueo: en la computadora nadie tipea un PIN
+  // con el mouse. Sólo mientras el cambio está abierto, y nunca si el foco está en un
+  // campo de texto — si no, escribir "8" en Tasa por defecto cargaría un dígito del PIN.
+  // Va sin array de dependencias a propósito: `handleLockDigit` cierra sobre los dígitos
+  // ya tipeados, y con `[lockSetup]` el listener se quedaría con la versión del primero.
+  useEffect(() => {
+    if (!lockSetup) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (/^[0-9]$/.test(e.key)) { e.preventDefault(); handleLockDigit(e.key); }
+      else if (e.key === "Backspace") { e.preventDefault(); handleLockDel(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancelLockSetup(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // `totalDisbursed` excluye los préstamos creados por una refinanciación (si no, la misma
   // plata se contaría una vez por cada refinanciación) y prorratea los compartidos por mi
@@ -311,22 +330,27 @@ export default function ProfileScreen() {
               <div>
                 <div className="text-sm font-medium text-zinc-100">Bloqueo con PIN</div>
                 <div className="mt-0.5 text-xs text-zinc-500">
-                  {lockEnabled ? (lockHasBiometric ? "PIN + huella activados" : "PIN activado") : "Se pide al abrir la app instalada"}
+                  {lockHasBiometric ? "PIN + huella · " : ""}El acceso dura {GRACE_MIN} minutos
                 </div>
               </div>
             </div>
-            <Toggle checked={lockEnabled} onChange={(v) => {
-              if (v) { setLockSetup("pin1"); setSetupPin(""); setSetupPin2(""); setLockError(""); }
-              else { setLockSetup("disable"); setSetupPin(""); setLockError(""); }
-            }} />
+            {!lockSetup && (
+              <Button variant="secondary" size="sm" onClick={startLockChange}>Cambiar PIN</Button>
+            )}
           </div>
 
-          {lockSetup && lockSetup !== "add-biometric" && (
+          {lockOk && (
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" /> {lockOk}
+            </p>
+          )}
+
+          {lockSetup && (
             <div className="mt-4 border-t border-zinc-800/70 pt-4">
               <div className="mb-3 text-center text-sm text-zinc-400">
-                {lockSetup === "pin1" && "Elegí un PIN de 4 dígitos"}
-                {lockSetup === "pin2" && "Confirmá tu PIN"}
-                {lockSetup === "disable" && "Ingresá tu PIN actual para desactivar"}
+                {lockSetup === "current" && "Ingresá tu PIN actual"}
+                {lockSetup === "new" && "Elegí un PIN nuevo de 4 dígitos"}
+                {lockSetup === "confirm" && "Repetí el PIN nuevo"}
               </div>
               <div className="mb-4 flex justify-center gap-4">
                 {Array.from({ length: PIN_LEN }, (_, i) => (
@@ -351,23 +375,12 @@ export default function ProfileScreen() {
                   <Delete className="h-5 w-5" />
                 </button>
               </div>
-              <button onClick={() => { setLockSetup(null); setSetupPin(""); setSetupPin2(""); setLockError(""); }}
+              <button onClick={cancelLockSetup}
                 className="mt-3 w-full text-center text-xs text-zinc-600 hover:text-zinc-400">Cancelar</button>
             </div>
           )}
 
-          {lockSetup === "add-biometric" && (
-            <div className="mt-4 border-t border-zinc-800/70 pt-4">
-              <div className="mb-3 text-center text-sm text-zinc-300">✅ PIN configurado. ¿Agregás tu huella?</div>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" className="flex-1" Icon={Fingerprint} onClick={handleAddBiometric}>Agregar huella</Button>
-                <Button variant="ghost" size="sm" className="flex-1" onClick={() => setLockSetup(null)}>Ahora no</Button>
-              </div>
-              {lockError && <p className="mt-2 text-center text-xs text-rose-400">{lockError}</p>}
-            </div>
-          )}
-
-          {lockEnabled && !lockSetup && biometricSupported && (
+          {!lockSetup && biometricSupported && (
             <div className="mt-3 border-t border-zinc-800/70 pt-3">
               {lockHasBiometric ? (
                 <button onClick={() => {
