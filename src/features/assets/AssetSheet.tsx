@@ -24,11 +24,13 @@ interface AssetFormState {
   description: string;
   installmentMode: boolean;
   totalCuotas: string;
+  /** Fecha de compra (sólo valor fijo). Vacía en un activo viejo: cuenta en todos los meses. */
+  acquiredAt: string;
 }
 
 const emptyForm = (): AssetFormState => ({
   name: "", category: "vehicle", value: "", description: "",
-  installmentMode: false, totalCuotas: "",
+  installmentMode: false, totalCuotas: "", acquiredAt: todayISO(),
 });
 
 export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetProps) {
@@ -50,6 +52,7 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
               description: editingAsset.description ?? "",
               installmentMode: (editingAsset.installments?.length ?? 0) > 0 || !!editingAsset.totalCuotas,
               totalCuotas: editingAsset.totalCuotas ? String(editingAsset.totalCuotas) : "",
+              acquiredAt: editingAsset.acquiredAt ?? "",
             }
           : emptyForm()
       );
@@ -95,6 +98,8 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
       value,
       installments: isInstallment ? cuotas : undefined,
       totalCuotas: isInstallment && totalCuotasNum > 0 ? totalCuotasNum : undefined,
+      // En cuotas la fecha sale de cada cuota; en valor fijo, de la compra (lib/patrimonio.ts).
+      acquiredAt: !isInstallment && form.acquiredAt ? form.acquiredAt : undefined,
     };
     if (editingAsset) {
       dispatch({ type: "UPDATE_ASSET", payload: { ...editingAsset, ...payload } });
@@ -218,10 +223,15 @@ export default function AssetSheet({ open, onClose, editingAsset }: AssetSheetPr
             )}
           </div>
         ) : (
-          <Input label="Valor estimado" type="number" inputMode="decimal"
-            placeholder="0" value={form.value} Icon={DollarSign}
-            onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
-            hint="Valor de mercado actual aproximado." />
+          <div className="grid grid-cols-2 gap-2">
+            <Input label="Valor estimado" type="number" inputMode="decimal"
+              placeholder="0" value={form.value} Icon={DollarSign}
+              onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
+              hint={editingAsset ? "Si lo cambiás, los meses ya cerrados conservan el valor anterior." : "Valor de mercado actual aproximado."} />
+            <Input label="Fecha de compra" type="date" value={form.acquiredAt} max={todayISO()}
+              onChange={(e) => setForm((f) => ({ ...f, acquiredAt: e.target.value }))} Icon={CalendarDays}
+              hint={form.acquiredAt ? "Desde este mes suma al patrimonio." : "Sin fecha cuenta en todos los meses: cargá cuándo lo compraste."} />
+          </div>
         )}
 
         <Textarea label="Descripción" rows={3}

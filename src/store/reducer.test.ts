@@ -52,3 +52,16 @@ describe("UPDATE_CLIENT", () => {
     expect(r.loans[0].clientName).toBe("Alias viejo");
   });
 });
+
+describe("ADD_ASSET / UPDATE_ASSET: el historial de valores", () => {
+  it("revaluar un activo conserva el valor anterior para los meses cerrados", () => {
+    let s: AppState = { ...initialState, assets: [] };
+    s = reducer(s, { type: "ADD_ASSET", payload: { id: "a", category: "other", description: "", value: 1000, acquiredAt: "2020-01-10" } });
+    expect(s.assets[0].valueHistory).toEqual([{ date: "2020-01-10", value: 1000 }]);
+    s = reducer(s, { type: "UPDATE_ASSET", payload: { ...s.assets[0], value: 1500 } });
+    const h = s.assets[0].valueHistory!;
+    expect(h).toHaveLength(2);
+    expect(h[0]).toEqual({ date: "2020-01-10", value: 1000 });
+    expect(h[1].value).toBe(1500);
+  });
+});

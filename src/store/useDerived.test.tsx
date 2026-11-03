@@ -1327,3 +1327,45 @@ describe("datos del auto en garantía", () => {
     expect(s.loans[0].vehicle!.debt08UpToDate).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("activos y pasivos por fecha: lo de este mes no reescribe los meses cerrados", () => {
+  // Antes el gráfico aplicaba el total de HOY a todos los meses: registrar hoy una cuota del
+  // auto, o comprar un reloj, subía también el capital de los meses pasados.
+  it("una cuota y una compra de este mes cambian SÓLO el mes en curso", () => {
+    const base = derive();
+    const conNovedades: AppState = {
+      ...estado,
+      assets: [
+        ...estado.assets,
+        { id: "auto", category: "vehicle", description: "", value: 30000,
+          installments: [{ id: "c", amount: 30000, date: addDays(HOY, -1) }] },
+        { id: "reloj", category: "other", description: "", value: 5000, acquiredAt: addDays(HOY, -2),
+          valueHistory: [{ date: addDays(HOY, -2), value: 5000 }] },
+      ],
+      liabilities: [{ ...estado.liabilities[0], payments: [...estado.liabilities[0].payments, { id: "hoy", amount: 1000, date: HOY }] }],
+    };
+    const d = derive(conNovedades);
+    const ult = d.months.length - 1;
+    for (let i = 0; i < ult; i++) expect(d.months[i].capital).toBeCloseTo(base.months[i].capital, 2);
+    expect(d.months[ult].capital).toBeCloseTo(base.months[ult].capital + 30000 + 5000 + 1000, 2);
+    // La card y el último punto siguen siendo el mismo número.
+    expect(d.months[ult].capital).toBeCloseTo(d.totalCapital, 2);
+  });
+
+  it("una deuda no resta en los meses anteriores a su inicio", () => {
+    const d = derive();
+    const deudaInicio = monthKey(estado.liabilities[0].startDate);
+    const antes = d.monthBreakdowns.filter((b) => b.key < deudaInicio);
+    expect(antes.length).toBeGreaterThan(0);
+    for (const b of antes) expect(b.total.find((c) => c.kind === "liability")).toBeUndefined();
+  });
+
+  it("el desglose de cada mes usa los activos de ese mes", () => {
+    const d = derive({ ...estado, assets: [{ id: "r", category: "other", description: "", value: 7000,
+      acquiredAt: HOY, valueHistory: [{ date: HOY, value: 7000 }] }] });
+    const ult = d.monthBreakdowns.length - 1;
+    expect(d.monthBreakdowns[ult - 1].total.find((c) => c.kind === "asset")).toBeUndefined();
+    expect(d.monthBreakdowns[ult].total.find((c) => c.kind === "asset")?.amount).toBe(7000);
+  });
+});

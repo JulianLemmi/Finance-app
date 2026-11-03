@@ -251,6 +251,16 @@ export interface Asset {
   installments?: AssetPayment[];
   /** Cantidad total de cuotas del plan, para mostrar progreso "X de Y" (opcional). */
   totalCuotas?: number;
+  /** Fecha de compra (activos de valor fijo): antes de esta fecha no cuenta en el patrimonio. */
+  acquiredAt?: ISODate;
+  /** Valores que tuvo y desde cuándo: revaluar hoy no cambia los meses cerrados. Lo arma el reducer. */
+  valueHistory?: AssetValueEntry[];
+}
+
+export interface AssetValueEntry {
+  /** Desde cuándo vale `value`. `""` = desde siempre (activo viejo sin fecha de compra). */
+  date: ISODate | "";
+  value: number;
 }
 
 export interface Liability {

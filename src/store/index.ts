@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo } from "react";
+import { sumAssetsAt, sumLiabilitiesAt, nextValueHistory } from "../lib/patrimonio.js";
 import { EXPENSE_CATEGORIES, UI_LIMITS, BUSINESS_RULES } from "../lib/constants.js";
 import { uid, todayISO, toISODate, monthKey, lastMonthKeys, getMonthLabel, daysBetween, addDays, getNextRenewalDate, getLoanCycleDays, stripComputed, myShare, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, advanceEntries, packAdvances } from "../lib/utils.js";
 import {
@@ -9,7 +10,7 @@ import {
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
-  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown, Asset, Liability,
+  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown,
 } from "../types";
 
 export const initialState: AppState = {
@@ -350,14 +351,21 @@ export function reducer(state: AppState, action: AppAction): AppState {
         return { ...state, expenses: state.expenses.filter((t) => t.id !== id) };
       }
     }
+    // El historial de valores lo arma el reducer (ver lib/patrimonio.ts): así un mes cerrado
+    // conserva el valor que el activo tenía entonces aunque hoy se lo revalúe.
     case "ADD_ASSET":
-      return { ...state, assets: [action.payload, ...state.assets] };
+      return {
+        ...state,
+        assets: [{ ...action.payload, valueHistory: nextValueHistory(undefined, action.payload, todayISO()) }, ...state.assets],
+      };
     case "UPDATE_ASSET":
       return {
         ...state,
-        assets: state.assets.map((a) =>
-          a.id === action.payload.id ? { ...a, ...action.payload } : a
-        ),
+        assets: state.assets.map((a) => {
+          if (a.id !== action.payload.id) return a;
+          const next = { ...a, ...action.payload };
+          return { ...next, valueHistory: nextValueHistory(a, next, todayISO()) };
+        }),
       };
     case "DELETE_ASSET":
       return { ...state, assets: state.assets.filter((a) => a.id !== action.payload) };
@@ -419,18 +427,6 @@ function totalSalary(firstMonth: string, currentMonth: string, amount: number, d
   return total;
 }
 
-/** Valor total de los activos. Una sola definición: la usan `financials` (card de capital) y
- *  `chartData` (último punto de la curva), y tienen que dar el mismo número. */
-const sumAssets = (assets: readonly Asset[]): number =>
-  assets.reduce((a, asset) => a + Number(asset.value || 0), 0);
-
-/** Lo adeudado en deudas propias: el monto original menos lo pagado, sin bajar de cero. Sólo
- *  resta del capital total, no afecta el flujo. Misma razón que `sumAssets` para estar acá. */
-const sumLiabilities = (liabilities: readonly Liability[]): number =>
-  liabilities.reduce((a, l) => {
-    const paid = (l.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
-    return a + Math.max(0, Number(l.amount || 0) - paid);
-  }, 0);
 
 export function useDerived(state: AppState): Derived {
   // Stage 1: resolve each loan's computed fields
@@ -541,9 +537,11 @@ export function useDerived(state: AppState): Derived {
       .filter((l) => !l.refinancedFromId)
       .reduce((a, l) => a + myShare(l) * l._principal, 0);
     const available = Number(state.settings.cashOnHand || 0);
-    const totalAssets = sumAssets(state.assets);
-    // Deudas propias (ej: plata que le debo a mi papá): ver `sumLiabilities`.
-    const totalLiabilities = sumLiabilities(state.liabilities);
+    // Activos y pasivos a HOY, con la misma función que cada mes del gráfico (lib/patrimonio.ts):
+    // la card y el último punto de la curva tienen que dar el mismo número.
+    const totalAssets = sumAssetsAt(state.assets, todayStr);
+    // Deudas propias (ej: plata que le debo a mi papá): sólo restan del capital total.
+    const totalLiabilities = sumLiabilitiesAt(state.liabilities, todayStr);
     const workingCapital = available + capitalInvested;
     const totalCapital = workingCapital + totalAssets - totalLiabilities;
 
@@ -730,8 +728,6 @@ export function useDerived(state: AppState): Derived {
         if (Number(ev.date.slice(8, 10)) <= dayOfMonth) accruedToDate[i] += share * ev.amount;
       });
     });
-    const totalAssets = sumAssets(state.assets);
-    const totalLiabilities = sumLiabilities(state.liabilities);
     months.forEach((m) => {
       const [yr, mo] = m.key.split("-").map(Number);
       // toISODate y no toISOString: el último día del mes se construye en hora local y
@@ -771,8 +767,10 @@ export function useDerived(state: AppState): Derived {
       const capitalAtMonth = capitalPorPrestamo.reduce((acc, c) => acc + c.amount, 0);
       m.capitalInvested = capitalAtMonth;
       // Capital total de la curva: efectivo + invertido + activos - pasivos (igual que
-      // totalCapital del header). Activos y pasivos se aplican a todos los meses por igual
-      // (no tienen histórico por fecha).
+      // totalCapital del header). Activos y pasivos van A LA FECHA del corte: una compra o
+      // una cuota de este mes no sube los meses ya cerrados (lib/patrimonio.ts).
+      const totalAssets = sumAssetsAt(state.assets, cutoff);
+      const totalLiabilities = sumLiabilitiesAt(state.liabilities, cutoff);
       m.capital = Number(state.settings.cashOnHand || 0) + capitalAtMonth + totalAssets - totalLiabilities;
       // ROI del mes: interés devengado (lo acumulado por vencimientos) sobre el capital
       // desplegado, tomado como base. Refleja el rendimiento real, se cobre o no.
