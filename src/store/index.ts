@@ -10,7 +10,7 @@ import {
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
-  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown,
+  Loan, Transaction, ResolvedLoan, MonthPace, MonthBreakdown, MonthData,
 } from "../types";
 
 export const initialState: AppState = {
@@ -675,9 +675,9 @@ export function useDerived(state: AppState): Derived {
     // Día del mes de hoy: corta el mes anterior en el mismo punto para que la comparación
     // de ritmo sea contra un tramo equivalente y no contra un mes cerrado completo.
     const dayOfMonth = Number(today.slice(8, 10));
-    const months: { key: string; label: string; income: number; expense: number; capital: number; capitalInvested: number; accrued: number; salary: number; monthGain: number; roi: number }[] = [];
+    const months: MonthData[] = [];
     for (const key of lastMonthKeys(now, BUSINESS_RULES.CHART_HISTORY_MONTHS)) {
-      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, capitalInvested: 0, accrued: 0, salary: 0, monthGain: 0, roi: 0 });
+      months.push({ key, label: getMonthLabel(key), income: 0, expense: 0, capital: 0, capitalInvested: 0, accrued: 0, salary: 0, monthGain: 0, net: 0, collected: 0, paymentsCount: 0, roi: 0 });
     }
     const monthIdx: Record<string, number> = Object.fromEntries(months.map((m, i) => [m.key, i]));
     state.income.forEach((t) => {
@@ -726,6 +726,14 @@ export function useDerived(state: AppState): Derived {
         const quien = (l.clientName || "Sin nombre").trim();
         accruedByClient[i].set(quien, (accruedByClient[i].get(quien) || 0) + share * ev.amount);
         if (Number(ev.date.slice(8, 10)) <= dayOfMonth) accruedToDate[i] += share * ev.amount;
+      });
+      // Lo que efectivamente entró en el mes. No es ganancia (un cobro trae capital de
+      // vuelta además de interés): es "cuánta plata vino", para la card de Inicio.
+      (l.payments || []).forEach((p) => {
+        const i = monthIdx[monthKey(p.date)];
+        if (i === undefined) return;
+        months[i].collected += share * Number(p.amount || 0);
+        months[i].paymentsCount += 1;
       });
     });
     months.forEach((m) => {
@@ -777,6 +785,9 @@ export function useDerived(state: AppState): Derived {
       m.roi = investedAtMonth > 0 ? (m.accrued / investedAtMonth) * 100 : 0;
       // Ganancia del mes para el gráfico "Mes actual": interés devengado + sueldo fijo.
       m.monthGain = m.accrued + m.salary;
+      // Ganancia neta: la misma ganancia menos los gastos del mes. Es el número grande de
+      // la card "Ganancia neta" de Inicio y la curva de su gráfico.
+      m.net = m.monthGain - m.expense;
 
       // De dónde sale cada vela. Cada lista tiene que sumar EXACTAMENTE la barra que
       // explica — hay tests que lo afirman: un desglose que no cierra con su barra es

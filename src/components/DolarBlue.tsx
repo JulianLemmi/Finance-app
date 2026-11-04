@@ -1,120 +1,21 @@
-// Widget que muestra la cotización del dólar blue y oficial en tiempo real.
-// Se auto-refresca cada 5 minutos y pausa cuando la app está en segundo plano.
-// Usa back-off exponencial en caso de errores de red (hasta MAX_RETRIES).
-import { useState, useEffect, useCallback, useRef } from "react";
+// Widget que muestra la cotización del dólar blue y oficial. La consulta (refresco,
+// pausa en segundo plano, reintentos) vive en `useDolar` (lib/dolar.ts): la pantalla la
+// hace una sola vez y se la pasa a este widget y a la card de ganancia, que convierte con
+// la misma cotización que se ve acá.
 import { RefreshCw } from "lucide-react";
+import type { DolarQuote } from "../lib/dolar.js";
 
-const API_URL = "https://api.bluelytics.com.ar/v2/latest";
-const REFRESH_MS = 5 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 8_000;
-const MAX_RETRIES = 3;
-const VISIBILITY_DELAY_MS = 1_000;
-
-interface DolarRate {
-  value_sell: number;
-  value_buy: number;
-}
-
-interface DolarData {
-  blue?: DolarRate;
-  oficial?: DolarRate;
-}
+// Constantes de módulo: construir un `Intl.NumberFormat` en cada render es lo caro.
+const FMT_PESOS = new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 });
+const FMT_HORA = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" });
 
 function fmt(n: number | undefined | null): string {
   if (n == null) return "—";
-  return `$${Number(n).toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
+  return `$${FMT_PESOS.format(Number(n))}`;
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    return res;
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
-  }
-}
-
-export default function DolarBlue() {
-  const [data, setData] = useState<DolarData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [stale, setStale] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // `aliveRef`: si el componente se desmonta con un fetch en vuelo, el catch agendaba un
-  // reintento DESPUÉS del cleanup, y se encadenaban hasta tres más sin dueño, llamando
-  // setState sobre un componente muerto. `loadRef`: los reintentos se llaman a sí mismos, y
-  // una función que se referencia dentro de su propio useCallback es una lectura antes de
-  // la declaración (lo marca react-hooks/immutability).
-  const aliveRef = useRef(true);
-  const loadRef = useRef<(attempt?: number) => Promise<void>>(async () => {});
-
-  useEffect(() => {
-    aliveRef.current = true;
-    return () => { aliveRef.current = false; };
-  }, []);
-
-  const clearRetry = useCallback(() => {
-    if (retryTimerRef.current != null) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const load = useCallback(async (attempt = 0) => {
-    clearRetry();
-    if (attempt === 0) setLoading(true);
-    try {
-      const res = await fetchWithTimeout(API_URL, FETCH_TIMEOUT_MS);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json() as DolarData;
-      if (!aliveRef.current) return;
-      setData(json);
-      setStale(false);
-      setUpdatedAt(new Date());
-      setLoading(false);
-    } catch {
-      if (!aliveRef.current) return;
-      if (attempt < MAX_RETRIES) {
-        const delay = Math.pow(2, attempt) * 1_000;
-        retryTimerRef.current = setTimeout(() => loadRef.current(attempt + 1), delay);
-        return;
-      }
-      setStale(true);
-      setLoading(false);
-    }
-  }, [clearRetry]);
-
-  useEffect(() => { loadRef.current = load; }, [load]);
-
-  useEffect(() => {
-    load();
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const startInterval = () => { if (intervalId == null) intervalId = setInterval(() => load(), REFRESH_MS); };
-    const stopInterval = () => { if (intervalId != null) { clearInterval(intervalId); intervalId = null; } };
-
-    const onVisibility = () => {
-      if (visibilityTimer) clearTimeout(visibilityTimer);
-      if (document.hidden) { stopInterval(); clearRetry(); }
-      else {
-        visibilityTimer = setTimeout(() => { load(); startInterval(); }, VISIBILITY_DELAY_MS);
-      }
-    };
-
-    startInterval();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      stopInterval(); clearRetry();
-      if (visibilityTimer) clearTimeout(visibilityTimer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [load, clearRetry]);
-
+export default function DolarBlue({ quote }: { quote: DolarQuote }) {
+  const { data, loading, stale, updatedAt, reload } = quote;
   const blue = data?.blue;
   const oficial = data?.oficial;
   const spread =
@@ -136,7 +37,7 @@ export default function DolarBlue() {
             <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-[10px] text-zinc-500">Sin conexión</span>
           )}
         </div>
-        <button onClick={() => load()} disabled={loading} aria-label="Actualizar cotización" title="Actualizar cotización"
+        <button onClick={reload} disabled={loading} aria-label="Actualizar cotización" title="Actualizar cotización"
           className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-400">
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
         </button>
@@ -172,7 +73,7 @@ export default function DolarBlue() {
 
       {updatedAt && (
         <div className="mt-3 text-[10px] text-zinc-600">
-          Act. {updatedAt.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+          Act. {FMT_HORA.format(updatedAt)}
         </div>
       )}
     </div>

@@ -460,6 +460,13 @@ export interface MonthData {
   salary: number;
   /** Ganancia del mes para el gráfico "Mes actual": `accrued + salary`. */
   monthGain: number;
+  /** Ganancia neta del mes: `monthGain − expense`. Card "Ganancia neta" de Inicio. */
+  net: number;
+  /** Plata cobrada en el mes (pagos recibidos, prorrateados por `myShare`). Trae capital
+   *  además de interés, así que NO es ganancia: es cuánto entró. */
+  collected: number;
+  /** Cantidad de cobros recibidos en el mes. */
+  paymentsCount: number;
   roi: number;
 }
 

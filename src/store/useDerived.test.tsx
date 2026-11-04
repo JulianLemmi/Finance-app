@@ -99,7 +99,7 @@ describe("la curva del gráfico cierra con las cards", () => {
 
   it("ningún mes produce NaN", () => {
     for (const m of d.months) {
-      for (const v of [m.income, m.expense, m.capital, m.capitalInvested, m.accrued, m.salary, m.monthGain, m.roi]) {
+      for (const v of [m.income, m.expense, m.capital, m.capitalInvested, m.accrued, m.salary, m.monthGain, m.net, m.collected, m.paymentsCount, m.roi]) {
         expect(Number.isFinite(v)).toBe(true);
       }
     }
@@ -114,6 +114,48 @@ describe("la curva del gráfico cierra con las cards", () => {
 
   it('la ganancia del mes es interés devengado + sueldo', () => {
     for (const m of d.months) expect(m.monthGain).toBeCloseTo(m.accrued + m.salary, 2);
+  });
+
+  // La card "Ganancia neta" escribe "devengado + sueldo − gastos" debajo del número
+  // grande: si la cuenta no da, la card se contradice a sí misma.
+  it("la ganancia neta es la ganancia del mes menos los gastos", () => {
+    for (const m of d.months) expect(m.net).toBeCloseTo(m.accrued + m.salary - m.expense, 2);
+    expect(ultimo().net).toBeCloseTo(ultimo().monthGain - 2000, 2); // el gasto de la cartera
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("cobros del mes (card Ganancia neta)", () => {
+  it("cuenta los pagos del mes en que entraron, y no los de otros meses", () => {
+    const d = derive();
+    const ultimo = d.months[d.months.length - 1];
+    // La cartera tiene un solo pago: los $110.000 de "pagado", hace 15 días (este mes).
+    expect(ultimo.paymentsCount).toBe(1);
+    expect(ultimo.collected).toBeCloseTo(110000, 2);
+    for (const m of d.months.slice(0, -1)) {
+      expect(m.paymentsCount).toBe(0);
+      expect(m.collected).toBe(0);
+    }
+  });
+
+  it("en un préstamo compartido cuenta sólo mi parte de la plata (pero el cobro entero)", () => {
+    const loans = estado.loans.map((l) => l.id === "compartido"
+      ? { ...l, payments: [{ id: "pc", amount: 20000, date: addDays(HOY, -2) }] }
+      : l);
+    const d = derive({ ...estado, loans });
+    const ultimo = d.months[d.months.length - 1];
+    expect(ultimo.paymentsCount).toBe(2);
+    expect(ultimo.collected).toBeCloseTo(110000 + 10000, 2); // 50% de 20.000
+  });
+
+  it("un pago de hace dos meses va a su mes", () => {
+    const loans = estado.loans.map((l) => l.id === "vencido"
+      ? { ...l, payments: [{ id: "pv", amount: 5000, date: addCalendarMonths(HOY, -2) }] }
+      : l);
+    const d = derive({ ...estado, loans });
+    const m = d.months.find((x) => x.key === monthKey(addCalendarMonths(HOY, -2)))!;
+    expect(m.paymentsCount).toBe(1);
+    expect(m.collected).toBeCloseTo(5000, 2);
   });
 });
 

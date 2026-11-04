@@ -82,9 +82,9 @@ export function ChartContainer({ className, children }: ChartContainerProps) {
 
 /* ── Piezas compartidas por los gráficos de Inicio ─────────────────────────────
    La regla que siguen: el color nunca es el único que dice qué es cada serie. Con dos
-   o más series siempre hay leyenda, y cada barra lleva su valor escrito encima
-   (`makeBarLabel`, en chartHelpers.tsx) con el eje vertical a la vista; sólo el balance
-   divergente rotula una única barra, la del mes en foco (`makeBarValueLabel`).
+   o más series siempre hay leyenda. Las curvas de Inicio escriben sólo el valor del
+   último mes (`makePointLabel`, en chartHelpers.tsx) y el resto va en el tooltip; los
+   gráficos de barras de Finanzas rotulan cada barra (`makeBarLabel`).
    ──────────────────────────────────────────────────────────────────────────── */
 
 interface LegendItem { label: string; color: string; }

@@ -127,13 +127,6 @@ export const CHART_COLORS = {
   cursorLine: "#3f3f46",
 };
 
-// Un color por mes para los graficos de barras. Los meses son una categoria ORDENADA y
-// ademas van rotulados en el eje y con su valor encima, asi que el tono es decorativo:
-// la informacion la llevan la altura y la etiqueta. Aun asi el set esta validado (banda
-// de luminosidad del tema oscuro + separacion entre barras contiguas, tambien en
-// daltonismo), y evita a proposito el verde y el rojo, que en esta app significan
-// Ingreso y Gasto.
-export const MONTH_COLORS = ["#0d9488", "#d97706", "#2563eb", "#db2777", "#7c3aed", "#ea580c"];
 
 export const TONES = {
   neutral: "bg-zinc-800/70 text-zinc-300 border-zinc-700/50",
