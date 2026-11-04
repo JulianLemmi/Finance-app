@@ -3,11 +3,12 @@
 // Mantener apretada una card (mouse o touch) la archiva/restaura sin borrar datos —
 // ver Historial en el header y useLongPress en lib/hooks.ts.
 import { useState, useMemo } from "react";
-import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ChevronDown, Archive, ArchiveRestore, Users } from "lucide-react";
+import { Plus, PlusCircle, Search, Wallet, CalendarClock, Calendar, ArrowDown, ArrowLeft, ArrowUpDown, ChevronDown, Archive, ArchiveRestore, Users } from "lucide-react";
 import { useApp } from "../store/index.js";
 import { GUARANTY_TYPES, UI_LIMITS } from "../lib/constants.js";
-import { formatShortDate, getNextRenewalDate, formatInterest, myShare, daysBetween, todayISO, formatMoney } from "../lib/utils.js";
-import { closedLoanOutcome } from "../lib/calcs.js";
+import { formatShortDate, formatInterest, myShare, daysBetween, todayISO, formatMoney } from "../lib/utils.js";
+import { closedLoanOutcome, nextCollectionDate } from "../lib/calcs.js";
+import { sortLoans, loanDescription, recentMovements, lastPayment, LOANS_SORTS, esOrdenValido } from "../lib/loanList.js";
 import { useLongPress } from "../lib/hooks.js";
 import { EmptyState, Input, Button, Money, ProgressBar, StatusBadge, SectionTitle, Card, Badge } from "../components/ui.jsx";
 import type { ResolvedLoan, LoanStatus } from "../types";
@@ -26,9 +27,23 @@ function LoanCard({ loan, onOpen, onToggleArchive, archived }: LoanCardProps) {
   const overdue = loan._status === "overdue";
   const upcoming = loan._status === "active" && dueIn !== null && dueIn <= 3;
   const ongoing = loan._status === "active" || loan._status === "overdue";
-  const nextRenewalDate = ongoing ? getNextRenewalDate(loan) : null;
+  // `nextCollectionDate`, igual que el detalle y que el orden "Vence antes". Con
+  // `getNextRenewalDate` a secas, un préstamo que todavía no llegó a su vencimiento
+  // anunciaba un cobro UN CICLO después del real.
+  const nextRenewalDate = ongoing ? nextCollectionDate(loan) : null;
   // En préstamos compartidos, la próxima ganancia mostrada es mi parte, no el total.
   const nextChargeAmount = ongoing ? loan._nextProfit * myShare(loan) : 0;
+  const hide = state.settings.hideBalances;
+  const cur = state.settings.currency;
+  const descripcion = loanDescription(loan, cur, hide);
+  // `loan` cambia de referencia sólo cuando cambia el préstamo (o se recalcula el
+  // derivado), así que la planilla no se rearma en cada render de la lista.
+  const movimientos = useMemo(() => recentMovements(loan, 2), [loan]);
+  // Si entre los dos últimos movimientos no hay un pago (un atrasado que sólo re-vence),
+  // se agrega cuándo pagó por última vez: es lo primero que uno quiere saber de ese cliente.
+  // "Sin pagos todavía" sólo dice algo en un atrasado: en uno que todavía no venció es lo normal.
+  const ultimoPagoRaw = ongoing && !movimientos.some((r) => r.haber > 0) ? lastPayment(loan) : undefined;
+  const ultimoPago = ultimoPagoRaw === null && !overdue ? undefined : ultimoPagoRaw;
 
   const { pressing, progressMs, handlers } = useLongPress(
     () => { navigator.vibrate?.(15); onToggleArchive(loan.id); },
@@ -77,6 +92,7 @@ function LoanCard({ loan, onOpen, onToggleArchive, archived }: LoanCardProps) {
             )}
           </div>
           {loan.alias && <div className="mt-0.5 truncate text-xs text-zinc-500">{loan.alias}</div>}
+          <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-zinc-400">{descripcion}</div>
         </div>
         <div className="text-right">
           <div className="text-sm font-semibold tracking-tight text-zinc-100 tabular-nums">
@@ -100,11 +116,41 @@ function LoanCard({ loan, onOpen, onToggleArchive, archived }: LoanCardProps) {
         <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500 tabular-nums">
           <span className="flex items-center gap-1">
             <span className="text-zinc-600">↻</span>
-            Próx. vence {formatShortDate(nextRenewalDate)}
+            Próx. cobro {formatShortDate(nextRenewalDate)}
           </span>
           <span className="text-emerald-400">
-            +<Money value={nextChargeAmount} hide={state.settings.hideBalances} currency={state.settings.currency} />
+            +<Money value={nextChargeAmount} hide={hide} currency={cur} />
           </span>
+        </div>
+      )}
+      {/* Los dos últimos movimientos, sacados de la planilla del préstamo: lo que pasó
+          sin tener que abrir el detalle. Importes brutos, como la deuda de arriba. */}
+      {movimientos.length > 0 && (
+        <div className="mt-3 space-y-1 rounded-xl border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-600">Últimos movimientos</div>
+          {movimientos.map((r, i) => {
+            const pago = r.haber > 0;
+            return (
+              <div key={i} className="flex items-center justify-between gap-3 text-[11px]">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${pago ? "bg-emerald-500" : r.kind === "interes" ? "bg-amber-500" : "bg-zinc-500"}`} />
+                  <span className="truncate text-zinc-300">{r.detalle}</span>
+                  <span className="shrink-0 text-zinc-600">{formatShortDate(r.date)}</span>
+                </span>
+                {/* Signo desde la deuda: un pago la baja (verde), un cargo la sube. */}
+                <span className={`shrink-0 tabular-nums ${pago ? "text-emerald-400" : r.kind === "interes" ? "text-amber-400" : "text-zinc-300"}`}>
+                  {hide ? "" : pago ? "−" : "+"}{formatMoney(pago ? r.haber : r.debe, hide, cur)}
+                </span>
+              </div>
+            );
+          })}
+          {ultimoPago !== undefined && (
+            <div className="border-t border-zinc-800/60 pt-1 text-[11px] text-zinc-500">
+              {ultimoPago
+                ? <>Último pago <span className="text-zinc-400">{formatShortDate(ultimoPago.date)}</span> · <span className="tabular-nums text-emerald-400/80">{formatMoney(ultimoPago.amount, hide, cur)}</span></>
+                : "Sin pagos todavía"}
+            </div>
+          )}
         </div>
       )}
       <div className="mt-3 flex items-center justify-between text-[11px]">
@@ -219,6 +265,10 @@ export default function LoansScreen() {
   const [viewArchived, setViewArchived] = useState(false);
   const hide = state.settings.hideBalances;
   const cur = state.settings.currency;
+  // Se guarda en settings: si viviera en el estado de la pantalla, volvería a "Prioridad"
+  // cada vez que se cambia de pestaña. Un valor guardado que no se reconoce (un respaldo
+  // raro) cae al orden de siempre.
+  const sort = esOrdenValido(state.settings.loansSort) ? state.settings.loansSort : "priority";
 
   // El archivado sólo oculta préstamos de este listado (mantenido apretado sobre la
   // card) — no toca useDerived, así que siguen contando igual en Finanzas/Inicio.
@@ -269,15 +319,28 @@ export default function LoansScreen() {
         (l) => l.clientName.toLowerCase().includes(q) || (l.alias || "").toLowerCase().includes(q)
       );
     }
-    // Copia antes de ordenar: sin filtro ni búsqueda, `arr` es el memo `visibleLoans` /
-    // `archivedLoans`, y `sort` lo ordenaría en el lugar (ver ClientsScreen).
-    return [...arr].sort((a, b) => {
-      const order: Record<LoanStatus, number> = { overdue: 0, active: 1, refinanced: 2, paid: 3 };
-      const oa = order[a._status] ?? 9, ob = order[b._status] ?? 9;
-      if (oa !== ob) return oa - ob;
-      return (a._daysUntilDue ?? 9999) - (b._daysUntilDue ?? 9999);
-    });
-  }, [visibleLoans, archivedLoans, viewArchived, filter, query]);
+    // `sortLoans` ordena una copia: sin filtro ni búsqueda, `arr` es el memo `visibleLoans` /
+    // `archivedLoans`, y ordenarlo en el lugar lo mutaría (ver ClientsScreen).
+    return sortLoans(arr, sort);
+  }, [visibleLoans, archivedLoans, viewArchived, filter, query, sort]);
+
+  const selectorOrden = (
+    <label className="relative flex shrink-0 items-center">
+      <ArrowUpDown className={`pointer-events-none absolute left-2.5 h-3.5 w-3.5 ${sort === "priority" ? "text-zinc-500" : "text-amber-400"}`} />
+      <select aria-label="Ordenar préstamos" value={sort}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (esOrdenValido(v)) dispatch({ type: "UPDATE_SETTINGS", payload: { loansSort: v } });
+        }}
+        className={`cursor-pointer appearance-none rounded-full border py-1.5 pl-7 pr-3 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-600 ${
+          sort === "priority"
+            ? "border-zinc-800/70 bg-zinc-900/60 text-zinc-400 hover:bg-zinc-900"
+            : "border-amber-700/60 bg-amber-900/30 text-amber-200"
+        }`}>
+        {LOANS_SORTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    </label>
+  );
 
   return (
     <div className="space-y-5 pb-2">
@@ -316,25 +379,30 @@ export default function LoansScreen() {
       <Input placeholder="Buscar cliente o alias..." value={query}
         onChange={(e) => setQuery(e.target.value)} Icon={Search} />
 
-      {!viewArchived && (
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
-          {filters.map((f) => {
-            const active = filter === f.v;
-            return (
-              <button key={f.v} onClick={() => setFilter(f.v)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
-                  active
-                    ? "border-amber-700/60 bg-amber-900/30 text-amber-200"
-                    : "border-zinc-800/70 bg-zinc-900/60 text-zinc-400 hover:bg-zinc-900"
-                }`}
-              >
-                {f.l}
-                <span className={`tabular-nums ${active ? "text-amber-300/80" : "text-zinc-500"}`}>{f.n}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* Los estados scrollean de costado en el teléfono; el orden queda fijo a la derecha
+          para que siempre se vea cuál está puesto. */}
+      <div className="flex items-center gap-2">
+        {viewArchived ? <div className="flex-1" /> : (
+          <div className="-mx-1 flex min-w-0 flex-1 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+            {filters.map((f) => {
+              const active = filter === f.v;
+              return (
+                <button key={f.v} onClick={() => setFilter(f.v)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                    active
+                      ? "border-amber-700/60 bg-amber-900/30 text-amber-200"
+                      : "border-zinc-800/70 bg-zinc-900/60 text-zinc-400 hover:bg-zinc-900"
+                  }`}
+                >
+                  {f.l}
+                  <span className={`tabular-nums ${active ? "text-amber-300/80" : "text-zinc-500"}`}>{f.n}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="pb-1">{selectorOrden}</div>
+      </div>
 
       {filtered.length === 0 ? (
         <EmptyState Icon={viewArchived ? Archive : Wallet}

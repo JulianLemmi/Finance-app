@@ -759,6 +759,10 @@ export interface LedgerRow {
   haber: number;
   /** Deuda después de esta fila. */
   saldo: number;
+  /** La fila del ciclo en curso: el interés cobrado por adelantado que todavía no cerró.
+   *  No es un hecho que haya pasado (no tiene fecha propia, va con la de hoy), así que lo
+   *  que liste "movimientos" la tiene que saltear. */
+  enCurso?: boolean;
 }
 
 /**
@@ -847,6 +851,7 @@ export function loanLedger(loan: Loan): LedgerRow[] {
       debe: enCurso,
       haber: 0,
       order: 40,
+      enCurso: true,
     });
   }
 

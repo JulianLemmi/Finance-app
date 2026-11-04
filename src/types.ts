@@ -330,7 +330,13 @@ export interface Settings {
   dollarAlerts: boolean;
   /** Umbral en pesos: avisa cuando el blue venta se movió más que esto desde el último aviso. */
   dollarThreshold: number;
+  /** Cómo se ordena el listado de Préstamos. Se guarda para que no vuelva a "Prioridad"
+   *  cada vez que se cambia de pestaña. `undefined` = "priority". */
+  loansSort?: LoansSort;
 }
+
+/** Órdenes del listado de Préstamos (ver `sortLoans` en lib/loanList.ts). */
+export type LoansSort = "priority" | "due" | "amountDesc" | "amountAsc";
 
 /** Qué desglose mira cada gráfico de Inicio (el sheet que se abre manteniendo apretada una vela). */
 export type ChartDetailKind = "accrued" | "expenses" | "capital" | "total";
