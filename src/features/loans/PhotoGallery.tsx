@@ -24,9 +24,9 @@ export default function PhotoGallery({ loan, userId }: PhotoGalleryProps) {
     if (!files?.length) return;
     setUploading(true);
     try {
-      const newPhotos: Photo[] = await Promise.all(
-        Array.from(files).map((file) => uploadPhoto(userId, loan.id, file))
-      );
+      // De a una: varias fotos de 12 MP decodificándose a la vez agotan la memoria del teléfono.
+      const newPhotos: Photo[] = [];
+      for (const file of Array.from(files)) newPhotos.push(await uploadPhoto(userId, loan.id, file));
       dispatch({
         type: "UPDATE_LOAN",
         payload: { id: loan.id, photos: [...(loan.photos || []), ...newPhotos] },
@@ -64,7 +64,7 @@ export default function PhotoGallery({ loan, userId }: PhotoGalleryProps) {
             {loan.photos.map((photo) => (
               <div key={photo.id}
                 className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800/70">
-                <img src={photo.url || photo.data} alt={photo.name}
+                <img src={photo.url || photo.data} alt={photo.name} loading="lazy" decoding="async"
                   className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
                   onClick={() => setLightboxPhoto(photo)} />
                 <div className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-0.5">

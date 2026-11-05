@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { uid } from "./utils.js";
+import { achicarFoto } from "./image.js";
 import type { Photo } from "../types";
 
 declare global {
@@ -152,8 +153,10 @@ async function toBase64(file: File, photoId: string): Promise<Photo> {
   });
 }
 
-export async function uploadPhoto(userId: string, loanId: string, file: File): Promise<Photo> {
+export async function uploadPhoto(userId: string, loanId: string, original: File): Promise<Photo> {
   const photoId = uid("photo");
+  // Achicada ANTES de subirla y de dibujarla: la de 12 MP del teléfono traba la pantalla (lib/image.ts).
+  const file = await achicarFoto(original);
   if (!supabase || !userId) return toBase64(file, photoId);
 
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
