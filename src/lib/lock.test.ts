@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vites
 import {
   lockGate, markUnlocked, getLastUnlock, getLockConfig, saveLockConfig,
   clearLockConfig, savePin, checkPin, verifyAndUpgradePin, LOCK_GRACE_MS,
+  marcarSelectorAbierto, volvioDelSelector, SELECTOR_GRACE_MS,
 } from "./lock.js";
 
 const T0 = new Date(2026, 9, 28, 12, 0, 0);
@@ -167,5 +168,53 @@ describe("verifyAndUpgradePin: el hash v1 se migra al v2 apenas se valida", () =
 
   it("sin PIN guardado no valida nada", async () => {
     expect(await verifyAndUpgradePin("1234")).toBe(false);
+  });
+});
+
+// En el teléfono, elegir una foto abre la galería o la cámara y la página queda oculta: al
+// volver, pasados los 5 minutos, la app se bloqueaba en medio de "agregar una foto" (PIN +
+// huella automática + desbloqueo = toda la pantalla parpadeando).
+describe("volver de un selector de archivos no bloquea", () => {
+  beforeEach(() => {
+    volvioDelSelector(); // limpia una marca que haya dejado otro test
+    saveLockConfig({ pinHash: PIN_FALSO });
+    markUnlocked();
+  });
+
+  it("sin marca, una vuelta no se perdona", () => {
+    expect(volvioDelSelector()).toBe(false);
+  });
+
+  it("la vuelta después de abrir el selector se perdona aunque haya vencido la ventana", () => {
+    avanzar(LOCK_GRACE_MS + 60_000);
+    expect(lockGate()).toBe("pin"); // precondición: sin la marca, esto bloquearía
+    marcarSelectorAbierto();
+    avanzar(LOCK_GRACE_MS + 60_000 + 20_000); // 20 s eligiendo la foto
+    expect(volvioDelSelector()).toBe(true);
+  });
+
+  it("perdona UNA sola vuelta: la siguiente salida se evalúa normal", () => {
+    marcarSelectorAbierto();
+    expect(volvioDelSelector()).toBe(true);
+    expect(volvioDelSelector()).toBe(false);
+  });
+
+  it("si el selector quedó abierto más de la cuenta (te fuiste), se bloquea como siempre", () => {
+    marcarSelectorAbierto();
+    avanzar(SELECTOR_GRACE_MS + 1);
+    expect(volvioDelSelector()).toBe(false);
+  });
+
+  it("justo en el límite todavía perdona (la comparación es <=)", () => {
+    marcarSelectorAbierto();
+    avanzar(SELECTOR_GRACE_MS);
+    expect(volvioDelSelector()).toBe(true);
+  });
+
+  it("no toca la ventana de acceso: no regala minutos", () => {
+    const sello = getLastUnlock();
+    marcarSelectorAbierto();
+    volvioDelSelector();
+    expect(getLastUnlock()).toBe(sello);
   });
 });

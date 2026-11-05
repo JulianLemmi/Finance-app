@@ -4,6 +4,7 @@
 import { useState, useRef } from "react";
 import { Camera, X } from "lucide-react";
 import { uploadPhoto, deletePhoto } from "../../lib/storage.js";
+import { marcarSelectorAbierto } from "../../lib/lock.js";
 import { useApp } from "../../store/index.js";
 import { SectionTitle, EmptyState, InlineDelete } from "../../components/ui.jsx";
 import type { ResolvedLoan, Photo } from "../../types";
@@ -47,7 +48,9 @@ export default function PhotoGallery({ loan, userId }: PhotoGalleryProps) {
     <>
       <div>
         <SectionTitle action={
-          <button onClick={() => photoInputRef.current?.click()}
+          // La marca evita que volver de la galería o la cámara bloquee la app: en el teléfono
+          // elegir una foto oculta la página, y pasados los 5 minutos aparecía el PIN (ver lib/lock.ts).
+          <button onClick={() => { marcarSelectorAbierto(); photoInputRef.current?.click(); }}
             className="text-[11px] font-medium uppercase tracking-wider text-amber-500 hover:text-amber-400">
             {uploading ? "Subiendo..." : "+ Agregar"}
           </button>

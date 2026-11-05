@@ -10,7 +10,7 @@ import { storage, supabase, SUPABASE_READY } from "./lib/storage.js";
 import { stripComputed } from "./lib/utils.js";
 import { leerLista, leerObjeto } from "./lib/hydrate.js";
 import { useStorageSync } from "./lib/hooks.js";
-import { lockGate, markUnlocked, clearLockConfig, type LockGate } from "./lib/lock.js";
+import { lockGate, markUnlocked, clearLockConfig, volvioDelSelector, type LockGate } from "./lib/lock.js";
 import { Skeleton, Input, Button } from "./components/ui.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import GlobalStyles from "./components/GlobalStyles.jsx";
@@ -213,8 +213,12 @@ function AuthedApp({ sessionUserId, userEmail }: AuthedAppProps) {
 
   useEffect(() => {
     const onVisibility = () => {
-      // Al volver a la pestaña, re-bloquear sólo si venció la ventana de acceso.
-      if (!document.hidden) setGate((g) => (g === "open" ? lockGate() : g));
+      // Al volver a la pestaña, re-bloquear sólo si venció la ventana de acceso — salvo que
+      // la ida haya sido al selector de fotos que abrió la propia app (ver lib/lock.ts:
+      // en el teléfono eso oculta la página, y bloquear ahí hacía parpadear toda la pantalla).
+      if (document.hidden) return;
+      if (volvioDelSelector()) return;
+      setGate((g) => (g === "open" ? lockGate() : g));
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);

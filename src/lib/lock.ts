@@ -28,6 +28,35 @@ export function markUnlocked(): void {
   }
 }
 
+// ── Volver de un selector de archivos no es volver a la app ──────────────────
+// En el teléfono, elegir una foto (o la cámara) abre otra pantalla del sistema y la app
+// queda OCULTA: al volver salta `visibilitychange` y, pasados los 5 minutos de acceso, la
+// app se bloqueaba en medio de "agregar una foto" — aparecía el PIN, saltaba sola la
+// huella y al desbloquear desaparecía: toda la pantalla parpadeaba. El usuario no se fue
+// de la app; la app lo mandó a elegir un archivo.
+//
+// Por eso quien abre un selector deja una marca, y la vuelta que llega después de esa
+// marca no re-bloquea. La marca vence: si el selector quedó abierto más de
+// `SELECTOR_GRACE_MS` (te fuiste, dejaste el teléfono) se re-bloquea como siempre. Vive
+// en memoria a propósito: una recarga la borra y ahí manda la ventana normal.
+export const SELECTOR_GRACE_MS = 2 * 60 * 1000;
+let selectorAbiertoEn = 0;
+
+/** Llamar justo antes de abrir un selector de archivos o la cámara desde la app. */
+export function marcarSelectorAbierto(): void {
+  selectorAbiertoEn = Date.now();
+}
+
+/**
+ * Al volver a la pestaña: ¿la ida fue a un selector que abrió la app hace poco? Consume
+ * la marca, así sólo perdona ESA vuelta — la siguiente salida se evalúa normal.
+ */
+export function volvioDelSelector(): boolean {
+  const t = selectorAbiertoEn;
+  selectorAbiertoEn = 0;
+  return t > 0 && Date.now() - t <= SELECTOR_GRACE_MS;
+}
+
 export interface LockConfig {
   pinHash?: string;
   credentialId?: number[];

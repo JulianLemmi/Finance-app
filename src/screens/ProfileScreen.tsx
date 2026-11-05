@@ -17,7 +17,7 @@ import {
 } from "../lib/push.js";
 import {
   getLockConfig, saveLockConfig, savePin,
-  isBiometricAvailable, registerBiometric, checkPin, LOCK_GRACE_MS,
+  isBiometricAvailable, registerBiometric, checkPin, LOCK_GRACE_MS, marcarSelectorAbierto,
 } from "../lib/lock.js";
 import { Card, SectionTitle, Input, Select, Toggle, Button, AnimatedMoney } from "../components/ui.jsx";
 
@@ -258,7 +258,8 @@ export default function ProfileScreen() {
     try { downloadBackup(state); setExportFeedback("Respaldo descargado"); setTimeout(() => setExportFeedback(""), 2500); }
     catch (e) { console.warn("export error", e); setExportFeedback("Error al descargar"); }
   };
-  const onPickFile = () => { setImportError(""); setImportPreview(null); fileInputRef.current?.click(); };
+  // La marca: volver de elegir el respaldo no tiene que bloquear la app (ver lib/lock.ts).
+  const onPickFile = () => { setImportError(""); setImportPreview(null); marcarSelectorAbierto(); fileInputRef.current?.click(); };
   const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
