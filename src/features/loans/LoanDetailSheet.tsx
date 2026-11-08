@@ -1,10 +1,10 @@
 // Vista principal de un préstamo individual. Compone las secciones del detalle y abre el
-// sheet de cada operación (pagar, editar, extender, adelantar, sumar capital, refinanciar y
-// la planilla). Cada sección con estado propio vive en su archivo: acá queda lo que
+// sheet de cada operación (pagar, editar, extender, adelantar, sumar capital, refinanciar,
+// eliminar y la planilla). Cada sección con estado propio vive en su archivo: acá queda lo que
 // comparten, que es el préstamo, cuál sheet está abierto y el pie de acciones.
 import { useState, useMemo } from "react";
 import {
-  Edit2, RefreshCw, Layers, Banknote, FastForward, PlusCircle, FileSpreadsheet,
+  Edit2, RefreshCw, Layers, Banknote, FastForward, PlusCircle, FileSpreadsheet, Trash2,
 } from "lucide-react";
 import { todayISO, formatDate } from "../../lib/utils.js";
 import { overduePeriodsAt, nextCollectionDate } from "../../lib/calcs.js";
@@ -24,7 +24,7 @@ import VehicleCard from "./VehicleCard.jsx";
 import SharedShareCard from "./SharedShareCard.jsx";
 import ParkingCard from "./ParkingCard.jsx";
 import ContactsSection from "./ContactsSection.jsx";
-import DeleteLoanSection from "./DeleteLoanSection.jsx";
+import DeleteLoanSheet from "./DeleteLoanSheet.jsx";
 import ExtendSheet from "./ExtendSheet.jsx";
 import ExtraCapitalSheet from "./ExtraCapitalSheet.jsx";
 import AdvanceSheet from "./AdvanceSheet.jsx";
@@ -37,7 +37,7 @@ interface LoanDetailSheetProps {
 }
 
 /** Cuál sheet de operación está abierto encima del detalle (a lo sumo uno). */
-type Operacion = "pago" | "editar" | "planilla" | "extender" | "adelantar" | "sumar" | "refinanciar";
+type Operacion = "pago" | "editar" | "planilla" | "extender" | "adelantar" | "sumar" | "refinanciar" | "eliminar";
 
 export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailSheetProps) {
   const { state, dispatch, derived, userId } = useApp();
@@ -92,6 +92,11 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
               <Button variant="ghost" Icon={FileSpreadsheet} onClick={() => setOperacion("planilla")}>
                 Ver en planilla
               </Button>
+              {/* Siempre a la vista: antes era un link gris al pie de la columna izquierda,
+                  que en el teléfono quedaba en el medio del scroll. Pide confirmación. */}
+              <Button variant="danger" Icon={Trash2} onClick={() => setOperacion("eliminar")}>
+                Eliminar
+              </Button>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" Icon={FastForward} onClick={() => setOperacion("adelantar")}
@@ -136,8 +141,6 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
                 <Card className="whitespace-pre-wrap p-4 text-sm text-zinc-300">{loan.notes}</Card>
               </div>
             )}
-
-            <DeleteLoanSection loan={loan} hide={hide} cur={cur} onDeleted={onClose} />
           </div>
 
           <div className="space-y-5 lg:col-span-7">
@@ -176,6 +179,10 @@ export default function LoanDetailSheet({ open, onClose, loanId }: LoanDetailShe
       {operacion === "extender" && <ExtendSheet open onClose={cerrarOperacion} loan={loan} />}
       {operacion === "sumar" && (
         <ExtraCapitalSheet open onClose={cerrarOperacion} loan={loan} hide={hide} cur={cur} />
+      )}
+      {/* Borrar cierra también el detalle: el préstamo ya no existe. */}
+      {operacion === "eliminar" && (
+        <DeleteLoanSheet open onClose={cerrarOperacion} onDeleted={onClose} loan={loan} hide={hide} cur={cur} />
       )}
       {operacion === "adelantar" && (
         <AdvanceSheet open onClose={cerrarOperacion} loan={loan} nextDueDate={nextDueDate} hide={hide} cur={cur} />
