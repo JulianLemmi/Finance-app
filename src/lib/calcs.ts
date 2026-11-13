@@ -1,5 +1,5 @@
 import { CALC, BUSINESS_RULES } from "./constants.js";
-import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, advanceDates, advanceEntries, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, getNextRenewalDate } from "./utils.js";
+import { daysBetween, parseISO, todayDate, todayISO, loanPeriodDate, loanElapsedPeriods, myShare, advancedCycles, advancedCyclesUpTo, advanceDates, advanceEntries, loanDeployedFrom, loanPrincipalAt, loanEffectiveRate, proximoCobroIdx } from "./utils.js";
 import type { AdvanceEntry, Loan, LoanStatus, Payment, ResolvedLoan } from "../types";
 
 /**
@@ -1010,8 +1010,9 @@ function fullNextPeriodInterest(loan: Loan): number {
  */
 export function nextCollectionDate(loan: Loan, asOf: string = todayISO()): string {
   if (!loan.dueDate) return "";
-  if (loan.dueDate >= asOf && overduePeriodsAt(loan, asOf) === 0) return loan.dueDate;
-  return getNextRenewalDate(loan);
+  // Incluye el vencimiento original mientras no haya pasado y nadie lo haya pagado (un
+  // adelanto hecho antes de que llegue lo paga: ver `proximoCobroIdx`).
+  return loanPeriodDate(loan, loan.dueDate, proximoCobroIdx(loan, asOf, true));
 }
 
 export function loanProgress(loan: Loan): number {

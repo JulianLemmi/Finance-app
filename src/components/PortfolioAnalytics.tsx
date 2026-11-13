@@ -5,7 +5,8 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { CheckCircle2, Clock, TrendingDown, CalendarDays, BarChart2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useApp } from "../store/index.js";
-import { formatShortDate, todayISO, addDays, getNextRenewalDate, myShare, advancedCycles } from "../lib/utils.js";
+import { formatShortDate, todayISO, addDays, myShare } from "../lib/utils.js";
+import { fechasDeCobro } from "../lib/agenda.js";
 import { CHART_COLORS } from "../lib/constants.js";
 import { Card, SectionTitle, Money, ChartContainer, StatCard } from "./ui.jsx";
 import type { ResolvedLoan } from "../types";
@@ -182,29 +183,15 @@ export function VencimientosHeatmap() {
     // Con `_profit` (el interés contratado sobre el capital) el mapa y la card se
     // contradecían en los préstamos con pagos que ya cubrieron interés o con ciclos
     // adelantados, donde además el cobro ya no cae en el dueDate original.
-    for (const l of derived.activeLoans.filter((l) => !l.archived)) {
-      const fecha = advancedCycles(l) > 0 ? getNextRenewalDate(l) : l.dueDate;
-      const i = idx.get(fecha);
+    // Las fechas salen de `fechasDeCobro` (lib/agenda.ts): la misma próxima fecha de cobro que
+    // muestran la card, el detalle y el push. Con la regla propia que tenía el mapa, un
+    // préstamo que volvió a "activo" con el vencimiento ya pasado no aparecía.
+    for (const l of [...derived.activeLoans, ...derived.overdueLoans].filter((l) => !l.archived)) {
       const gain = l._nextProfit * myShare(l);
-      if (i !== undefined) {
-        entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(gain) ? gain : 0, isRenewal: advancedCycles(l) > 0 });
-      }
-    }
-    for (const l of derived.overdueLoans.filter((l) => !l.archived)) {
-      // Día 0 de atraso: el préstamo pasa a "vencido" el mismo día de su vencimiento
-      // (ver isOverdue), pero ese día sigue siendo su propio dueDate, no un re-vencimiento
-      // futuro — sin este chequeo desaparecería de la celda de "hoy" en el mapa.
-      const dueTodayIdx = idx.get(l.dueDate);
-      if (dueTodayIdx !== undefined) {
-        const gain = l._nextProfit * myShare(l);
-        entries[dueTodayIdx].dueLoans.push({ loan: l, gain: Number.isFinite(gain) ? gain : 0, isRenewal: false });
-      }
-      const next = getNextRenewalDate(l);
-      const i = idx.get(next);
-      if (i !== undefined) {
-        // En préstamos compartidos, la ganancia proyectada del re-vencimiento es mi parte.
-        const periodicGain = l._nextProfit * myShare(l);
-        entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(periodicGain) ? periodicGain : 0, isRenewal: true });
+      for (const f of fechasDeCobro(l, today)) {
+        const i = idx.get(f.date);
+        if (i === undefined) continue;
+        entries[i].dueLoans.push({ loan: l, gain: Number.isFinite(gain) ? gain : 0, isRenewal: f.renewal });
       }
     }
     return entries.map((e) => ({ ...e, gain: e.dueLoans.reduce((s, x) => s + x.gain, 0), count: e.dueLoans.length }));

@@ -6,7 +6,7 @@
  * el usuario en la notificación, y tiene que ser la misma que muestra la app.
  */
 import {
-  Loan, getNextRenewalDate, resolveStatus, loanElapsedPeriods, advancedCycles, daysBetween, addDays,
+  Loan, loanPeriodDate, proximoCobroIdx, resolveStatus, loanElapsedPeriods, daysBetween, addDays,
 } from "./loanMath.ts";
 
 export type DigestItem = { name: string; date: string; days: number; renewal: boolean };
@@ -37,12 +37,10 @@ export function nextCollectionDate(loan: Loan, today: string): { date: string; r
   // descartaba por pasado y ese préstamo no avisaba NUNCA. Pasa sobre todo en los
   // refinanciados: su capital ya trae el interés del eslabón anterior capitalizado, así
   // que el umbral para volver a "active" queda alto y es fácil cruzarlo.
-  const corridos = loanElapsedPeriods(loan, loan.dueDate, today) + advancedCycles(loan, today);
-  if (loan.dueDate >= today && corridos === 0) {
-    return { date: loan.dueDate, renewal: false };
-  }
-  const next = getNextRenewalDate(loan, today);
+  // Un adelanto hecho antes de que llegue el vencimiento lo paga (ver `proximoCobroIdx`).
+  const next = loanPeriodDate(loan, loan.dueDate, proximoCobroIdx(loan, today, true));
   if (!next) return null;
+  if (next === loan.dueDate) return { date: next, renewal: false };
   // `renewal` marca con ↻ los que ya pasaron por al menos un ciclo de mora.
   return { date: next, renewal: loanElapsedPeriods(loan, loan.dueDate, today) > 0 };
 }

@@ -142,11 +142,31 @@ export function advancedCycles(loan: Loan, asOf: string): number {
   return advanceDates(loan.advancedAt).filter((d) => d <= asOf).length;
 }
 
-/** Mirror of src/lib/utils.js getNextRenewalDate. Suma los ciclos adelantados. */
+/** Mirror of src/lib/utils.ts proximoCobroIdx: cada adelanto paga el próximo vencimiento que
+ *  todavía no había llegado cuando se hizo, y ese vencimiento deja de ser un cobro. */
+export function proximoCobroIdx(
+  loan: Loan, asOf: string, incluyeVencimiento: boolean
+): number {
+  const tope = 1200 + (loan.advancedAt?.length ?? 0);
+  const llego = (k: number, desde: string) => {
+    const f = loanPeriodDate(loan, loan.dueDate ?? "", k);
+    return k === 0 ? f >= desde : f > desde;
+  };
+  const pagados = new Set<number>();
+  for (const d of advanceDates(loan.advancedAt).filter((x) => x <= asOf).sort()) {
+    let k = 0;
+    while (k < tope && (pagados.has(k) || !llego(k, d))) k++;
+    pagados.add(k);
+  }
+  let k = incluyeVencimiento ? 0 : 1;
+  while (k < tope && (pagados.has(k) || !llego(k, asOf))) k++;
+  return k;
+}
+
+/** Mirror of src/lib/utils.ts getNextRenewalDate. */
 export function getNextRenewalDate(loan: Loan, today: string): string | null {
   if (!loan.dueDate) return null;
-  const periods = loanElapsedPeriods(loan, loan.dueDate, today) + advancedCycles(loan, today);
-  return loanPeriodDate(loan, loan.dueDate, periods + 1);
+  return loanPeriodDate(loan, loan.dueDate, proximoCobroIdx(loan, today, false));
 }
 
 /** Interés que se agrega en un período dado. Fijo: constante (fixedInterest). */

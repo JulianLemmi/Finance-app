@@ -281,10 +281,42 @@ export function loanDeployedFrom(
   return created && created < start ? created : today;
 }
 
+/**
+ * Número del próximo vencimiento a cobrar: 0 es el vencimiento original, 1 el del mes
+ * siguiente, etc. Un vencimiento "llegó" si todavía no pasó (el original cuenta hasta el
+ * mismo día; los demás, un día después, porque ese día ya re-vencieron).
+ *
+ * Cada adelanto PAGA el próximo vencimiento que todavía no había llegado cuando se hizo, y
+ * ese vencimiento deja de ser un cobro. Así un adelanto corre el cobro exactamente UN ciclo,
+ * como promete el sheet "Adelantar vencimiento" — con el vencimiento todavía por delante
+ * (vence el 22-nov, adelantás el 12: el cobro pasa al 22-dic) y también con el préstamo ya
+ * vencido. Antes se contaban los adelantos como ciclos "ya transcurridos" y, con el
+ * vencimiento por delante, el cobro saltaba DOS ciclos (22-ene) y el préstamo se caía del
+ * mapa de vencimientos, de la card y del push.
+ */
+export function proximoCobroIdx(
+  loan: LoanCycleInput & Pick<Loan, "advancedAt">, asOf: string, incluyeVencimiento: boolean
+): number {
+  const tope = 1200 + (loan.advancedAt?.length ?? 0);
+  const llego = (k: number, desde: string) => {
+    const f = loanPeriodDate(loan, loan.dueDate, k);
+    return k === 0 ? f >= desde : f > desde;
+  };
+  const pagados = new Set<number>();
+  for (const d of advanceDates(loan.advancedAt).filter((x) => x <= asOf).sort()) {
+    let k = 0;
+    while (k < tope && (pagados.has(k) || !llego(k, d))) k++;
+    pagados.add(k);
+  }
+  let k = incluyeVencimiento ? 0 : 1;
+  while (k < tope && (pagados.has(k) || !llego(k, asOf))) k++;
+  return k;
+}
+
+/** Próximo re-vencimiento (nunca el original). Ver `proximoCobroIdx`. */
 export function getNextRenewalDate(loan: LoanCycleInput & Pick<Loan, "advancedAt">): string {
   if (!loan.dueDate) return "";
-  const periods = loanElapsedPeriods(loan, loan.dueDate, todayISO()) + advancedCycles(loan);
-  return loanPeriodDate(loan, loan.dueDate, periods + 1);
+  return loanPeriodDate(loan, loan.dueDate, proximoCobroIdx(loan, todayISO(), false));
 }
 
 export const getMonthLabel = (iso: string): string => {

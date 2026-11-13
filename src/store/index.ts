@@ -6,7 +6,7 @@ import {
   resolveStatus, paidAmount, remainingDebt, loanProgress,
   expectedProfit, expectedReturn, compoundReturn, nextPeriodInterest, daysUntilDue,
   loanIntegrityErrors, loanCapitalAt, interestAccruals, upcomingInterest, halfCycleCharged,
-  refinancedAtByLoan,
+  refinancedAtByLoan, nextCollectionDate,
 } from "../lib/calcs.js";
 import type {
   AppState, AppAction, AppContextValue, Derived,
@@ -653,7 +653,9 @@ export function useDerived(state: AppState): Derived {
       cashFlow30d[i].count += 1;
     };
     // Mismo criterio que el resto de la agenda: un archivado no entra al flujo previsto.
-    agenda.filter((l) => l._status === "active").forEach((l) => addInflow(l.dueDate, l));
+    // `nextCollectionDate` y no `dueDate`: en un activo con el vencimiento ya pasado (pagó lo
+    // suficiente) `dueDate` es una fecha vieja y su cobro no entraba al flujo.
+    agenda.filter((l) => l._status === "active").forEach((l) => addInflow(nextCollectionDate(l, todayStr), l));
     agenda.filter((l) => l._status === "overdue")
       .forEach((l) => addInflow(l.dueDate === todayStr ? l.dueDate : getNextRenewalDate(l), l));
 

@@ -195,6 +195,18 @@ describe("flujo de caja a 30 días", () => {
   beforeAll(() => { d = derive(); });
   const enVentana = (fecha: string) => fecha >= HOY && fecha <= addDays(HOY, 29);
 
+  it("un activo con el vencimiento ya pasado (pagó lo suficiente) entra en su próximo cobro", () => {
+    // Venció hace 20 días y pagó casi todo: vuelve a "active" y su `dueDate` es una fecha
+    // vieja. El flujo lo ubicaba ahí, fuera de la ventana, y su cobro no aparecía.
+    const l = mk({ id: "reactivado", clientName: "Reactivado", startDate: addDays(HOY, -50), dueDate: addDays(HOY, -20),
+                   payments: [{ id: "pr", amount: 10500, date: addDays(HOY, -5) }] });
+    const dd = derive({ ...estado, loans: [l] });
+    const cargado = dd.activeLoans.find((x) => x.id === "reactivado")!;
+    expect(cargado._status).toBe("active"); // precondición
+    const total = dd.cashFlow30d.reduce((a, c) => a + c.count, 0);
+    expect(total).toBe(1);
+  });
+
   it("incluye los re-vencimientos de los atrasados", () => {
     // El bug original: sólo miraba el dueDate original, que siempre está en el pasado,
     // así que ningún atrasado aparecía y el gráfico contradecía al mapa de vencimientos.

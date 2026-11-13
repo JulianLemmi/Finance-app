@@ -112,6 +112,13 @@ const cartera: Record<string, Loan> = {
                            advancedAt: [{ date: addDays(addCalendarMonths(HOY, -2), 5), pos: 1 }] }),
   adelantoMixto: mk({ startDate: addCalendarMonths(HOY, -4), dueDate: addCalendarMonths(HOY, -3),
                       advancedAt: [addDays(HOY, -20), { date: addDays(HOY, -10), pos: 1 }] }),
+  // Adelanto hecho ANTES de que llegue el vencimiento: lo paga, y el cobro corre un ciclo. Con
+  // el vencimiento por delante el frontend y el edge tienen que coincidir en cuál es (y no
+  // contarlo como un ciclo ya transcurrido: el cobro saltaba dos).
+  adelantoAntesDeVencer: mk({ startDate: addDays(HOY, -20), dueDate: addDays(HOY, 10), advancedAt: [HOY] }),
+  adelantoVenceHoy: mk({ startDate: addCalendarMonths(HOY, -1), dueDate: HOY, advancedAt: [HOY] }),
+  dosAdelantosAntesDeVencer: mk({ startDate: addDays(HOY, -20), dueDate: addDays(HOY, 10), advancedAt: [addDays(HOY, -2), HOY] }),
+  adelantoViejoYaPasado: mk({ startDate: addDays(HOY, -80), dueDate: addDays(HOY, -50), advancedAt: [addDays(HOY, -45)] }),
   // Un medio ciclo movido de re-vencimiento cambia QUÉ ciclo cobra la mitad, o sea el monto
   // que anuncia el push.
   medioReordenado: mk({ startDate: addCalendarMonths(HOY, -3), dueDate: addCalendarMonths(HOY, -2),
